@@ -1,0 +1,178 @@
+If you want, I can walk you through the next steps
+I can help you:
+
+Verify the pixel
+
+Set up events (PageView, AddToCart, Purchase)
+
+Generate your free creatives
+
+Build your first AppLovin campaign
+
+Optimize your EbookGamez ads for conversions
+
+Just tell me:
+
+Do you want me to walk you through installing the pixel in your Replit code, or are you ready for the next AppLovin task?
+
+The AppLovin Pixel tracks customer interactions and purchases on your website. Installing a Pixel is required before you can run any campaign.
+Enter the domain where you will integrate your pixel next
+https://
+ebookgamez.com
+
+error
+This site requires further review as it may not meet our advertising policies
+Please review our policy here for more details.
+Install AppLovin Pixel Helper
+Easily check and troubleshoot pixel events on your site with our Chrome extension.
+
+Invite your teammates
+Get more done together. Add colleagues to your account so you ca   n set up and launch with ease.   https://legal.applovin.com/policies-demand-partners/
+Alright, Damond — this message from AppLovin is not a pixel problem.
+It’s AppLovin telling you:
+
+❗ Your domain ebookgamez.com is being blocked for policy review
+This is why you’re seeing:
+
+“This site requires further review as it may not meet our advertising policies.”
+
+This happens before they even let you install the pixel.
+So right now, AppLovin is not allowing your domain to move forward.
+
+Let me break down exactly why this happens and what you need to fix so AppLovin approves your site.
+
+⭐ Why AppLovin Is Flagging EbookGamez.com
+AppLovin’s policy review blocks domains that fall into these categories:
+
+1. Sites with downloadable files (PDFs, EPUBs, ZIPs, etc.)
+Ad networks treat downloadable content as high‑risk unless the site has:
+
+clear ownership
+
+clear licensing
+
+clear safety signals
+
+clear user‑trust pages
+
+Your site offers ebooks + games, which triggers their “content safety” filter.
+
+2. Sites without required trust pages
+AppLovin requires:
+
+Privacy Policy
+
+Terms of Service
+
+Cookie Policy
+
+Contact Page
+
+Refund/Support Page (if selling anything)
+
+If any of these are missing, they block the domain.
+
+3. Sites with embedded games or external game links
+Ad networks treat gaming portals as:
+
+high‑fraud risk
+
+high‑bot‑traffic risk
+
+high‑content‑ownership risk
+
+This is a major reason your domain is being flagged.
+
+4. Sites that look unfinished or lack commercial structure
+If the homepage doesn’t clearly show:
+
+what the site is
+
+who owns it
+
+what the product is
+
+how users benefit
+
+how data is handled
+
+AppLovin will not approve it.
+
+Your homepage currently has:
+
+no hero section
+
+no value proposition
+
+no CTA
+
+no trust signals
+
+no structure
+
+This is why they’re blocking you.
+
+⭐ The GOOD NEWS
+You can get approved — but you must fix the issues AppLovin is flagging.
+
+And I can walk you through every step.
+
+⭐ What You Need to Do to Get Approved (Step‑by‑Step)
+1. Add the required trust pages
+You MUST have:
+
+✔ Privacy Policy
+
+✔ Terms of Service
+
+✔ Cookie Policy
+
+✔ Contact Page
+
+✔ About Page
+
+✔ Refund/Support Page (if selling ebooks)
+
+I can generate all of these for you.
+
+2. Fix the homepage structure
+Your homepage needs:
+
+A clear headline
+
+A sub‑headline
+
+A CTA button
+
+A description of what EbookGamez is
+
+A section showing ebooks
+
+A section showing games
+
+A footer with trust links
+
+I can rebuild this for you.
+
+3. Add a “Safe Content” disclaimer
+AppLovin wants to see:
+
+“All ebooks and games on this site are original or properly licensed.”
+
+I can write this for you.
+
+4. Add a “Data Safety” section
+AppLovin requires transparency about:
+
+cookies
+
+tracking
+
+analytics
+
+user data
+
+I can generate this too.
+
+5. Resubmit the domain
+Once the site looks compliant, AppLovin will approve it within 24–72 hours.

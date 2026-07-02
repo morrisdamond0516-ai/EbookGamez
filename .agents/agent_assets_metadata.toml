@@ -1,0 +1,607 @@
+uploads = []
+
+[[generated]]
+id = "AFpQmccGBXbCZstmvV2rI"
+uri = "file://uploads/covers/classics/jungle_book_new.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "jBwOybMa6ONec6lW5TPNm"
+uri = "file://uploads/covers/classics/treasure_island_new.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "DYCcYeA1hZX_w0sMbTdeZ"
+uri = "file://client/public/ebookgamez-icon.png"
+type = "image"
+title = "ebookgamez icon dark gold book"
+
+[[outputs]]
+id = "JLjpNp0gwOP-eXGOYc5w2"
+uri = "file://attached_assets/ad_images/ad_homepage_hero.png"
+type = "image"
+title = "Homepage Hero - Ad Image"
+
+[[outputs]]
+id = "dXhSU1ZP0e5k6_g4ifkSO"
+uri = "file://attached_assets/ad_images/ad_ebook_store.png"
+type = "image"
+title = "Ebook Store - Ad Image"
+
+[[outputs]]
+id = "wePtEMoIDXHjOeMtMJFQ5"
+uri = "file://attached_assets/ad_images/ad_play_games.png"
+type = "image"
+title = "Play Games - Ad Image"
+
+[[outputs]]
+id = "rZ6b2SXnrJCGNy4dr9FNm"
+uri = "file://attached_assets/ad_images/ad_download_hub.png"
+type = "image"
+title = "Download Hub - Ad Image"
+
+[[outputs]]
+id = "QFy9bWNNtdaPF55vUE0M7"
+uri = "file://attached_assets/ad_images/ad_gaming_guides.png"
+type = "image"
+title = "Gaming Guides - Ad Image"
+
+[[outputs]]
+id = "9TQCY8xCjHn7yRd76bLcq"
+uri = "file://attached_assets/ad_images/ad_book_purchase.png"
+type = "image"
+title = "Book Purchase Screen - Ad Image"
+
+[[outputs]]
+id = "1pXh3-7UcZpGvlK00nJ-9"
+uri = "file://attached_assets/ad_images/ad_payment_checkout.png"
+type = "image"
+title = "Payment Checkout - Ad Image"
+
+[[outputs]]
+id = "_TTlSkwB1zqFD0i9RT8ch"
+uri = "file://attached_assets/ad_images/ad_book_collection.png"
+type = "image"
+title = "Book Collection Showcase - Ad Image"
+
+[[outputs]]
+id = "xZxtMTvxXGmsk8CTNAj97"
+uri = "file://attached_assets/ad_images/ad_subscription_plans.png"
+type = "image"
+title = "Subscription Plans - Ad Image"
+
+[[outputs]]
+id = "9KdvDABWCHAulpaYYaf9R"
+uri = "file://attached_assets/ad_images/ad_reading_experience.png"
+type = "image"
+title = "Reading Experience - Ad Image"
+
+[[outputs]]
+id = "lJ9GInPoFlnDZKgBAHjec"
+uri = "file://attached_assets/ad_images/website_screenshots/homepage.png"
+type = "image"
+title = "Homepage (viewport)"
+
+[[outputs]]
+id = "AvbRSI002xsUjWgiC3GzU"
+uri = "file://attached_assets/ad_images/website_screenshots/homepage_full.png"
+type = "image"
+title = "Homepage (full page)"
+
+[[outputs]]
+id = "bWoBJ1irCslhftsU9sb9i"
+uri = "file://attached_assets/ad_images/website_screenshots/ebook_store.png"
+type = "image"
+title = "Ebook Store / Catalog (viewport)"
+
+[[outputs]]
+id = "J-Scd9JGRpZ0w-7sBclDz"
+uri = "file://attached_assets/ad_images/website_screenshots/ebook_store_full.png"
+type = "image"
+title = "Ebook Store / Catalog (full page)"
+
+[[outputs]]
+id = "bqv2gnYaq4B_8GFyVv1MV"
+uri = "file://attached_assets/ad_images/website_screenshots/book_purchase_page.png"
+type = "image"
+title = "Book Detail - Top (cover & description)"
+
+[[outputs]]
+id = "eZStH02haoY60gX1Cmkwj"
+uri = "file://attached_assets/ad_images/website_screenshots/book_purchase_page_full.png"
+type = "image"
+title = "Book Detail (full page)"
+
+[[outputs]]
+id = "KLbztAPz5v7OGer8xXyEg"
+uri = "file://attached_assets/ad_images/website_screenshots/book_purchase_pricing.png"
+type = "image"
+title = "Book Purchase - Pricing & Buy Buttons"
+
+[[outputs]]
+id = "d2binvURhVkGq2BKVqtbZ"
+uri = "file://attached_assets/ad_images/website_screenshots/games_page.png"
+type = "image"
+title = "Play Games (viewport)"
+
+[[outputs]]
+id = "78HR6tDmhemyeNB0DPaPC"
+uri = "file://attached_assets/ad_images/website_screenshots/games_page_full.png"
+type = "image"
+title = "Play Games (full page)"
+
+[[outputs]]
+id = "Al780mB4uxj48rngtO7AB"
+uri = "file://attached_assets/ad_images/website_screenshots/download_hub.png"
+type = "image"
+title = "Download Hub (viewport)"
+
+[[outputs]]
+id = "I4TS1lXrgoreNBAiSJK_H"
+uri = "file://attached_assets/ad_images/website_screenshots/download_hub_full.png"
+type = "image"
+title = "Download Hub (full page)"
+
+[[outputs]]
+id = "AcrO9njodNoEvqyFiHpYv"
+uri = "file://attached_assets/ad_images/website_screenshots/gaming_guides.png"
+type = "image"
+title = "Gaming Guides (viewport)"
+
+[[outputs]]
+id = "IJ9STCYfjFWg0VNanlma_"
+uri = "file://attached_assets/ad_images/website_screenshots/gaming_guides_full.png"
+type = "image"
+title = "Gaming Guides (full page)"
+
+[[outputs]]
+id = "iDBgpVZ0YQEuFaJRTL2hc"
+uri = "file://attached_assets/ad_images/website_screenshots/subscription_plans.png"
+type = "image"
+title = "Reading Pass / Subscription Plans (viewport)"
+
+[[outputs]]
+id = "F2D4bm4eIbbNs_wykXb30"
+uri = "file://attached_assets/ad_images/website_screenshots/subscription_plans_full.png"
+type = "image"
+title = "Reading Pass / Subscription Plans (full page)"
+
+[[outputs]]
+id = "IQ_94qqWRAonZF9HFXqCJ"
+uri = "file://attached_assets/ad_images/website_screenshots/book_payment_options.png"
+type = "image"
+title = "Book Payment Options - All 3 Choices + Reading Pass"
+
+[[outputs]]
+id = "aCOmtI8E-Fkqjup4tkCzY"
+uri = "file://attached_assets/stock_images/jungle_book_cover_1.jpg"
+type = "image"
+title = "The Jungle Book Rudyard Kipling classic book cover jungle animals Mowgli"
+
+[[outputs]]
+id = "H4OcNMeqN2SfqRnnqJDDU"
+uri = "file://attached_assets/stock_images/jungle_book_cover_2.jpg"
+type = "image"
+title = "The Jungle Book Rudyard Kipling classic book cover jungle animals Mowgli"
+
+[[outputs]]
+id = "yLgIEzgLUw58BPMz39ODZ"
+uri = "file://attached_assets/stock_images/jungle_book_cover_3.jpg"
+type = "image"
+title = "The Jungle Book Rudyard Kipling classic book cover jungle animals Mowgli"
+
+[[outputs]]
+id = "_raDIIBASTqsHaRBMC4cz"
+uri = "file://attached_assets/stock_images/treasure_island_1.jpg"
+type = "image"
+title = "Treasure Island pirate ship adventure ocean treasure map classic literature"
+
+[[outputs]]
+id = "YICR54F7JLygdTQsdEWTT"
+uri = "file://attached_assets/stock_images/treasure_island_2.jpg"
+type = "image"
+title = "Treasure Island pirate ship adventure ocean treasure map classic literature"
+
+[[outputs]]
+id = "sHpnBtKCuaguBJ45ikGYz"
+uri = "file://ad-video-description.md"
+type = "text"
+title = "EbookGamez Ad Script — 90 Seconds (Updated)"
+
+[[outputs]]
+id = "sownFBqBCOJJlAY8Hz6u8"
+uri = "file://exports/ebookgamez-logo-square-1200x1200.png"
+type = "image"
+title = "Square Logo 1200×1200 (1:1) — for Google Ads \"Logo\" slot"
+
+[[outputs]]
+id = "ro1BsfPow1GY-sDKmBhKA"
+uri = "file://exports/ebookgamez-logo-horizontal-1200x300.png"
+type = "image"
+title = "Horizontal Logo 1200×300 (4:1) — for Google Ads \"Horizontal logo\" slot"
+
+[[outputs]]
+id = "Wh-qnVLoLIy7WfOHIT6Wa"
+uri = "file://exports/reading-pass-landscape-1200x628.png"
+type = "image"
+title = "Reading Pass — Final Landscape 1200x628 (latest)"
+
+[[outputs]]
+id = "q_4hfFzNULZfzEhgJIVuC"
+uri = "file://exports/reading-pass-square-1200x1200.png"
+type = "image"
+title = "Reading Pass — Final Square 1200x1200 (latest)"
+
+[[outputs]]
+id = "MUgRswZOs1AzAK4vOVArx"
+uri = "file://exports/reading-pass-portrait-960x1200.png"
+type = "image"
+title = "Reading Pass — Final Portrait 960x1200 (latest)"
+
+[[outputs]]
+id = "CLbGnBSteyg5SCBu52gKo"
+uri = "file://exports/gaming-guides-landscape-1200x628.png"
+type = "image"
+title = "Gaming Guides — Final Landscape 1200x628 (latest)"
+
+[[outputs]]
+id = "gCTdWa_4y_yYRPWQmu4wP"
+uri = "file://exports/gaming-guides-square-1200x1200.png"
+type = "image"
+title = "Gaming Guides — Final Square 1200x1200 (latest)"
+
+[[outputs]]
+id = "kvNonbjjhI3S3_7f0vavY"
+uri = "file://exports/gaming-guides-portrait-960x1200.png"
+type = "image"
+title = "Gaming Guides — Final Portrait 960x1200 (latest)"
+
+[[outputs]]
+id = "_KLF8YylNDukB8VMobJ46"
+uri = "file://exports/ebook-store-landscape-1200x628.png"
+type = "image"
+title = "Ebook Store — Final Landscape 1200x628 (latest)"
+
+[[outputs]]
+id = "pB0ubfspZWP6e6V9KLYt1"
+uri = "file://exports/ebook-store-square-1200x1200.png"
+type = "image"
+title = "Ebook Store — Final Square 1200x1200 (latest)"
+
+[[outputs]]
+id = "mkthttwlaiHcLIic636S6"
+uri = "file://exports/ebook-store-portrait-960x1200.png"
+type = "image"
+title = "Ebook Store — Final Portrait 960x1200 (latest)"
+
+[[outputs]]
+id = "poTNaQUps192WLNA9ri1z"
+uri = "file://exports/ebookgamez-google-ads-assets.zip"
+type = "unspecified"
+title = "EbookGamez Google Ads — 9 Assets (test-style-d backgrounds)"
+
+[[outputs]]
+id = "3-5Tpq7Q-umUcO4y65IL5"
+uri = "file://exports/ebookgamez-google-ads-v2.zip"
+type = "unspecified"
+title = "EbookGamez Google Ads v2 — Fresh Download (test-style-d)"
+
+[[outputs]]
+id = "0G9tnc3vglbGFPY356aDc"
+uri = "file://exports/reading-pass-hero-1200x628.png"
+type = "image"
+title = "Reading Pass Hero (first session, 7:45pm)"
+
+[[outputs]]
+id = "fE24VRw2O4AGEjoH9LDk5"
+uri = "file://exports/gaming-guides-hero-1200x1200.png"
+type = "image"
+title = "Gaming Guides Hero (first session, 7:46pm)"
+
+[[outputs]]
+id = "5lmb0Y7vBmMWKsrDJcA5R"
+uri = "file://exports/bg-raw-reading-pass.png"
+type = "image"
+title = "Reading Pass — raw background (first session)"
+
+[[outputs]]
+id = "fnHNE3GHsYNIzA75M7GsT"
+uri = "file://exports/bg-raw-gaming-guides.png"
+type = "image"
+title = "Gaming Guides — raw background (first session)"
+
+[[outputs]]
+id = "v0kijy5TYpmEvi2VUUQZS"
+uri = "file://exports/bg-raw-ebook-store.png"
+type = "image"
+title = "Ebook Store — raw background (first session)"
+
+[[outputs]]
+id = "f2ejKd5WV2TDBxLCohl8e"
+uri = "file://exports/bg-raw-styled-reading-pass.png"
+type = "image"
+title = "Reading Pass — styled background (second session, 9:51pm)"
+
+[[outputs]]
+id = "HjLWeR6uF9bYi1eG9iA5D"
+uri = "file://exports/bg-raw-styled-gaming-guides.png"
+type = "image"
+title = "Gaming Guides — styled background (second session, 9:51pm)"
+
+[[outputs]]
+id = "joLDWnEWvkAVadgCptfD1"
+uri = "file://exports/bg-raw-styled-ebook-store.png"
+type = "image"
+title = "Ebook Store — styled background (second session, 9:51pm)"
+
+[[outputs]]
+id = "rpSl0fqkS9ujpvnO6jasI"
+uri = "file://exports/bg-testd-reading-pass.png"
+type = "image"
+title = "Reading Pass — test-style-d raw background (latest, 10:44pm)"
+
+[[outputs]]
+id = "uOJ31NYPw_tb02O10T1G5"
+uri = "file://exports/bg-testd-gaming-guides.png"
+type = "image"
+title = "Gaming Guides — test-style-d raw background (latest, 10:45pm)"
+
+[[outputs]]
+id = "jStVuvVc0g0EZXQsig_k4"
+uri = "file://exports/bg-testd-ebook-store.png"
+type = "image"
+title = "Ebook Store — test-style-d raw background (latest, 10:45pm)"
+
+[[outputs]]
+id = "tdms1IBZSDkuWBlO3Ehpn"
+uri = "file://uploads/covers/ai-bg-test-style-d-1777329931189.png"
+type = "image"
+title = "Recent test-style-d cover 1"
+
+[[outputs]]
+id = "f1cChIt2q0h6ETpUV972b"
+uri = "file://uploads/covers/ai-bg-test-style-d-1777329900395.png"
+type = "image"
+title = "Recent test-style-d cover 2"
+
+[[outputs]]
+id = "yzW8HuNwEi3Z4P4KstK2c"
+uri = "file://uploads/covers/ai-bg-test-style-d-1777329744443.png"
+type = "image"
+title = "Recent test-style-d cover 3"
+
+[[outputs]]
+id = "v0JyahEPqTjRAkyB43Pjg"
+uri = "file://exports/v3-reading-pass-landscape-1200x628.png"
+type = "image"
+title = "Reading Pass — Landscape 1200x628"
+
+[[outputs]]
+id = "sj5MHwZ-ZtgMCZThmT3qa"
+uri = "file://exports/v3-reading-pass-square-1200x1200.png"
+type = "image"
+title = "Reading Pass — Square 1200x1200"
+
+[[outputs]]
+id = "1cszTaI-bKQuZa0D2oIYz"
+uri = "file://exports/v3-reading-pass-portrait-960x1200.png"
+type = "image"
+title = "Reading Pass — Portrait 960x1200"
+
+[[outputs]]
+id = "GksCKJyxuS3-riLuATl4x"
+uri = "file://exports/v3-gaming-guides-landscape-1200x628.png"
+type = "image"
+title = "Gaming Guides — Landscape 1200x628"
+
+[[outputs]]
+id = "RCK36_3bYr9MglO5taK21"
+uri = "file://exports/v3-gaming-guides-square-1200x1200.png"
+type = "image"
+title = "Gaming Guides — Square 1200x1200"
+
+[[outputs]]
+id = "EXnTqRfH_W_Ub4nDB3kI8"
+uri = "file://exports/v3-gaming-guides-portrait-960x1200.png"
+type = "image"
+title = "Gaming Guides — Portrait 960x1200"
+
+[[outputs]]
+id = "tfp2CuNijY_KNlybf5cs7"
+uri = "file://exports/v3-ebook-store-landscape-1200x628.png"
+type = "image"
+title = "Ebook Store — Landscape 1200x628"
+
+[[outputs]]
+id = "w3h_bVmpaIomkO9j8Tzj8"
+uri = "file://exports/v3-ebook-store-square-1200x1200.png"
+type = "image"
+title = "Ebook Store — Square 1200x1200"
+
+[[outputs]]
+id = "2RQSUBnN6QJoqSgdGPxj1"
+uri = "file://exports/v3-ebook-store-portrait-960x1200.png"
+type = "image"
+title = "Ebook Store — Portrait 960x1200"
+
+[[outputs]]
+id = "pkVrE1tgdv6HqZ3ZdPx21"
+uri = "file://exports/ebookgamez-google-ads-v3.zip"
+type = "unspecified"
+title = "All 9 Ads — v3 ZIP"
+
+[[outputs]]
+id = "ASAhp3-KNlWPv25HhPgpB"
+uri = "file://exports/v4-reading-pass-landscape-1200x628.png"
+type = "image"
+title = "Reading Pass — Landscape"
+
+[[outputs]]
+id = "LkJaAmJOLyIJIUzctL4z_"
+uri = "file://exports/v4-reading-pass-square-1200x1200.png"
+type = "image"
+title = "Reading Pass — Square"
+
+[[outputs]]
+id = "OUO7tUI39SZGukn4Tjq54"
+uri = "file://exports/v4-reading-pass-portrait-960x1200.png"
+type = "image"
+title = "Reading Pass — Portrait"
+
+[[outputs]]
+id = "Sd12xukldwhBXMZ2im9OC"
+uri = "file://exports/v4-gaming-guides-landscape-1200x628.png"
+type = "image"
+title = "Gaming Guides — Landscape"
+
+[[outputs]]
+id = "67BY4DOQHAEB-mls7zOw1"
+uri = "file://exports/v4-gaming-guides-square-1200x1200.png"
+type = "image"
+title = "Gaming Guides — Square"
+
+[[outputs]]
+id = "fI8jII3GM74YrNu-N5Xar"
+uri = "file://exports/v4-gaming-guides-portrait-960x1200.png"
+type = "image"
+title = "Gaming Guides — Portrait"
+
+[[outputs]]
+id = "byWlF1Zp15n9-eH3DJUAv"
+uri = "file://exports/v4-ebook-store-landscape-1200x628.png"
+type = "image"
+title = "Ebook Store — Landscape"
+
+[[outputs]]
+id = "ByyHnW-ClFTDRoBnKaZLe"
+uri = "file://exports/v4-ebook-store-square-1200x1200.png"
+type = "image"
+title = "Ebook Store — Square"
+
+[[outputs]]
+id = "WETNWV1S8v0llx8GOJvAL"
+uri = "file://exports/v4-ebook-store-portrait-960x1200.png"
+type = "image"
+title = "Ebook Store — Portrait"
+
+[[outputs]]
+id = "h-bnOj87L6xEtJHs7JGRm"
+uri = "file://exports/ebookgamez-google-ads-v4.zip"
+type = "unspecified"
+title = "All 9 Ads — v4 ZIP"
+
+[[outputs]]
+id = "L5CWC5gh9ZHtetd-Uf72B"
+uri = "file://exports/rc-reading-pass-landscape-1200x628.png"
+type = "image"
+title = "Reading Pass — Landscape (recolored)"
+
+[[outputs]]
+id = "BcYjhh3apXTeJ1IvcHODh"
+uri = "file://exports/rc-reading-pass-square-1200x1200.png"
+type = "image"
+title = "Reading Pass — Square (recolored)"
+
+[[outputs]]
+id = "nNYgFTL_G13QqyUGB1FQs"
+uri = "file://exports/rc-reading-pass-portrait-960x1200.png"
+type = "image"
+title = "Reading Pass — Portrait (recolored)"
+
+[[outputs]]
+id = "5VBTbU2O5lrz863UGbwdP"
+uri = "file://exports/rc-gaming-guides-landscape-1200x628.png"
+type = "image"
+title = "Gaming Guides — Landscape (recolored)"
+
+[[outputs]]
+id = "xeBCBMLTAxcmbzW28X4vh"
+uri = "file://exports/rc-gaming-guides-square-1200x1200.png"
+type = "image"
+title = "Gaming Guides — Square (recolored)"
+
+[[outputs]]
+id = "X2hbn4lez2LxEzzR4-WXm"
+uri = "file://exports/rc-gaming-guides-portrait-960x1200.png"
+type = "image"
+title = "Gaming Guides — Portrait (recolored)"
+
+[[outputs]]
+id = "HAO6QQfgj4QeTRt9wTxSE"
+uri = "file://exports/rc-ebook-store-landscape-1200x628.png"
+type = "image"
+title = "Ebook Store — Landscape (recolored)"
+
+[[outputs]]
+id = "HnK-Ninf2N10JWgjjPXRM"
+uri = "file://exports/rc-ebook-store-square-1200x1200.png"
+type = "image"
+title = "Ebook Store — Square (recolored)"
+
+[[outputs]]
+id = "GKKdLeNxR-fhk8KGSmeNR"
+uri = "file://exports/rc-ebook-store-portrait-960x1200.png"
+type = "image"
+title = "Ebook Store — Portrait (recolored)"
+
+[[outputs]]
+id = "hwzyC5g7pFBd2lV-JXRZ5"
+uri = "file://exports/ebookgamez-google-ads-recolored.zip"
+type = "unspecified"
+title = "All 9 Recolored Ads — ZIP"
+
+[[outputs]]
+id = "N7MpTpYxEvioR7EI3Xgde"
+uri = "file://exports/ebookgamez-google-ads-complete.zip"
+type = "unspecified"
+title = "EbookGamez Google Ads — Complete Set (105 images)"
+
+[[outputs]]
+id = "kW9faDsfX0i3V33LkKImT"
+uri = "file://exports/ebookgamez-google-ads-full.zip"
+type = "unspecified"
+title = "Images — 63 PNGs (3 groups × 7 scenes × 3 sizes)"
+
+[[outputs]]
+id = "N-R8ubh5Clu-f0Vy8gQE8"
+uri = "file://exports/ebookgamez-google-ads-videos.zip"
+type = "unspecified"
+title = "Videos — 6 MP4s (3 groups × 2 orientations)"
+
+[[outputs]]
+id = "J7dvm4IXr4Nwa8LTS1Aop"
+uri = "file://exports/ebookgamez-google-ads-ALL.zip"
+type = "unspecified"
+title = "Master Bundle — everything (123 MB)"
+
+[[outputs]]
+id = "t-izAxeFOvgiOZ34QD2xq"
+uri = "file://gtm-container-export.json"
+type = "unspecified"
+title = "gtm-container-export.json — click to download"
+
+[[outputs]]
+id = "60kDHGRXkd9oDQOoVkrjt"
+uri = "file://client/public/ebookgamez-logo.png"
+type = "image"
+title = "EbookGamez Logo — clean crop"
+
+[[outputs]]
+id = "ZQ7ZBWRRjJ8_lvuYqkI9W"
+uri = "file://client/public/ebookgamez-icon.png"
+type = "image"
+title = "EbookGamez Icon (full size)"
+
+[[outputs]]
+id = "kFeruPf3A02wi-kUsOmft"
+uri = "file://ebookgamez-source.zip"
+type = "unspecified"
+title = "EbookGamez — Full Source Code"
+
+[[outputs]]
+id = "txZlvsYViIwJFTqGX1jAB"
+uri = "file://ebookgamez-full.zip"
+type = "unspecified"
+title = "EbookGamez — Full Project Download"

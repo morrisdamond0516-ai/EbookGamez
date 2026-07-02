@@ -1,0 +1,12 @@
+uploads/
+.cache/
+.local/
+.config/
+.git/
+attached_assets/
+screenshots/
+tmp/
+node_modules/
+dist/
+*.log
+.targeted-rewrite-ids.json
