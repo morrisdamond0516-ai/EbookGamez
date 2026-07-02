@@ -1,0 +1,16496 @@
+import OpenAI, { toFile } from "openai";
+import { db } from "./storage";
+import { draftEbooks, generationJobs, books } from "@shared/schema";
+import { eq, sql, inArray } from "drizzle-orm";
+import fs from "fs";
+import path from "path";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { createCanvas, loadImage, registerFont } from "canvas";
+import epubGenMemory from "epub-gen-memory";
+const epub = (epubGenMemory as any).default || epubGenMemory;
+import * as backupService from "./backupService";
+import { saveCoverFile, localCoverPath, coverFilenameFromUrl } from "./coverStorage";
+
+const ILLUSTRATION_EXEMPT_DRAFT_IDS = new Set<number>([]);
+
+export function getIllustrationExemptIds(): number[] {
+  return [...ILLUSTRATION_EXEMPT_DRAFT_IDS];
+}
+
+// Register elegant fonts for cover text
+const fontsDir = path.join(process.cwd(), "fonts");
+let fontsRegistered = false;
+
+// Complete font library - organized by category for professional book covers
+const allFontOptions = [
+  // Elegant Script Fonts - for romantic, artistic, luxury titles
+  { file: "GreatVibes-Regular.ttf", family: "Great Vibes", category: "script" },
+  { file: "Pacifico-Regular.ttf", family: "Pacifico", category: "script" },
+  { file: "Tangerine-Bold.ttf", family: "Tangerine", category: "script" },
+  { file: "Allura-Regular.ttf", family: "Allura", category: "script" },
+  { file: "AlexBrush-Regular.ttf", family: "Alex Brush", category: "script" },
+  { file: "Pinyon-Regular.ttf", family: "Pinyon Script", category: "script" },
+  { file: "DancingScript-Bold.ttf", family: "Dancing Script", category: "script" },
+  { file: "Sacramento-Regular.ttf", family: "Sacramento", category: "script" },
+  
+  // Classic Serif Fonts - for literary, historical, professional titles
+  { file: "Cinzel-Bold.ttf", family: "Cinzel", category: "serif" },
+  { file: "Bodoni-Bold.ttf", family: "Bodoni", category: "serif" },
+  { file: "PlayfairDisplay-Bold.ttf", family: "Playfair Display", category: "serif" },
+  { file: "CormorantGaramond-Italic.ttf", family: "Cormorant Garamond", category: "serif" },
+  { file: "Lora-Bold.ttf", family: "Lora", category: "serif" },
+  { file: "Merriweather-Bold.ttf", family: "Merriweather", category: "serif" },
+  { file: "LibreBaskerville-Bold.ttf", family: "Libre Baskerville", category: "serif" },
+  { file: "Crimson-Bold.ttf", family: "Crimson", category: "serif" },
+  { file: "Prata-Regular.ttf", family: "Prata", category: "serif" },
+  
+  // Modern Sans-Serif Fonts - for contemporary, business, tech titles
+  { file: "Montserrat-Bold.ttf", family: "Montserrat", category: "sans" },
+  { file: "Lato-Bold.ttf", family: "Lato", category: "sans" },
+  { file: "Raleway-Bold.ttf", family: "Raleway", category: "sans" },
+  { file: "Oswald-Bold.ttf", family: "Oswald", category: "sans" },
+];
+
+// Legacy reference for script fonts (for backward compatibility)
+const scriptFontOptions = allFontOptions.filter(f => f.category === "script");
+
+// Available fonts for user selection (exposed for preview system) - organized by style
+// ============================================================================
+// COMPREHENSIVE FONT GUIDE WITH DESCRIPTIONS
+// This guide helps AI understand which fonts work best for different book types
+// ============================================================================
+
+export const FONT_GUIDE = {
+  // SCRIPT FONTS - Elegant, romantic, artistic
+  "Great Vibes": {
+    category: "script",
+    mood: ["romantic", "elegant", "feminine", "artistic", "dreamy"],
+    genres: ["Romance", "Poetry", "Self-Help", "Memoir", "Literary Fiction"],
+    colors: ["gold", "rose gold", "blush pink", "cream", "burgundy"],
+    description: "Flowing calligraphy with dramatic flourishes. Perfect for passionate love stories and emotional memoirs.",
+    avoidFor: ["Horror", "Thriller", "Action", "Sci-Fi"],
+    bestPositions: ["center", "top", "bottom"],
+    sizeRecommendation: 1.2,
+  },
+  "Dancing Script": {
+    category: "script",
+    mood: ["playful", "whimsical", "lighthearted", "friendly", "warm"],
+    genres: ["Cozy Mystery", "Romance", "Children's", "Cookbook", "Self-Help"],
+    colors: ["coral", "teal", "gold", "warm brown", "soft blue"],
+    description: "Casual, bouncy script that feels approachable. Great for feel-good stories and lifestyle books.",
+    avoidFor: ["Horror", "Dark Thriller", "Epic Fantasy"],
+    bestPositions: ["center", "top"],
+    sizeRecommendation: 1.1,
+  },
+  
+  // CLASSIC SERIF - Timeless, prestigious, literary
+  "Cinzel": {
+    category: "serif",
+    mood: ["majestic", "powerful", "ancient", "epic", "regal"],
+    genres: ["Fantasy", "Historical Fiction", "Epic Saga", "Mythology", "Biography"],
+    colors: ["gold", "silver", "ivory", "deep red", "royal blue"],
+    description: "Roman-inspired capitals with sharp serifs. Commands attention for epic tales and powerful narratives.",
+    avoidFor: ["Romance", "Cozy", "Children's"],
+    bestPositions: ["top", "center", "bottom"],
+    sizeRecommendation: 1.0,
+  },
+  "Playfair Display": {
+    category: "serif",
+    mood: ["sophisticated", "elegant", "classic", "refined", "literary"],
+    genres: ["Literary Fiction", "Historical", "Drama", "Biography", "Classics"],
+    colors: ["white", "cream", "gold", "navy", "burgundy"],
+    description: "High-contrast transitional serif. Perfect for distinguished literature and sophisticated stories.",
+    avoidFor: ["Action", "Horror", "Sci-Fi"],
+    bestPositions: ["top", "center"],
+    sizeRecommendation: 1.0,
+  },
+  "Bodoni": {
+    category: "serif",
+    mood: ["elegant", "fashion", "luxury", "dramatic", "bold"],
+    genres: ["Drama", "Fashion", "Art", "Biography", "Noir"],
+    colors: ["black", "white", "gold", "red", "purple"],
+    description: "Ultra-high contrast with hairline serifs. Dramatic and fashion-forward for bold statements.",
+    avoidFor: ["Children's", "Cozy", "Humor"],
+    bestPositions: ["center", "bottom"],
+    sizeRecommendation: 1.1,
+  },
+  
+  // BOLD SANS - Modern, powerful, impactful
+  "Oswald": {
+    category: "sans-bold",
+    mood: ["powerful", "urgent", "dramatic", "intense", "action"],
+    genres: ["Thriller", "Action", "War", "Sports", "True Crime"],
+    colors: ["white", "red", "orange", "silver", "electric blue"],
+    description: "Condensed bold sans with strong vertical stress. Perfect for high-stakes thrillers and action.",
+    avoidFor: ["Romance", "Poetry", "Memoir"],
+    bestPositions: ["top-left", "center", "bottom"],
+    sizeRecommendation: 1.0,
+  },
+  "Montserrat": {
+    category: "sans-modern",
+    mood: ["modern", "clean", "tech", "professional", "contemporary"],
+    genres: ["Sci-Fi", "Tech Thriller", "Business", "Self-Help", "Non-Fiction"],
+    colors: ["cyan", "white", "neon blue", "silver", "electric purple"],
+    description: "Geometric sans with urban roots. Clean and modern for tech-forward and contemporary stories.",
+    avoidFor: ["Historical", "Fantasy", "Period Drama"],
+    bestPositions: ["top-left", "top-right", "center"],
+    sizeRecommendation: 1.0,
+  },
+  
+  // DISPLAY FONTS - Unique, eye-catching
+  "Raleway": {
+    category: "sans-elegant",
+    mood: ["minimalist", "refined", "sophisticated", "understated", "modern"],
+    genres: ["Contemporary Fiction", "Art", "Design", "Photography", "Lifestyle"],
+    colors: ["subtle grays", "pastels", "muted tones", "white", "soft gold"],
+    description: "Ultra-thin elegant sans. Whisper-quiet sophistication that lets cover art shine.",
+    avoidFor: ["Horror", "Action", "Children's"],
+    bestPositions: ["top", "bottom"],
+    sizeRecommendation: 0.95,
+  },
+  "Lato": {
+    category: "sans-humanist",
+    mood: ["friendly", "approachable", "warm", "trustworthy", "balanced"],
+    genres: ["Self-Help", "Business", "Health", "Biography", "Non-Fiction"],
+    colors: ["any - highly versatile"],
+    description: "Warm humanist sans with semi-rounded details. Approachable and readable for any genre.",
+    avoidFor: [],
+    bestPositions: ["any"],
+    sizeRecommendation: 1.0,
+  },
+  "Merriweather": {
+    category: "serif-readable",
+    mood: ["trustworthy", "scholarly", "warm", "readable", "traditional"],
+    genres: ["Non-Fiction", "Academic", "History", "Biography", "Literary"],
+    colors: ["dark tones", "earth tones", "navy", "forest green"],
+    description: "Sturdy serif designed for screens. Reliable and scholarly for educational and serious topics.",
+    avoidFor: ["Fantasy", "Action", "Sci-Fi"],
+    bestPositions: ["top", "bottom"],
+    sizeRecommendation: 1.0,
+  },
+  "Lora": {
+    category: "serif-contemporary",
+    mood: ["balanced", "contemporary", "warm", "inviting", "literary"],
+    genres: ["Contemporary Fiction", "Romance", "Drama", "Memoir", "Literary"],
+    colors: ["warm tones", "cream", "soft colors"],
+    description: "Contemporary serif with moderate contrast. Bridges classic and modern for versatile appeal.",
+    avoidFor: ["Hard Sci-Fi", "Horror"],
+    bestPositions: ["top", "bottom"],
+    sizeRecommendation: 1.0,
+  },
+};
+
+// TYPOGRAPHY PLACEMENT EXAMPLES - Real-world professional book cover placements
+export const PLACEMENT_EXAMPLES = [
+  // DRAMATIC BOTTOM PLACEMENTS
+  {
+    name: "Thriller Bottom Punch",
+    description: "Title at bottom third, bold and commanding. Author small at top right.",
+    titlePosition: "bottom",
+    authorPosition: "top-right",
+    titleAlignment: "center",
+    authorAlignment: "right",
+    titleSize: 1.3,
+    authorSize: 0.7,
+    effect: "bold-shadow",
+    genreMatch: ["Thriller", "Action", "Horror", "Crime"],
+  },
+  {
+    name: "Cinematic Fade Up",
+    description: "Title rises from bottom edge with gradient fade, movie poster style.",
+    titlePosition: "bottom",
+    authorPosition: "bottom",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 1.4,
+    authorSize: 0.65,
+    effect: "elegant-glow",
+    genreMatch: ["Drama", "Thriller", "Romance", "Action"],
+  },
+  // CENTERED FOCAL PLACEMENTS
+  {
+    name: "Romance Center Float",
+    description: "Script title centered with elegant spacing. Author name below with glow.",
+    titlePosition: "center",
+    authorPosition: "bottom",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 1.2,
+    authorSize: 0.8,
+    effect: "elegant-glow",
+    genreMatch: ["Romance", "Drama", "Poetry"],
+  },
+  {
+    name: "Cosmic Centered",
+    description: "Title floats in center space with ethereal glow, author anchors bottom.",
+    titlePosition: "center",
+    authorPosition: "bottom",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 1.1,
+    authorSize: 0.75,
+    effect: "neon-glow",
+    genreMatch: ["Sci-Fi", "Fantasy", "Spirituality", "Cosmic Horror"],
+  },
+  // LEFT-ALIGNED MODERN PLACEMENTS
+  {
+    name: "Editorial Left Edge",
+    description: "Magazine-style left alignment. Modern and professional.",
+    titlePosition: "top-left",
+    authorPosition: "bottom-left",
+    titleAlignment: "left",
+    authorAlignment: "left",
+    titleSize: 1.1,
+    authorSize: 0.8,
+    effect: "sharp-shadow",
+    genreMatch: ["Non-Fiction", "Business", "Biography", "Self-Help"],
+  },
+  {
+    name: "Stacked Left Power",
+    description: "Bold title stacked left with author directly below.",
+    titlePosition: "top-left",
+    authorPosition: "top-left",
+    titleAlignment: "left",
+    authorAlignment: "left",
+    titleSize: 1.3,
+    authorSize: 0.7,
+    effect: "bold-shadow",
+    genreMatch: ["Business", "Productivity", "Leadership", "Tech"],
+  },
+  // TOP PLACEMENT CLASSICS
+  {
+    name: "Epic Fantasy Gold",
+    description: "Majestic centered title with gold emboss. Author at bottom with matching treatment.",
+    titlePosition: "top",
+    authorPosition: "bottom",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 1.1,
+    authorSize: 0.8,
+    effect: "gold-emboss",
+    genreMatch: ["Fantasy", "Epic", "Historical", "Mythology"],
+  },
+  {
+    name: "Royal Crown",
+    description: "Title crowns the top like a royal banner, author at bottom.",
+    titlePosition: "top",
+    authorPosition: "bottom",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 1.2,
+    authorSize: 0.8,
+    effect: "elegant-glow",
+    genreMatch: ["Fantasy", "Historical", "Romance", "Drama"],
+  },
+  // ARTISTIC CORNER PLACEMENTS
+  {
+    name: "Indie Corner",
+    description: "Artistic corner placement for arthouse covers. Asymmetric and creative.",
+    titlePosition: "bottom-left",
+    authorPosition: "bottom-left",
+    titleAlignment: "left",
+    authorAlignment: "left",
+    titleSize: 1.0,
+    authorSize: 0.75,
+    effect: "subtle-outline",
+    genreMatch: ["Literary Fiction", "Art", "Poetry", "Experimental"],
+  },
+  {
+    name: "Whisper Bottom Right",
+    description: "Subtle placement in bottom right, understated elegance.",
+    titlePosition: "bottom-right",
+    authorPosition: "bottom-right",
+    titleAlignment: "right",
+    authorAlignment: "right",
+    titleSize: 0.95,
+    authorSize: 0.7,
+    effect: "subtle-outline",
+    genreMatch: ["Literary", "Memoir", "Poetry", "Mindfulness"],
+  },
+  // RIGHT-ALIGNED FUTURISTIC
+  {
+    name: "Sci-Fi Neon",
+    description: "Futuristic placement with glowing neon effect. Title top-right, author bottom.",
+    titlePosition: "top-right",
+    authorPosition: "bottom",
+    titleAlignment: "right",
+    authorAlignment: "center",
+    titleSize: 1.0,
+    authorSize: 0.8,
+    effect: "neon-glow",
+    genreMatch: ["Sci-Fi", "Cyberpunk", "Tech Thriller", "Dystopia"],
+  },
+  {
+    name: "Tech Right Stack",
+    description: "Modern right-aligned title with clean lines.",
+    titlePosition: "top-right",
+    authorPosition: "top-right",
+    titleAlignment: "right",
+    authorAlignment: "right",
+    titleSize: 1.1,
+    authorSize: 0.7,
+    effect: "sharp-shadow",
+    genreMatch: ["Sci-Fi", "Tech", "Business", "Innovation"],
+  },
+  // VINTAGE & CLASSIC
+  {
+    name: "Vintage Centered",
+    description: "Classic vintage treatment with weathered effect. Nostalgic and timeless.",
+    titlePosition: "center",
+    authorPosition: "bottom",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 1.0,
+    authorSize: 0.8,
+    effect: "vintage",
+    genreMatch: ["Historical", "Classics", "Retro", "Western"],
+  },
+  {
+    name: "Old World Top",
+    description: "Classic literary placement with ornate top title.",
+    titlePosition: "top",
+    authorPosition: "bottom",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 1.0,
+    authorSize: 0.85,
+    effect: "gold-emboss",
+    genreMatch: ["Classics", "Historical", "Literary", "Victorian"],
+  },
+  // HORROR & DARK
+  {
+    name: "Horror Emergence",
+    description: "Title emerges from darkness at bottom with ominous shadow.",
+    titlePosition: "bottom",
+    authorPosition: "top",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 1.3,
+    authorSize: 0.65,
+    effect: "bold-shadow",
+    genreMatch: ["Horror", "Dark Fantasy", "Thriller", "Gothic"],
+  },
+  {
+    name: "Creeping Shadow",
+    description: "Off-center placement creating unease, dark atmospheric.",
+    titlePosition: "bottom-left",
+    authorPosition: "top-right",
+    titleAlignment: "left",
+    authorAlignment: "right",
+    titleSize: 1.2,
+    authorSize: 0.7,
+    effect: "bold-shadow",
+    genreMatch: ["Horror", "Psychological", "Thriller", "Mystery"],
+  },
+  // MINIMALIST & CLEAN
+  {
+    name: "Minimalist Breath",
+    description: "Clean, airy placement with lots of white space.",
+    titlePosition: "center",
+    authorPosition: "bottom",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 0.9,
+    authorSize: 0.7,
+    effect: "subtle-outline",
+    genreMatch: ["Minimalist", "Self-Help", "Wellness", "Design"],
+  },
+  {
+    name: "Zen Bottom",
+    description: "Peaceful bottom placement with breathing room above.",
+    titlePosition: "bottom",
+    authorPosition: "bottom",
+    titleAlignment: "center",
+    authorAlignment: "center",
+    titleSize: 0.95,
+    authorSize: 0.7,
+    effect: "elegant-glow",
+    genreMatch: ["Wellness", "Spirituality", "Mindfulness", "Self-Help"],
+  },
+];
+
+// MULTI-COLOR TYPOGRAPHY PATTERNS for special effects
+export const COLOR_PATTERN_EXAMPLES = [
+  {
+    name: "Two-Tone Gradient",
+    description: "Title transitions from one color to another left to right",
+    technique: "Use CSS gradient or overlay effect",
+    bestFor: ["Fantasy", "Sci-Fi", "Romance"],
+  },
+  {
+    name: "Accent First Letter",
+    description: "First letter in accent color, rest in base color",
+    technique: "Drop cap style with color differentiation",
+    bestFor: ["Fantasy", "Historical", "Literary"],
+  },
+  {
+    name: "Shadow Color Pop",
+    description: "Main text in one color, shadow in contrasting accent",
+    technique: "Bold shadow effect with different hue",
+    bestFor: ["Thriller", "Action", "Horror"],
+  },
+  {
+    name: "Glow Halo",
+    description: "Text has ethereal glow in accent color around edges",
+    technique: "Outer glow effect in complementary color",
+    bestFor: ["Sci-Fi", "Fantasy", "Spirituality"],
+  },
+  {
+    name: "Metallic Shine",
+    description: "Gold, silver, or copper metallic gradient effect",
+    technique: "Linear gradient with metallic tones",
+    bestFor: ["Fantasy", "Historical", "Luxury"],
+  },
+];
+
+export const AVAILABLE_TITLE_FONTS = [
+  // Elegant Script (8 fonts)
+  "Great Vibes", "Dancing Script", "Allura", "Sacramento", "Pacifico", 
+  "Tangerine", "Alex Brush", "Pinyon Script",
+  // Classic Serif (10 fonts)
+  "Cinzel", "Bodoni", "Playfair Display", "Lora", "Merriweather", 
+  "Libre Baskerville", "Crimson", "Prata", "EB Garamond", "Cormorant Garamond",
+  // Modern Sans (8 fonts)
+  "Montserrat", "Lato", "Raleway", "Oswald", "Bebas Neue", "Anton", 
+  "Roboto Condensed", "Open Sans",
+  // Display & Decorative (8 fonts)
+  "Abril Fatface", "Righteous", "Lobster", "Permanent Marker", 
+  "Bangers", "Passion One", "Special Elite", "Press Start 2P",
+  // Gothic & Dark (6 fonts)
+  "UnifrakturMaguntia", "IM Fell English", "Almendra", "Pirata One",
+  "Creepster", "Nosifer"
+];
+
+export const AVAILABLE_AUTHOR_FONTS = [
+  // Serif (elegant for author names)
+  "Playfair Display", "Cormorant Garamond", "Cinzel", "Bodoni", 
+  "Lora", "Merriweather", "Libre Baskerville", "Crimson", "Prata",
+  "EB Garamond", "Spectral", "Source Serif Pro",
+  // Sans (modern, clean)
+  "Montserrat", "Lato", "Raleway", "Oswald", "Bebas Neue", "Anton",
+  "Roboto", "Open Sans", "Nunito", "Work Sans", "Quicksand"
+];
+
+// Professional text style presets with artistic variations
+export const TEXT_STYLE_PRESETS = [
+  { id: "elegant-script", name: "Elegant Script", titleCase: "titlecase", effect: "elegant-glow", position: "top-center" },
+  { id: "classic-serif", name: "Classic Literary", titleCase: "titlecase", effect: "emboss", position: "top-center" },
+  { id: "bold-modern", name: "Bold Modern", titleCase: "uppercase", effect: "bold-shadow", position: "center" },
+  { id: "minimal-clean", name: "Minimal Clean", titleCase: "original", effect: "subtle-outline", position: "bottom-center" },
+  { id: "dramatic-glow", name: "Dramatic Glow", titleCase: "uppercase", effect: "neon-glow", position: "center" },
+  { id: "vintage-classic", name: "Vintage Classic", titleCase: "titlecase", effect: "vintage", position: "top-center" },
+  { id: "royal-luxury", name: "Royal Luxury", titleCase: "titlecase", effect: "gold-emboss", position: "top-center" },
+  { id: "contemporary", name: "Contemporary", titleCase: "uppercase", effect: "sharp-shadow", position: "center" },
+];
+
+// ============================================================
+// COVER STYLE PRESETS - Complete cover generation styles
+// These define the entire look and feel of generated covers
+// The "classic-cinematic" style is the PRIMARY default (protected)
+// ============================================================
+
+export interface CoverStylePreset {
+  id: string;
+  name: string;
+  description: string;
+  isPrimary: boolean;
+  previewImage?: string;
+  // Background generation settings
+  colorSchemes: string[];
+  designStyles: string[];
+  compositionStyles: string[];
+  // Text overlay settings
+  titleFont: string;
+  authorFont: string;
+  titleCase: "uppercase" | "titlecase" | "original";
+  effect: string;
+  position: string;
+}
+
+// PROTECTED PRIMARY STYLE - This is the style used for Atomic Productivity to Traveling the Multiverse
+// This style should NEVER be modified without explicit user permission
+export const COVER_STYLE_PRESETS: CoverStylePreset[] = [
+  {
+    id: "classic-cinematic",
+    name: "Classic Cinematic",
+    description: "Premium photorealistic style with cinematic quality - the original default style",
+    isPrimary: true,
+    colorSchemes: [
+      "deep burgundy, antique gold, and mahogany brown",
+      "midnight blue, silver, and charcoal gray",
+      "forest green, bronze, and cream",
+      "royal purple, gold leaf, and black",
+      "burnt orange, copper, and dark chocolate",
+      "teal, rose gold, and ivory",
+      "crimson red, black, and gold",
+      "sage green, blush pink, and white",
+      "navy blue, coral, and sand",
+      "emerald green, pearl white, and gold"
+    ],
+    designStyles: [
+      "dark academia aesthetic with vintage library feel",
+      "photorealistic cinematic movie poster style",
+      "moody atmospheric with dramatic lighting",
+      "sophisticated marble and metallic textures",
+      "elegant baroque inspired ornamental design"
+    ],
+    compositionStyles: [
+      "centered symmetrical composition",
+      "dramatic diagonal composition",
+      "rule of thirds balanced layout",
+      "layered depth with foreground and background"
+    ],
+    titleFont: "Playfair Display",
+    authorFont: "Playfair Display",
+    titleCase: "titlecase",
+    effect: "outline",
+    position: "top-center"
+  },
+  {
+    id: "dark-academia",
+    name: "Dark Academia",
+    description: "Vintage library aesthetic with rich browns and gold accents",
+    isPrimary: false,
+    colorSchemes: [
+      "deep burgundy, antique gold, and mahogany brown",
+      "forest green, bronze, and cream",
+      "warm honey gold, deep brown, and cream",
+      "antique bronze, weathered copper, and aged parchment",
+      "Victorian mauve, dusty gold, and aged ivory"
+    ],
+    designStyles: [
+      "dark academia aesthetic with vintage library feel",
+      "gothic romantic aesthetic with ornate details",
+      "classic literary style with embossed texture look",
+      "elegant baroque inspired ornamental design",
+      "renaissance classical painting aesthetic"
+    ],
+    compositionStyles: [
+      "centered symmetrical composition",
+      "circular vignette framing",
+      "border frame with central focal point"
+    ],
+    titleFont: "Cinzel",
+    authorFont: "Cormorant Garamond",
+    titleCase: "titlecase",
+    effect: "emboss",
+    position: "top-center"
+  },
+  {
+    id: "modern-minimal",
+    name: "Modern Minimal",
+    description: "Clean, contemporary design with bold typography",
+    isPrimary: false,
+    colorSchemes: [
+      "charcoal black, electric blue, and silver",
+      "ice blue, arctic white, and silver frost",
+      "stormy gray, lightning white, and deep indigo",
+      "Nordic blue, winter white, and birch gray",
+      "midnight blue, silver, and charcoal gray"
+    ],
+    designStyles: [
+      "minimalist modern design with bold geometric shapes",
+      "contemporary clean design with gradient backgrounds",
+      "Nordic Scandinavian minimalist with clean lines",
+      "abstract expressionist with bold brushstrokes"
+    ],
+    compositionStyles: [
+      "minimalist negative space focus",
+      "centered symmetrical composition",
+      "bold silhouette against gradient"
+    ],
+    titleFont: "Montserrat",
+    authorFont: "Lato",
+    titleCase: "uppercase",
+    effect: "bold-shadow",
+    position: "center"
+  },
+  {
+    id: "romantic-elegant",
+    name: "Romantic Elegant",
+    description: "Soft, dreamy aesthetic perfect for romance and poetry",
+    isPrimary: false,
+    colorSchemes: [
+      "dusty rose, champagne, and dove gray",
+      "cherry blossom pink, soft gray, and white",
+      "lavender purple, soft mint, and pearl white",
+      "sunset coral, peachy orange, and warm ivory",
+      "teal, rose gold, and ivory"
+    ],
+    designStyles: [
+      "watercolor artistic style with soft gradients",
+      "art nouveau with flowing organic curves and borders",
+      "impressionist painting style with soft light",
+      "vintage botanical illustration style"
+    ],
+    compositionStyles: [
+      "floating elements with dreamlike arrangement",
+      "circular vignette framing",
+      "golden ratio spiral composition"
+    ],
+    titleFont: "Great Vibes",
+    authorFont: "Playfair Display",
+    titleCase: "titlecase",
+    effect: "elegant",
+    position: "top-center"
+  },
+  {
+    id: "cyberpunk-neon",
+    name: "Cyberpunk Neon",
+    description: "Futuristic sci-fi style with glowing neon effects",
+    isPrimary: false,
+    colorSchemes: [
+      "charcoal black, electric blue, and silver",
+      "midnight violet, starlight silver, and cosmic black",
+      "stormy gray, lightning white, and deep indigo",
+      "cobalt blue, amber, and cream",
+      "sapphire blue, gold, and burgundy"
+    ],
+    designStyles: [
+      "neon cyberpunk with glowing accents and city lights",
+      "steampunk Victorian with gears and mechanical elements",
+      "surrealist dreamlike imagery with unexpected elements"
+    ],
+    compositionStyles: [
+      "dramatic diagonal composition",
+      "split composition with contrasting halves",
+      "layered depth with foreground and background"
+    ],
+    titleFont: "Oswald",
+    authorFont: "Raleway",
+    titleCase: "uppercase",
+    effect: "neon",
+    position: "center"
+  },
+  {
+    id: "vintage-retro",
+    name: "Vintage Retro",
+    description: "Nostalgic 1920s-1950s poster style",
+    isPrimary: false,
+    colorSchemes: [
+      "autumn rust, golden wheat, and deep olive",
+      "terracotta, olive green, and tan",
+      "antique bronze, weathered copper, and aged parchment",
+      "warm honey gold, deep brown, and cream",
+      "burnt orange, copper, and dark chocolate"
+    ],
+    designStyles: [
+      "retro vintage 1920s poster style",
+      "art deco style with elegant patterns and lines",
+      "folk art style with handcrafted rustic charm"
+    ],
+    compositionStyles: [
+      "border frame with central focal point",
+      "centered symmetrical composition",
+      "stacked horizontal layers"
+    ],
+    titleFont: "Bodoni",
+    authorFont: "Lato",
+    titleCase: "titlecase",
+    effect: "vintage",
+    position: "top-center"
+  },
+  {
+    id: "mystical-celestial",
+    name: "Mystical Celestial",
+    description: "Cosmic and spiritual themes with ethereal lighting",
+    isPrimary: false,
+    colorSchemes: [
+      "midnight violet, starlight silver, and cosmic black",
+      "sapphire blue, gold, and burgundy",
+      "royal purple, gold leaf, and black",
+      "plum purple, silver, and midnight black",
+      "ocean teal, sunset orange, and sandy beige"
+    ],
+    designStyles: [
+      "celestial mystical theme with stars and moons",
+      "surrealist dreamlike imagery with unexpected elements",
+      "moody atmospheric with dramatic lighting"
+    ],
+    compositionStyles: [
+      "radial burst from center",
+      "floating elements with dreamlike arrangement",
+      "golden ratio spiral composition"
+    ],
+    titleFont: "Dancing Script",
+    authorFont: "Cinzel",
+    titleCase: "titlecase",
+    effect: "glow",
+    position: "center"
+  },
+  {
+    id: "nature-organic",
+    name: "Nature Organic",
+    description: "Botanical and natural themes with earthy tones",
+    isPrimary: false,
+    colorSchemes: [
+      "forest green, bronze, and cream",
+      "sage green, blush pink, and white",
+      "autumn rust, golden wheat, and deep olive",
+      "Caribbean turquoise, tropical coral, and sandy cream",
+      "emerald green, pearl white, and gold"
+    ],
+    designStyles: [
+      "vintage botanical illustration style",
+      "nature-inspired with organic flowing elements",
+      "Japanese ukiyo-e inspired woodblock print style",
+      "watercolor artistic style with soft gradients"
+    ],
+    compositionStyles: [
+      "scattered organic arrangement",
+      "panoramic wide view",
+      "layered depth with foreground and background"
+    ],
+    titleFont: "Sacramento",
+    authorFont: "Merriweather",
+    titleCase: "titlecase",
+    effect: "elegant",
+    position: "top-center"
+  }
+];
+
+// Get all available cover style presets
+export function getCoverStylePresets(): CoverStylePreset[] {
+  return COVER_STYLE_PRESETS;
+}
+
+// Get the primary/default cover style
+export function getPrimaryCoverStyle(): CoverStylePreset {
+  return COVER_STYLE_PRESETS.find(s => s.isPrimary) || COVER_STYLE_PRESETS[0];
+}
+
+// Get a cover style by ID
+export function getCoverStyleById(styleId: string): CoverStylePreset | undefined {
+  return COVER_STYLE_PRESETS.find(s => s.id === styleId);
+}
+const registeredScriptFonts: string[] = [];
+const registeredFonts: Map<string, string> = new Map(); // family -> category
+
+function registerCoverFonts() {
+  if (fontsRegistered) return;
+  
+  // Helper to safely register a single font
+  const safeRegister = (fontPath: string, options: { family: string; weight?: string; style?: string }): boolean => {
+    try {
+      if (fs.existsSync(fontPath)) {
+        registerFont(fontPath, options);
+        return true;
+      }
+    } catch (e) {
+      console.log(`Skipping font ${options.family}: not compatible with node-canvas`);
+    }
+    return false;
+  };
+  
+  // Register all fonts from the complete font library
+  for (const font of allFontOptions) {
+    const fontPath = path.join(fontsDir, font.file);
+    const weight = font.file.includes("Bold") ? "bold" : undefined;
+    const style = font.file.includes("Italic") ? "italic" : undefined;
+    
+    if (safeRegister(fontPath, { family: font.family, weight, style })) {
+      registeredFonts.set(font.family, font.category);
+      // Keep script fonts in legacy array for backward compatibility
+      if (font.category === "script") {
+        registeredScriptFonts.push(font.family);
+      }
+    }
+  }
+  
+  fontsRegistered = true;
+  console.log(`Registered ${registeredFonts.size} fonts: ${Array.from(registeredFonts.keys()).join(", ")}`);
+}
+
+// Get fonts by category
+function getFontsByCategory(category: string): string[] {
+  return Array.from(registeredFonts.entries())
+    .filter(([_, cat]) => cat === category)
+    .map(([family, _]) => family);
+}
+
+// Check if a font is registered
+function isFontRegistered(family: string): boolean {
+  registerCoverFonts();
+  return registeredFonts.has(family);
+}
+
+// Get a validated font with fallback
+function getValidatedFont(requestedFont: string, category: "title" | "author"): string {
+  registerCoverFonts();
+  
+  // If the requested font is registered, use it
+  if (registeredFonts.has(requestedFont)) {
+    return requestedFont;
+  }
+  
+  // Fallback to first registered font of appropriate category
+  const fallbacks = category === "title" 
+    ? ["Playfair Display", "Cinzel", "Lora", "Georgia"]
+    : ["Playfair Display", "Lora", "Montserrat", "Georgia"];
+  
+  for (const fallback of fallbacks) {
+    if (registeredFonts.has(fallback)) {
+      console.log(`Font "${requestedFont}" not available, using fallback "${fallback}"`);
+      return fallback;
+    }
+  }
+  
+  // Ultimate fallback to first registered font
+  const firstRegistered = registeredFonts.keys().next().value;
+  if (firstRegistered) {
+    console.log(`Using first available font: ${firstRegistered}`);
+    return firstRegistered;
+  }
+  
+  return "Georgia"; // System fallback
+}
+
+// Get a random script font for the title based on seed
+function getRandomScriptFont(seed: number): string {
+  if (registeredScriptFonts.length === 0) {
+    return "Playfair Display"; // Fallback
+  }
+  return registeredScriptFonts[seed % registeredScriptFonts.length];
+}
+
+// Creative cover style system with variety in layouts, colors, fonts, and effects
+type LayoutTemplate = "top-centered" | "bottom-heavy" | "left-aligned" | "right-aligned" | "diagonal-band" | "framed" | "split" | "minimal";
+type TextEffect = "glow" | "emboss" | "outline" | "shadow" | "vintage" | "neon" | "elegant" | "bold-shadow" | 
+  "elegant-glow" | "gold-emboss" | "sharp-shadow" | "neon-glow" | "subtle-outline" | "none" |
+  // Premium effects
+  "metallic-gold" | "metallic-silver" | "metallic-copper" | "3d-layered" | "embossed" | "debossed" |
+  "neon-electric" | "fire-glow" | "ice-crystal" | "cosmic-glow" | "luxury-shadow" | 
+  "duotone-gradient" | "smoke-emerge" | "frosted-glass" | "split-tone";
+type DecorativeStyle = "ornate" | "minimal" | "geometric" | "classic" | "modern" | "artistic" | "none";
+type TitleTreatment = "gold-gradient" | "silver-elegance" | "vibrant-accent" | "classic-cream" | "bold-contrast" | "royal-purple";
+
+interface ColorScheme {
+  primary: string;
+  secondary: string;
+  accent: string;
+  overlayColor: string;
+  overlayOpacity: number;
+  titleGradientStart: string;
+  titleGradientEnd: string;
+  strokeColor: string;
+  panelColor: string;
+  panelOpacity: number;
+}
+
+interface CoverStyle {
+  layout: LayoutTemplate;
+  effect: TextEffect;
+  decorative: DecorativeStyle;
+  titleFont: string;
+  authorFont: string;
+  colorScheme: ColorScheme;
+  titleCase: "uppercase" | "titlecase" | "normal";
+  titleTreatment: TitleTreatment;
+}
+
+// Title treatment presets with vibrant, visible colors
+const titleTreatments: Record<TitleTreatment, { gradientStart: string; gradientEnd: string; stroke: string; glow: string }> = {
+  "gold-gradient": { gradientStart: "#FFD700", gradientEnd: "#FFA500", stroke: "#8B4513", glow: "#FFE55C" },
+  "silver-elegance": { gradientStart: "#E8E8E8", gradientEnd: "#C0C0C0", stroke: "#4A4A4A", glow: "#FFFFFF" },
+  "vibrant-accent": { gradientStart: "#FF6B6B", gradientEnd: "#EE5A24", stroke: "#8B0000", glow: "#FF9999" },
+  "classic-cream": { gradientStart: "#FFF8DC", gradientEnd: "#F5DEB3", stroke: "#8B7355", glow: "#FFFACD" },
+  "bold-contrast": { gradientStart: "#FFFFFF", gradientEnd: "#E0E0E0", stroke: "#1a1a1a", glow: "#FFFFFF" },
+  "royal-purple": { gradientStart: "#E6E6FA", gradientEnd: "#DDA0DD", stroke: "#4B0082", glow: "#E6E6FA" },
+};
+
+const titleTreatmentNames: TitleTreatment[] = ["gold-gradient", "silver-elegance", "vibrant-accent", "classic-cream", "bold-contrast", "royal-purple"];
+
+// Extract colors from cover image using region-aware sampling for text visibility
+// Samples specifically from title region (top 30%) and author region (bottom 20%)
+// Dark regions → light text from cover + black outline
+// Light regions → dark text from cover + lightest color outline
+function extractColorsFromImage(ctx: ReturnType<ReturnType<typeof createCanvas>["getContext"]>, width: number, height: number, seed: number): ColorScheme {
+  const rgbToHex = (r: number, g: number, b: number) => 
+    "#" + [r, g, b].map(x => Math.max(0, Math.min(255, Math.floor(x))).toString(16).padStart(2, "0")).join("");
+  
+  const getBrightness = (r: number, g: number, b: number) => (r * 299 + g * 587 + b * 114) / 1000;
+  
+  // Sample from title region (top 35% of image where title appears)
+  const titleRegionSamples: { r: number; g: number; b: number; brightness: number }[] = [];
+  for (let x = 0.1; x <= 0.9; x += 0.15) {
+    for (let y = 0.08; y <= 0.35; y += 0.08) {
+      try {
+        const imageData = ctx.getImageData(Math.floor(width * x), Math.floor(height * y), 12, 12);
+        const data = imageData.data;
+        let rSum = 0, gSum = 0, bSum = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          rSum += data[i]; gSum += data[i + 1]; bSum += data[i + 2]; count++;
+        }
+        const r = Math.floor(rSum / count);
+        const g = Math.floor(gSum / count);
+        const b = Math.floor(bSum / count);
+        titleRegionSamples.push({ r, g, b, brightness: getBrightness(r, g, b) });
+      } catch (e) { /* ignore */ }
+    }
+  }
+  
+  // Sample from author region (bottom 25% of image)
+  const authorRegionSamples: { r: number; g: number; b: number; brightness: number }[] = [];
+  for (let x = 0.2; x <= 0.8; x += 0.2) {
+    for (let y = 0.78; y <= 0.95; y += 0.08) {
+      try {
+        const imageData = ctx.getImageData(Math.floor(width * x), Math.floor(height * y), 12, 12);
+        const data = imageData.data;
+        let rSum = 0, gSum = 0, bSum = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          rSum += data[i]; gSum += data[i + 1]; bSum += data[i + 2]; count++;
+        }
+        const r = Math.floor(rSum / count);
+        const g = Math.floor(gSum / count);
+        const b = Math.floor(bSum / count);
+        authorRegionSamples.push({ r, g, b, brightness: getBrightness(r, g, b) });
+      } catch (e) { /* ignore */ }
+    }
+  }
+  
+  // Combine all samples for color palette extraction
+  const allSamples = [...titleRegionSamples, ...authorRegionSamples];
+  
+  if (allSamples.length === 0) {
+    // Fallback if no samples
+    return {
+      primary: "#FFFFFF", secondary: "#FFFFFF", accent: "#FFFFFF",
+      overlayColor: "#000000", overlayOpacity: 0,
+      titleGradientStart: "#FFFFFF", titleGradientEnd: "#FFFFFF",
+      strokeColor: "#000000", panelColor: "#000000", panelOpacity: 0
+    };
+  }
+
+  // Calculate LOCAL brightness for title region specifically
+  let titleBrightness = 128;
+  if (titleRegionSamples.length > 0) {
+    titleBrightness = titleRegionSamples.reduce((sum, s) => sum + s.brightness, 0) / titleRegionSamples.length;
+  }
+  
+  // Use adaptive threshold based on sample distribution (median vs mean)
+  const sortedBrightness = allSamples.map(s => s.brightness).sort((a, b) => a - b);
+  const medianBrightness = sortedBrightness[Math.floor(sortedBrightness.length / 2)];
+  
+  // Determine if title region is dark using local brightness compared to median
+  const isTitleRegionDark = titleBrightness < Math.max(100, medianBrightness * 0.85);
+  
+  // Sort samples by brightness to find extremes
+  const sortedByBrightness = [...allSamples].sort((a, b) => a.brightness - b.brightness);
+  
+  // Find lightest and darkest colors from the text regions
+  const lightestSamples = sortedByBrightness.slice(-Math.ceil(allSamples.length * 0.25));
+  const darkestSamples = sortedByBrightness.slice(0, Math.ceil(allSamples.length * 0.25));
+  
+  // Average the light colors
+  const lightColor = {
+    r: Math.floor(lightestSamples.reduce((sum, s) => sum + s.r, 0) / lightestSamples.length),
+    g: Math.floor(lightestSamples.reduce((sum, s) => sum + s.g, 0) / lightestSamples.length),
+    b: Math.floor(lightestSamples.reduce((sum, s) => sum + s.b, 0) / lightestSamples.length)
+  };
+  
+  // Average the dark colors
+  const darkColor = {
+    r: Math.floor(darkestSamples.reduce((sum, s) => sum + s.r, 0) / darkestSamples.length),
+    g: Math.floor(darkestSamples.reduce((sum, s) => sum + s.g, 0) / darkestSamples.length),
+    b: Math.floor(darkestSamples.reduce((sum, s) => sum + s.b, 0) / darkestSamples.length)
+  };
+  
+  // Ensure minimum contrast by adjusting colors
+  const lightBrightness = getBrightness(lightColor.r, lightColor.g, lightColor.b);
+  const darkBrightness = getBrightness(darkColor.r, darkColor.g, darkColor.b);
+  const contrastRatio = (lightBrightness + 0.05) / (darkBrightness + 0.05);
+  
+  // If contrast is too low, boost the difference
+  let enhancedLight = { ...lightColor };
+  let enhancedDark = { ...darkColor };
+  
+  if (contrastRatio < 3) {
+    // Boost light color brightness
+    enhancedLight = {
+      r: Math.min(255, lightColor.r + 60),
+      g: Math.min(255, lightColor.g + 60),
+      b: Math.min(255, lightColor.b + 60)
+    };
+    // Darken dark color
+    enhancedDark = {
+      r: Math.max(0, darkColor.r - 40),
+      g: Math.max(0, darkColor.g - 40),
+      b: Math.max(0, darkColor.b - 40)
+    };
+  } else {
+    // Gentle nudge for good contrast
+    enhancedLight = {
+      r: Math.min(255, lightColor.r + 20),
+      g: Math.min(255, lightColor.g + 20),
+      b: Math.min(255, lightColor.b + 20)
+    };
+    enhancedDark = {
+      r: Math.max(0, darkColor.r - 15),
+      g: Math.max(0, darkColor.g - 15),
+      b: Math.max(0, darkColor.b - 15)
+    };
+  }
+  
+  let textColor: string;
+  let strokeColor: string;
+  
+  if (isTitleRegionDark) {
+    // Dark title region: use light color from cover, outline in black
+    textColor = rgbToHex(enhancedLight.r, enhancedLight.g, enhancedLight.b);
+    strokeColor = "#000000";
+  } else {
+    // Light title region: use dark color from cover, outline with lightest color
+    textColor = rgbToHex(enhancedDark.r, enhancedDark.g, enhancedDark.b);
+    strokeColor = rgbToHex(enhancedLight.r, enhancedLight.g, enhancedLight.b);
+  }
+
+  return {
+    primary: textColor,
+    secondary: textColor,
+    accent: rgbToHex(lightColor.r, lightColor.g, lightColor.b), // Keep original light for accent
+    overlayColor: "#000000",
+    overlayOpacity: 0,
+    titleGradientStart: textColor,
+    titleGradientEnd: textColor,
+    strokeColor: strokeColor,
+    panelColor: "#000000",
+    panelOpacity: 0,
+  };
+}
+
+const layoutTemplates: LayoutTemplate[] = ["top-centered", "bottom-heavy", "left-aligned", "right-aligned", "diagonal-band", "framed", "split", "minimal"];
+const textEffects: TextEffect[] = ["glow", "emboss", "outline", "shadow", "vintage", "neon", "elegant", "bold-shadow"];
+const decorativeStyles: DecorativeStyle[] = ["ornate", "minimal", "geometric", "classic", "modern", "artistic", "none"];
+const titleFonts = ['"Playfair Display"', '"Cormorant Garamond"', '"Georgia"', '"Times New Roman"', '"Palatino"'];
+const authorFonts = ['"Cormorant Garamond"', '"Georgia"', '"Times New Roman"', '"Palatino"', '"Playfair Display"'];
+
+const colorPalettes = [
+  { primary: "#D4AF37", secondary: "#F5F0E1", accent: "#8B7355", overlayColor: "#1a1a2e", overlayOpacity: 0.7 },
+  { primary: "#E8B4BC", secondary: "#FFF5F5", accent: "#C48B94", overlayColor: "#2d1f2f", overlayOpacity: 0.65 },
+  { primary: "#7EC8E3", secondary: "#E8F4F8", accent: "#5BA3C0", overlayColor: "#0f2027", overlayOpacity: 0.7 },
+  { primary: "#9370DB", secondary: "#F5F0FA", accent: "#7B5DB5", overlayColor: "#1a1625", overlayOpacity: 0.68 },
+  { primary: "#3CB371", secondary: "#F0FFF0", accent: "#2E8B57", overlayColor: "#0d1f12", overlayOpacity: 0.72 },
+  { primary: "#FF8C00", secondary: "#FFF8F0", accent: "#CC7000", overlayColor: "#1f1408", overlayOpacity: 0.7 },
+  { primary: "#CD853F", secondary: "#FAF0E6", accent: "#A0693D", overlayColor: "#1f150d", overlayOpacity: 0.7 },
+  { primary: "#8B0000", secondary: "#F5F0E1", accent: "#660000", overlayColor: "#1a0808", overlayOpacity: 0.75 },
+  { primary: "#C9A227", secondary: "#FDF6E3", accent: "#A08020", overlayColor: "#1a1810", overlayOpacity: 0.68 },
+  { primary: "#708090", secondary: "#E8E8E8", accent: "#556B7A", overlayColor: "#15191d", overlayOpacity: 0.72 },
+  { primary: "#DDA0DD", secondary: "#FFF5FA", accent: "#BA7ABA", overlayColor: "#1f1520", overlayOpacity: 0.65 },
+  { primary: "#87CEEB", secondary: "#F0F8FF", accent: "#6CB4D8", overlayColor: "#0a1520", overlayOpacity: 0.68 },
+  { primary: "#FFD700", secondary: "#FFFAF0", accent: "#DAB600", overlayColor: "#1a1508", overlayOpacity: 0.7 },
+  { primary: "#E6BE8A", secondary: "#FFF8F0", accent: "#C9A066", overlayColor: "#1a1510", overlayOpacity: 0.68 },
+  { primary: "#228B22", secondary: "#F0F5E8", accent: "#1A6B1A", overlayColor: "#0d1a0d", overlayOpacity: 0.72 },
+  { primary: "#B8860B", secondary: "#F5F0E1", accent: "#8B6508", overlayColor: "#1a1508", overlayOpacity: 0.7 },
+];
+
+function generateCoverStyle(seed: number, genre: string): Omit<CoverStyle, 'colorScheme'> & { titleTreatment: TitleTreatment } {
+  const hash = (seed * 2654435761) % 4294967296;
+  const pick = <T>(arr: T[], offset: number = 0): T => arr[(hash + offset) % arr.length];
+  
+  const genreHash = genre.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const combinedSeed = hash + genreHash;
+  
+  return {
+    layout: pick(layoutTemplates, combinedSeed % 8),
+    effect: pick(textEffects, (combinedSeed * 3) % 8),
+    decorative: pick(decorativeStyles, (combinedSeed * 7) % 7),
+    titleFont: pick(titleFonts, (combinedSeed * 11) % 5),
+    authorFont: pick(authorFonts, (combinedSeed * 13) % 5),
+    titleCase: (["uppercase", "titlecase", "normal"] as const)[(combinedSeed * 23) % 3],
+    titleTreatment: pick(titleTreatmentNames, (combinedSeed * 17) % 6),
+  };
+}
+
+// Genre-based color schemes for Dark Academia aesthetic
+const genreStyles: Record<string, { accent: string; titleColor: string; authorColor: string; category: string }> = {
+  // Fiction - Rich, dramatic colors
+  "Literary Fiction": { accent: "#D4AF37", titleColor: "#F5F0E1", authorColor: "#E8DFD0", category: "fiction" },
+  "Science Fiction": { accent: "#7EC8E3", titleColor: "#E8F4F8", authorColor: "#D0E8F0", category: "fiction" },
+  "Fantasy": { accent: "#C9A227", titleColor: "#FDF6E3", authorColor: "#EDE4D1", category: "fiction" },
+  "Mystery / Thriller": { accent: "#8B0000", titleColor: "#F5F0E1", authorColor: "#E8DFD0", category: "fiction" },
+  "Romance": { accent: "#E8B4BC", titleColor: "#FFF5F5", authorColor: "#FFE8EA", category: "fiction" },
+  "Horror": { accent: "#8B0000", titleColor: "#F0E6E6", authorColor: "#E0D4D4", category: "fiction" },
+  "Historical Fiction": { accent: "#CD853F", titleColor: "#FAF0E6", authorColor: "#EDE4DA", category: "fiction" },
+  "Adventure": { accent: "#DAA520", titleColor: "#FDF6E3", authorColor: "#EDE4D1", category: "fiction" },
+  "Dystopian": { accent: "#708090", titleColor: "#E8E8E8", authorColor: "#D8D8D8", category: "fiction" },
+  
+  // Nonfiction - Sophisticated, professional colors
+  "Self-Help / Personal Development": { accent: "#D4AF37", titleColor: "#FDF6E3", authorColor: "#EDE4D1", category: "nonfiction" },
+  "Business / Entrepreneurship": { accent: "#B8860B", titleColor: "#F5F0E1", authorColor: "#E8DFD0", category: "nonfiction" },
+  "Finance / Investing": { accent: "#228B22", titleColor: "#F0F5E8", authorColor: "#E4ECD8", category: "nonfiction" },
+  "Health & Wellness": { accent: "#3CB371", titleColor: "#F0FFF0", authorColor: "#E0F5E0", category: "nonfiction" },
+  "Psychology": { accent: "#9370DB", titleColor: "#F5F0FA", authorColor: "#EBE5F0", category: "nonfiction" },
+  "Productivity": { accent: "#FF8C00", titleColor: "#FFF8F0", authorColor: "#FFF0E0", category: "nonfiction" },
+  "Biographies & Memoirs": { accent: "#CD853F", titleColor: "#FAF0E6", authorColor: "#EDE4DA", category: "nonfiction" },
+  "History": { accent: "#8B4513", titleColor: "#FAF0E6", authorColor: "#EDE4DA", category: "nonfiction" },
+  "Philosophy": { accent: "#B8860B", titleColor: "#F5F0E1", authorColor: "#E8DFD0", category: "nonfiction" },
+  
+  // Creative - Artistic colors
+  "Poetry": { accent: "#DDA0DD", titleColor: "#FFF5FA", authorColor: "#F5E8F0", category: "creative" },
+  "Art Books": { accent: "#FF6347", titleColor: "#FFF5F0", authorColor: "#FFE8E0", category: "creative" },
+  "Photography Books": { accent: "#C0C0C0", titleColor: "#F5F5F5", authorColor: "#E8E8E8", category: "creative" },
+  
+  // Spiritual - Warm, peaceful colors
+  "Spirituality": { accent: "#E6BE8A", titleColor: "#FFF8F0", authorColor: "#FFF0E0", category: "spiritual" },
+  "Mindfulness": { accent: "#87CEEB", titleColor: "#F0F8FF", authorColor: "#E0F0FF", category: "spiritual" },
+  "Motivational": { accent: "#FFD700", titleColor: "#FFFAF0", authorColor: "#FFF5E0", category: "spiritual" },
+  
+  // Default - Classic gold
+  "default": { accent: "#D4AF37", titleColor: "#F5F0E1", authorColor: "#E8DFD0", category: "default" }
+};
+
+function getGenreStyle(genre: string) {
+  // Try exact match first
+  if (genreStyles[genre]) return genreStyles[genre];
+  
+  // Try partial match
+  for (const [key, style] of Object.entries(genreStyles)) {
+    if (genre.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(genre.toLowerCase())) {
+      return style;
+    }
+  }
+  
+  // Category-based fallback
+  const lowerGenre = genre.toLowerCase();
+  if (lowerGenre.includes("fiction") || lowerGenre.includes("novel") || lowerGenre.includes("story")) {
+    return { accent: "#D4AF37", titleColor: "#FDF6E3", authorColor: "#EDE4D1", category: "fiction" };
+  }
+  if (lowerGenre.includes("self") || lowerGenre.includes("business") || lowerGenre.includes("finance")) {
+    return { accent: "#B8860B", titleColor: "#F5F0E1", authorColor: "#E8DFD0", category: "nonfiction" };
+  }
+  
+  return genreStyles["default"];
+}
+
+// Extract a clean, short title from topic or outline text
+function extractCleanTitle(text: string): string {
+  if (!text) return "Untitled";
+  
+  let title = text;
+  
+  // Remove common prefixes like "Topic 1:", "Topic 2:", etc.
+  title = title.replace(/^Topic\s*\d+[:\s]*/i, "");
+  
+  // Remove markdown formatting
+  title = title.replace(/\*\*/g, "").replace(/\*/g, "").replace(/[#_`~]/g, "");
+  
+  // Check if title is in quotes: 'Title' or "Title" followed by description
+  const quotedMatch = title.match(/^['"]([^'"]+)['"]\s*[-–—]\s*.+/);
+  if (quotedMatch && quotedMatch[1].length > 3) {
+    title = quotedMatch[1].trim();
+    title = title.replace(/^['":\s]+|['":\s]+$/g, "").trim();
+    return title;
+  }
+  
+  // For unquoted titles: extract title+subtitle before description separator " - "
+  const dashSepIdx = title.indexOf(" - ");
+  if (dashSepIdx > 5) {
+    const beforeDash = title.substring(0, dashSepIdx).trim();
+    const afterDash = title.substring(dashSepIdx + 3).trim();
+    if (afterDash.length > 30) {
+      title = beforeDash;
+    }
+  }
+  
+  // Remove description phrases that start with common patterns
+  title = title.replace(/\s*[-–—]\s*(Inspired by|This ebook|This book|Drawing from|A\s+\w+\s+(novel|story|book|ebook|thriller|mystery|romance|collection)|This unique|This\s+\w+\s+series).*$/i, "");
+  
+  // Remove trailing "Inspired by..." from subtitle if present
+  title = title.replace(/\s+Inspired by\s+.*$/i, "");
+  title = title.replace(/\s+Drawing from\s+.*$/i, "");
+  
+  // Remove leading/trailing quotes and punctuation
+  title = title.replace(/^['":\s]+|['":\s]+$/g, "").trim();
+  
+  // If still too long (over 100 chars), truncate gracefully at word boundary
+  if (title.length > 100) {
+    const words = title.split(" ");
+    let shortened = "";
+    for (const word of words) {
+      if ((shortened + " " + word).length > 90) break;
+      shortened = shortened ? `${shortened} ${word}` : word;
+    }
+    title = shortened || title.substring(0, 45);
+  }
+  
+  // Final cleanup - remove any remaining problematic characters
+  title = title.replace(/[^\w\s'-]/g, " ").replace(/\s+/g, " ").trim();
+  
+  return title || "Untitled";
+}
+
+// Two OpenAI clients for different styles
+// Replit Cinematic style uses gpt-image-1 via Replit integration
+const openaiReplit = new OpenAI({
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
+
+// DALL-E 3 Vivid style uses user's OpenAI API key with standard OpenAI API
+const openaiDalle3 = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_API_KEY ? undefined : process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
+
+// Try to access gpt-image-1 using user's key through Replit's infrastructure
+// This attempts to replicate the exact 239-253 cover generation with user's own API key
+const openaiCinematicUser = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
+
+// Default client for non-image operations (text generation)
+const openai = openaiDalle3;
+
+const IMAGE_MODEL_PRIMARY = "gpt-image-1.5";
+const IMAGE_MODEL_FALLBACK = "gpt-image-1";
+
+const openaiDirectForImages = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// AI Provider toggle: "openai" = direct OpenAI, "replit" = Replit AI proxy
+let contentAIProvider: "openai" | "replit" = "openai";
+
+export function setContentAIProvider(provider: "openai" | "replit") {
+  contentAIProvider = provider;
+  console.log(`[AI Provider] Content generation now using: ${provider === "replit" ? "Replit AI" : "OpenAI"}`);
+}
+
+export function getContentAIProvider(): "openai" | "replit" {
+  return contentAIProvider;
+}
+
+function getContentClient(): OpenAI {
+  if (contentAIProvider === "replit") {
+    return openaiReplit;
+  }
+  return openai;
+}
+
+function getFallbackClient(): OpenAI {
+  return openai;
+}
+
+function getSecondFallbackClient(): OpenAI {
+  return openaiReplit;
+}
+
+const REFUSAL_PATTERNS = [
+  /^I can(?:'t| not) (?:create|write|generate|produce|help|build|draft)/i,
+  /^I'm (?:not able to|unable to|sorry,? (?:but )?I can(?:'t| not))/i,
+  /I (?:can(?:'t| not)|won't|will not) (?:help )?(?:plan|depict|write|create|generate).*(?:sexual|explicit|violence|coercion|assault)/i,
+  /sexual (?:coercion|violence|assault) is/i,
+  /I'm not comfortable/i,
+  /against (?:my|our) (?:content |usage )?polic/i,
+];
+
+function detectRefusal(text: string): boolean {
+  const firstParagraph = text.substring(0, 500);
+  return REFUSAL_PATTERNS.some(p => p.test(firstParagraph));
+}
+
+const VISUAL_ENHANCED_GENRES: Record<string, { description: string; illustrationStyle: string; promptPrefix: string }> = {
+  "Comics": {
+    description: "Instructional comic-creation guide with AI-generated example panels, character designs, and layout demonstrations embedded throughout.",
+    illustrationStyle: "comic book panel style, bold ink lines, vibrant colors, dynamic composition, speech bubbles",
+    promptPrefix: "This is a visual-enhanced book about creating comics. Include [ILLUSTRATION: detailed description] markers throughout the content where AI-generated example comic panels, character sketches, panel layout demonstrations, and visual examples should appear. Each chapter should have 2-4 illustration markers showing actual examples of what's being taught."
+  },
+  "Graphic Novels": {
+    description: "Guide to graphic novel creation with AI-generated example panels, sequential art demonstrations, and visual storytelling examples.",
+    illustrationStyle: "graphic novel art style, cinematic composition, detailed shading, dramatic lighting, sequential panels",
+    promptPrefix: "This is a visual-enhanced book about graphic novel creation. Include [ILLUSTRATION: detailed description] markers throughout where AI-generated example panels, page layouts, visual storytelling sequences, and art technique demonstrations should appear. Each chapter should have 2-4 illustration markers."
+  },
+  "Photography Books": {
+    description: "Photography technique guide with AI-generated example photographs demonstrating compositions, lighting setups, and techniques.",
+    illustrationStyle: "professional photograph, high resolution, dramatic lighting, artistic composition",
+    promptPrefix: "This is a visual-enhanced photography guide. Include [ILLUSTRATION: detailed description] markers where AI-generated example photographs demonstrating the techniques, compositions, and styles being discussed should appear. Each chapter should have 2-3 illustration markers."
+  },
+  "Coloring Books": {
+    description: "Coloring activity book with AI-generated line art illustrations for coloring, plus technique guides.",
+    illustrationStyle: "black and white line art, intricate details, clean outlines suitable for coloring, no shading",
+    promptPrefix: "This is a visual-enhanced coloring book guide. Include [ILLUSTRATION: detailed description] markers where AI-generated line art examples, coloring technique demonstrations, and sample pages should appear. Each chapter should have 3-5 illustration markers."
+  },
+  "Art Books": {
+    description: "Art technique and appreciation guide with AI-generated artwork examples demonstrating styles, techniques, and compositions.",
+    illustrationStyle: "fine art style, museum quality, varied artistic techniques, rich detail",
+    promptPrefix: "This is a visual-enhanced art book. Include [ILLUSTRATION: detailed description] markers where AI-generated artwork examples, technique demonstrations, and style comparisons should appear. Each chapter should have 2-4 illustration markers."
+  },
+  "Education / Learning": {
+    description: "Educational guide with AI-generated diagrams, charts, visual examples, and concept illustrations to reinforce learning.",
+    illustrationStyle: "clean educational diagram, labeled annotations, clear visual hierarchy, informative infographic style",
+    promptPrefix: "This is a visual-enhanced educational book. Include [ILLUSTRATION: detailed description] markers where AI-generated diagrams, charts, concept maps, visual examples, and annotated illustrations should appear to help readers understand the material. Each chapter should have 2-4 illustration markers."
+  },
+  "Textbooks": {
+    description: "Textbook with AI-generated diagrams, figures, graphs, and visual aids that explain concepts clearly.",
+    illustrationStyle: "textbook illustration, precise diagram, labeled parts, clear educational visual, professional academic style",
+    promptPrefix: "This is a visual-enhanced textbook. Include [ILLUSTRATION: detailed description] markers where AI-generated diagrams, graphs, figures, data visualizations, and annotated examples should appear to support the educational content. Each chapter should have 3-5 illustration markers."
+  },
+  "Workbooks": {
+    description: "Interactive workbook with AI-generated visual prompts, example exercises, diagrams, and illustrated instructions.",
+    illustrationStyle: "workbook exercise style, clean layout, visual prompts, step-by-step diagrams, practice examples",
+    promptPrefix: "This is a visual-enhanced workbook. Include [ILLUSTRATION: detailed description] markers where AI-generated visual prompts, example exercises with diagrams, step-by-step visual instructions, and illustrated practice scenarios should appear. Each chapter should have 3-5 illustration markers."
+  },
+  "Tutorials": {
+    description: "Step-by-step tutorial with AI-generated visual walkthroughs, screenshots, process diagrams, and result examples.",
+    illustrationStyle: "tutorial screenshot style, step-by-step visual, annotated process diagram, before-and-after comparison",
+    promptPrefix: "This is a visual-enhanced tutorial book. Include [ILLUSTRATION: detailed description] markers where AI-generated step-by-step visuals, process diagrams, annotated examples, and result demonstrations should appear. Each chapter should have 2-4 illustration markers."
+  },
+  "Reference Books": {
+    description: "Reference guide with AI-generated diagrams, comparison charts, visual indexes, and illustrated examples.",
+    illustrationStyle: "reference illustration, comparison chart, labeled diagram, organized visual layout, informative graphic",
+    promptPrefix: "This is a visual-enhanced reference book. Include [ILLUSTRATION: detailed description] markers where AI-generated comparison charts, labeled diagrams, visual indexes, and illustrated examples should appear to make the reference material more accessible. Each chapter should have 2-3 illustration markers."
+  },
+  "Activity Books": {
+    description: "Interactive activity book with AI-generated visual puzzles, illustrated exercises, game boards, challenge pages, and activity prompts.",
+    illustrationStyle: "activity book illustration, playful layout, puzzle graphics, challenge visuals, engaging game-style art",
+    promptPrefix: "This is a visual-enhanced activity book. Include [ILLUSTRATION: detailed description] markers where AI-generated visual puzzles, illustrated challenges, game boards, activity page layouts, and visual prompts should appear to make the activities engaging and interactive. Each chapter should have 3-5 illustration markers."
+  },
+  "Art & Design": {
+    description: "Art and design guide with AI-generated technique demonstrations, style examples, composition studies, and visual tutorials.",
+    illustrationStyle: "artistic demonstration, technique example, design composition, visual tutorial style",
+    promptPrefix: "This is a visual-enhanced art and design book. Include [ILLUSTRATION: detailed description] markers where AI-generated technique demonstrations, style examples, design compositions, and visual tutorials should appear. Each chapter should have 2-4 illustration markers."
+  },
+  "Quote Books": {
+    description: "Inspirational quote book with AI-generated stylized quote images — beautiful typography over artistic backgrounds for each featured quote.",
+    illustrationStyle: "stylized quote card, elegant typography over artistic background, inspirational poster design, beautiful lettering, motivational wall art style",
+    promptPrefix: "This is a visual-enhanced quote book. Include [ILLUSTRATION: detailed description] markers where AI-generated stylized quote images should appear — each one featuring the quote text rendered in beautiful typography over an artistic, themed background. Every section of quotes should have 2-4 illustration markers showing the most impactful quotes as visual art pieces readers would want to frame or share."
+  },
+  "Journals": {
+    description: "Guided journal with AI-generated decorative page layouts, writing area templates, prompt illustrations, and journaling guide visuals.",
+    illustrationStyle: "journal page layout, decorative writing area template, lined writing space with ornamental borders, guided prompt illustration, soft aesthetic design",
+    promptPrefix: "This is a visual-enhanced guided journal. Include [ILLUSTRATION: detailed description] markers where AI-generated journal page layouts should appear — showing decorative writing areas, prompted reflection spaces, tracking templates, and beautifully designed pages that invite the reader to write in. Each chapter should have 3-5 illustration markers showing journal-style pages with writing areas, prompts, and decorative elements."
+  },
+  "Fashion & Beauty": {
+    description: "Fashion and beauty guide with AI-generated outfit flat lays, styling demonstrations, look comparisons, makeup examples, and editorial photography references.",
+    illustrationStyle: "editorial fashion photography, professional flat lay styling, clean white background, high contrast, vibrant colours, magazine-quality composition",
+    promptPrefix: "This is a visual-enhanced fashion and beauty book. Include [ILLUSTRATION: detailed description] markers where AI-generated outfit flat lays, styled looks, before-and-after comparisons, technique demonstrations, accessory pairings, and editorial fashion images should appear to visually reinforce what is being taught. Each chapter should have 2-4 illustration markers showing realistic, styled examples directly relevant to the content."
+  },
+  "Cookbooks": {
+    description: "Cookbook with AI-generated recipe photos, plating presentations, step-by-step cooking process shots, and ingredient flat lays.",
+    illustrationStyle: "professional food photography, styled recipe shot, shallow depth of field, warm natural lighting, magazine-quality plating",
+    promptPrefix: "This is a visual-enhanced cookbook. Include [ILLUSTRATION: detailed description] markers where AI-generated food photography should appear — finished dish presentations, step-by-step cooking process shots, ingredient flat lays, plating technique examples, and styled recipe images. Each chapter or recipe section should have 2-4 illustration markers showing appetising, professional-quality food photos directly relevant to the recipes being taught."
+  },
+  "DIY / Crafts": {
+    description: "DIY and crafts guide with AI-generated step-by-step project photos, finished result showcases, material flat lays, and technique close-ups.",
+    illustrationStyle: "bright craft photography, clean workspace flat lay, step-by-step process shot, clear detail close-up, natural light studio style",
+    promptPrefix: "This is a visual-enhanced DIY and crafts book. Include [ILLUSTRATION: detailed description] markers where AI-generated project photos should appear — step-by-step process shots, finished project showcases, material and tool flat lays, technique close-ups, and before-and-after comparisons. Each chapter should have 2-4 illustration markers showing clear, instructional images that help the reader follow along with the project."
+  },
+  "Sports & Fitness": {
+    description: "Sports and fitness guide with AI-generated exercise demonstration photos, form diagrams, workout layouts, and training technique visuals.",
+    illustrationStyle: "clean fitness photography, exercise demonstration on white background, proper form reference, athletic studio lighting, instructional sports visual",
+    promptPrefix: "This is a visual-enhanced sports and fitness book. Include [ILLUSTRATION: detailed description] markers where AI-generated exercise and training visuals should appear — proper form demonstrations, exercise sequence breakdowns, workout diagrams, muscle group references, training drill layouts, and technique comparisons. Each chapter should have 2-4 illustration markers showing clear, instructional fitness images that help the reader perform exercises correctly."
+  },
+  "Health & Wellness": {
+    description: "Health and wellness guide with AI-generated body diagrams, technique demonstrations, wellness practice visuals, and lifestyle imagery.",
+    illustrationStyle: "clean health and wellness photography, calm lifestyle imagery, anatomy diagram, mindfulness visual, soft natural light, instructional medical illustration style",
+    promptPrefix: "This is a visual-enhanced health and wellness book. Include [ILLUSTRATION: detailed description] markers where AI-generated health visuals should appear — body diagrams, technique demonstrations, breathing or movement exercises, wellness practice imagery, and healthy lifestyle photos. Each chapter should have 2-4 illustration markers showing clear, reassuring images that reinforce the health concepts being taught."
+  },
+  "Travel": {
+    description: "Travel guide with AI-generated destination photography, landmark imagery, local culture visuals, maps, and travel scene photography.",
+    illustrationStyle: "professional travel photography, vibrant destination shot, golden hour landmark photo, authentic local culture image, cinematic landscape composition",
+    promptPrefix: "This is a visual-enhanced travel book. Include [ILLUSTRATION: detailed description] markers where AI-generated travel photography should appear — destination landscapes, iconic landmarks, local culture and food scenes, street photography, maps and route overviews, and atmospheric location shots. Each chapter or destination section should have 2-4 illustration markers showing vivid, evocative travel images that bring the destination to life for the reader."
+  },
+  "Home Décor": {
+    description: "Home décor guide with AI-generated room design photos, furniture arrangement layouts, colour palette visualisations, and before-and-after transformations.",
+    illustrationStyle: "professional interior design photography, styled room shot, natural light interior, magazine-quality home décor composition, clean architectural photography",
+    promptPrefix: "This is a visual-enhanced home décor book. Include [ILLUSTRATION: detailed description] markers where AI-generated interior design visuals should appear — styled room photos, furniture layout diagrams, colour palette swatches, before-and-after room transformations, décor detail close-ups, and design inspiration imagery. Each chapter should have 2-4 illustration markers showing beautiful, aspirational interior images that illustrate the design concepts being discussed."
+  },
+  "Technical Manuals": {
+    description: "Technical manual with AI-generated diagrams, labelled schematics, process flowcharts, component breakdowns, and annotated technical illustrations.",
+    illustrationStyle: "precise technical diagram, clean schematic illustration, labelled component breakdown, professional engineering drawing style, white background with clear annotations",
+    promptPrefix: "This is a visual-enhanced technical manual. Include [ILLUSTRATION: detailed description] markers where AI-generated technical visuals should appear — labelled diagrams, component schematics, process flowcharts, system architecture overviews, assembly step visuals, and annotated technical illustrations. Each chapter should have 2-4 illustration markers showing clear, precise diagrams that help the reader understand the technical concepts and procedures."
+  },
+  "Music": {
+    description: "Music guide with AI-generated chord diagrams, sheet music excerpts, instrument photography, technique demonstrations, and notation examples.",
+    illustrationStyle: "clean music education visual, chord diagram on white background, instrument close-up photography, sheet music notation example, studio music photography",
+    promptPrefix: "This is a visual-enhanced music book. Include [ILLUSTRATION: detailed description] markers where AI-generated music visuals should appear — chord diagrams, scale and notation examples, instrument technique close-ups, hand position demonstrations, sheet music excerpts, and musical concept diagrams. Each chapter should have 2-4 illustration markers showing clear, instructional music images that help the reader understand and apply what is being taught."
+  },
+  "Gaming": {
+    description: "Gaming guide with AI-generated strategy diagrams, game mechanic visuals, map overviews, character and item references, and gameplay screenshots.",
+    illustrationStyle: "clean gaming infographic, strategy map diagram, game mechanic visual, vibrant digital art style, esports-quality graphic design",
+    promptPrefix: "This is a visual-enhanced gaming book. Include [ILLUSTRATION: detailed description] markers where AI-generated gaming visuals should appear — strategy maps, game mechanic diagrams, character and item reference charts, skill tree visuals, positioning guides, tier lists, and gameplay scenario illustrations. Each chapter should have 2-4 illustration markers showing clear, engaging visuals that help the reader understand and apply the strategies being explained."
+  },
+  "Children's Fiction": {
+    description: "Children's fiction with AI-generated character illustrations, scene artwork, world-building visuals, and story moment images.",
+    illustrationStyle: "charming children's book illustration, bright cheerful colours, friendly character art, storybook scene, soft rounded style suitable for young readers",
+    promptPrefix: "This is a visual-enhanced children's fiction book. Include [ILLUSTRATION: detailed description] markers where AI-generated story illustrations should appear — character portraits, key story moments, setting and world scenes, action sequences, and emotional story beats. Each chapter should have 2-4 illustration markers showing warm, imaginative, child-friendly artwork that brings the story characters and world to life."
+  }
+};
+
+export function validateGenreForGeneration(genre: string): { valid: boolean; warning?: string; suggestion?: string; genreType: string; visualEnhanced?: boolean } {
+  const visualGenre = VISUAL_ENHANCED_GENRES[genre];
+  if (visualGenre) {
+    return {
+      valid: true,
+      visualEnhanced: true,
+      warning: `"${genre}" is a visual-enhanced genre. Content will be generated with [ILLUSTRATION] markers, then AI images will be created for each marker.`,
+      suggestion: visualGenre.description,
+      genreType: "visual-enhanced"
+    };
+  }
+  return { valid: true, genreType: isFictionGenre(genre) ? "fiction" : "nonfiction" };
+}
+
+export function getVisualFirstGenres(): string[] {
+  return Object.keys(VISUAL_ENHANCED_GENRES);
+}
+
+export function isVisualEnhancedGenre(genre: string): boolean {
+  if (genre in VISUAL_ENHANCED_GENRES) return true;
+  return genre.split(/,\s*/).some(part => part in VISUAL_ENHANCED_GENRES);
+}
+
+export function getVisualEnhancedConfig(genre: string) {
+  if (VISUAL_ENHANCED_GENRES[genre]) return VISUAL_ENHANCED_GENRES[genre];
+  const parts = genre.split(/,\s*/);
+  for (const part of parts) {
+    if (VISUAL_ENHANCED_GENRES[part]) return VISUAL_ENHANCED_GENRES[part];
+  }
+  return null;
+}
+
+const GENRES = [
+  // Fiction (Story-Driven)
+  "Literary Fiction",
+  "Science Fiction",
+  "Fantasy",
+  "Mystery / Thriller",
+  "Romance",
+  "Horror",
+  "Historical Fiction",
+  "Adventure",
+  "Dystopian",
+  "Drama",
+  "Young Adult Fiction",
+  "Children's Fiction",
+  
+  // Nonfiction (Information-Driven)
+  "Self-Help / Personal Development",
+  "Business / Entrepreneurship",
+  "Finance / Investing",
+  "Health & Wellness",
+  "Psychology",
+  "Productivity",
+  "Biographies & Memoirs",
+  "History",
+  "Science & Technology",
+  "Philosophy",
+  "Travel",
+  "Parenting",
+  "Education / Learning",
+  
+  // Practical & How-To
+  "Guides & Manuals",
+  "Cookbooks",
+  "Workbooks",
+  "Tutorials",
+  "DIY / Crafts",
+  "Fitness Programs",
+  "Career Guides",
+  
+  // Creative & Artistic
+  "Poetry",
+  "Short Story Collections",
+  "Photography Books",
+  "Art Books",
+  "Graphic Novels",
+  "Comics",
+  
+  // Spiritual & Inspirational
+  "Religion",
+  "Spirituality",
+  "Mindfulness",
+  "Motivational",
+  "Manifestation / Law of Attraction",
+  
+  // Academic & Professional
+  "Textbooks",
+  "Research Books",
+  "Case Studies",
+  "Technical Manuals",
+  "Reference Books",
+  
+  // Entertainment & Lifestyle
+  "Humor",
+  "Pop Culture",
+  "Fashion",
+  "Home Décor",
+  "Food & Drink",
+  "Sports",
+  
+  // Hybrid Formats
+  "Journals",
+  "Planners",
+  "Prompt Books",
+  "Coloring Books",
+  "Activity Books",
+  "Quote Books"
+];
+
+export async function generateTopicIdeas(genre: string, count: number = 2): Promise<string[]> {
+  const response = await getContentClient().chat.completions.create({
+    model: "gpt-5.2",
+    messages: [
+      {
+        role: "system",
+        content: "You are an expert in identifying trending and popular ebook topics. Generate unique, compelling ebook topic ideas that would sell well."
+      },
+      {
+        role: "user",
+        content: `Generate ${count} unique, trending ebook topic ideas for the "${genre}" genre. These should be topics that people are actively searching for and would pay money to learn about. Return a JSON object with a "topics" array containing the topic strings. Example: {"topics": ["Topic 1", "Topic 2"]}`
+      }
+    ],
+    response_format: { type: "json_object" },
+    max_completion_tokens: 500,
+  });
+
+  try {
+    const content = response.choices[0]?.message?.content || '{"topics":[]}';
+    const parsed = JSON.parse(content);
+    return parsed.topics || [];
+  } catch {
+    return [];
+  }
+}
+
+// Inspired by popular works - generate topics based on famous book/movie structures
+export async function generateInspiredTopicIdeas(genre: string, count: number = 2): Promise<string[]> {
+  const response = await getContentClient().chat.completions.create({
+    model: "gpt-5.2",
+    messages: [
+      {
+        role: "system",
+        content: `You are an expert in book publishing and popular media. Generate original ebook topic ideas that are INSPIRED BY the structures, themes, and formats of famous books, movies, and ebooks. 
+        
+Do NOT copy or use trademarked names - create ORIGINAL concepts that use similar storytelling structures, formats, or thematic approaches.
+
+Examples of what we mean:
+- A self-help book structured like "The 7 Habits" (numbered principles format)
+- A business book using the narrative style of "Good to Great" (research-based storytelling)
+- A fiction book with the hero's journey structure popularized by Star Wars
+- A cookbook formatted like "Salt Fat Acid Heat" (fundamental principles approach)
+- A personal development book with the minimalist philosophy of "Essentialism"
+- A finance book using the parable format of "The Richest Man in Babylon"
+- A productivity book with the systems approach of "Atomic Habits"
+- A motivational book with the conversational style of "You Are a Badass"
+
+Create ORIGINAL, publishable concepts that draw inspiration from proven successful formats.`
+      },
+      {
+        role: "user",
+        content: `Generate ${count} ORIGINAL ebook topic ideas for the "${genre}" genre that are inspired by the structures and formats of popular books, movies, or famous ebooks. 
+
+These should be:
+1. Completely original titles and concepts (no trademark issues)
+2. Inspired by proven successful book/movie structures
+3. Commercially viable and appealing to readers
+4. Unique enough to stand on their own
+
+Return a JSON object with a "topics" array containing the topic strings. Example: {"topics": ["Topic 1: Description of the inspired format", "Topic 2: Description of the inspired format"]}`
+      }
+    ],
+    response_format: { type: "json_object" },
+    max_completion_tokens: 800,
+  });
+
+  try {
+    const content = response.choices[0]?.message?.content || '{"topics":[]}';
+    const parsed = JSON.parse(content);
+    return parsed.topics || [];
+  } catch {
+    return [];
+  }
+}
+
+const FICTION_GENRES = new Set([
+  "Literary Fiction", "Science Fiction", "Fantasy", "Mystery / Thriller",
+  "Romance", "Horror", "Historical Fiction", "Adventure", "Dystopian",
+  "Drama", "Young Adult Fiction", "Children's Fiction",
+  "Short Story Collections", "Short Stories", "Mystery", "Thriller",
+  "Fiction", "Sci-Fi", "Supernatural"
+]);
+
+function isFictionGenre(genre: string): boolean {
+  if (FICTION_GENRES.has(genre)) return true;
+  const lower = genre.toLowerCase();
+  return ["fiction", "romance", "horror", "mystery", "fantasy", "thriller",
+    "adventure", "dystopian", "drama", "sci-fi", "science fiction", "short stor",
+    "supernatural"].some(kw => lower.includes(kw));
+}
+
+function getGenreAuthorList(genre: string): { authors: { name: string; signature: string }[]; genreLabel: string } {
+  const lower = genre.toLowerCase();
+
+  if (lower.includes("horror") || lower.includes("supernatural")) {
+    return { genreLabel: "Horror", authors: [
+      { name: "Stephen King", signature: "Psychological realism, slow burn, three layers of fear (terror > horror > gross-out), character-driven horror grounded in real human fears" },
+      { name: "Shirley Jackson", signature: "Domestic dread, creeping unease, social dynamics as horror, ambiguous supernatural, familiar spaces turned hostile" },
+      { name: "Clive Barker", signature: "Lyrical body horror, dark fantasy, monsters that seduce, original mythologies, visceral imagination with poetic prose" },
+      { name: "Paul Tremblay", signature: "Ambiguity, unreliable reality, found-document techniques, reader as participant, controversial unresolved endings" },
+      { name: "Dean Koontz", signature: "Thriller-paced horror, escalating trouble, genre blending, hope alongside horror" },
+      { name: "H.P. Lovecraft", signature: "Cosmic dread, insignificance of humanity, forbidden knowledge, settings as living hostile entities" },
+    ]};
+  }
+  if (lower.includes("romance") || lower.includes("love")) {
+    return { genreLabel: "Romance", authors: [
+      { name: "Nora Roberts", signature: "Setting as character, earned happy endings, immersive daily life that grows romance organically" },
+      { name: "Colleen Hoover", signature: "Raw first-person intimacy, gut-punch plot twists, difficult subjects layered under love, gradual backstory reveals" },
+      { name: "Nicholas Sparks", signature: "Small-town atmosphere, emotional depth over physical, time as a character, bittersweet beauty" },
+      { name: "Julia Quinn", signature: "Witty banter as foreplay, humor in romance, social constraints as tension, verbal sparring chemistry" },
+      { name: "Diana Gabaldon", signature: "Epic scope across time, sensory intimacy (touch/scent/taste), strong independent protagonists" },
+      { name: "Emily Henry", signature: "Modern chemistry, progressive vulnerability, internal conflict over external, forced proximity" },
+    ]};
+  }
+  if (lower.includes("mystery") || lower.includes("thriller") || lower.includes("suspense") || lower.includes("crime") || lower.includes("detective")) {
+    return { genreLabel: "Mystery/Thriller", authors: [
+      { name: "Gillian Flynn", signature: "Unreliable narrators, psychological darkness, reversal of expectations, toxic relationships as mystery, moral ambiguity" },
+      { name: "Agatha Christie", signature: "Classic puzzle architecture, fair-play clue planting, red herrings, the final gathering reveal" },
+      { name: "Lee Child", signature: "Ultra-short impactful openers, suspense through questions, exposition through action, competence as thrill" },
+      { name: "James Patterson", signature: "Ultra-short chapters, relentless pacing, raising stakes continuously, multiple POV threads" },
+      { name: "Tana French", signature: "Atmospheric investigation, setting as mystery, psychological complexity, slow-burn community secrets" },
+      { name: "Dennis Lehane", signature: "Crime as tragedy, working-class authenticity, the price of truth, ticking clock urgency" },
+    ]};
+  }
+  if (lower.includes("fantasy") || lower.includes("myth")) {
+    return { genreLabel: "Fantasy", authors: [
+      { name: "J.R.R. Tolkien", signature: "Deep history as living force, linguistic worldbuilding, eucatastrophe, weight of ages on objects/places" },
+      { name: "Brandon Sanderson", signature: "Hard magic with rules and cost, the avalanche climax, consistent internal logic, foreshadowing payoffs" },
+      { name: "George R.R. Martin", signature: "Moral complexity, actions with consequences, rotating POV chapters, political intrigue" },
+      { name: "J.K. Rowling", signature: "Sense of wonder, mystery architecture in fantasy, found family bonds, humor in high stakes" },
+      { name: "Patrick Rothfuss", signature: "Prose as music, frame narrative structure, selective vivid detail, names carry power" },
+      { name: "Ursula K. Le Guin", signature: "Philosophical depth, cultural anthropology worldbuilding, restraint in prose, magic as ecology" },
+      { name: "Robin Hobb", signature: "Deep POV intimacy, earned suffering, animal bonds with nature, long-term realistic character arcs" },
+    ]};
+  }
+  if (lower.includes("sci-fi") || lower.includes("science fiction") || lower.includes("dystopian") || lower.includes("cyberpunk")) {
+    return { genreLabel: "Science Fiction", authors: [
+      { name: "Frank Herbert", signature: "Ecological worldbuilding, political chess across generations, prescient themes, sensory immersion in alien worlds" },
+      { name: "Isaac Asimov", signature: "Ideas as protagonists, speculative extrapolation, dialogue as discovery, civilization-scale thinking" },
+      { name: "Philip K. Dick", signature: "Reality questioning, empathy as core test of humanity, ordinary people in extraordinary worlds, paranoid atmosphere" },
+      { name: "William Gibson", signature: "Cyberpunk texture, dense atmospheric prose, technology as culture, street-level futurism, convergent storylines" },
+      { name: "Octavia Butler", signature: "Power dynamics as science, survival through adaptation, uncomfortable compromises, intimate scale in cosmic stories" },
+      { name: "Liu Cixin", signature: "Hard science as plot, cosmic indifference, civilizational stakes, sense of wonder from physics" },
+      { name: "Neal Stephenson", signature: "Maximalist technical detail, humor in complexity, multiple knowledge domains, grounded natural dialogue" },
+    ]};
+  }
+  if (lower.includes("historical")) {
+    return { genreLabel: "Historical Fiction", authors: [
+      { name: "Hilary Mantel", signature: "Intimate camera-behind-eyes POV, present tense immediacy, inhabit the era completely, moral ambiguity in history" },
+      { name: "Ken Follett", signature: "Epic scope with story turns every 4-6 pages, multiple protagonist viewpoints, research-backed details" },
+      { name: "Philippa Gregory", signature: "Women's untold stories, creative interpretation of historical gaps, domestic spaces as battlefields" },
+      { name: "Colson Whitehead", signature: "Magical realism in historical settings, structural innovation, violence without flinching, historical memory" },
+      { name: "Anthony Doerr", signature: "Poetic precision, parallel narrative structure, small moments in vast conflicts, science and wonder" },
+      { name: "Umberto Eco", signature: "Intellectual mystery in historical settings, language as time machine, labyrinthine multilayered plots" },
+    ]};
+  }
+  if (lower.includes("drama") && !lower.includes("literary")) {
+    return { genreLabel: "Drama", authors: [
+      { name: "Khaled Hosseini", signature: "Devastating emotional arcs, family bonds tested by war and fate, redemption through sacrifice, visceral human suffering rendered with tenderness" },
+      { name: "Jodi Picoult", signature: "Moral dilemmas with no easy answers, multiple POV storytelling, courtroom tension, family secrets that destroy and heal" },
+      { name: "Celeste Ng", signature: "Suburban pressure cooker, race and class collisions, motherhood as battlefield, slow-burn revelations that reframe everything" },
+      { name: "Dennis Lehane", signature: "Street-level realism, working-class voices, neighborhood as character, violence with emotional consequences, masculine vulnerability" },
+      { name: "Tayari Jones", signature: "Intimate relationship drama, systemic injustice as backdrop, emotional authenticity, dialogue that reveals character flaws" },
+      { name: "Richard Price", signature: "Urban grit, overlapping social worlds, authentic street dialogue, moral gray zones, ensemble casts with no heroes or villains" },
+    ]};
+  }
+  if (lower.includes("literary")) {
+    return { genreLabel: "Literary Fiction", authors: [
+      { name: "Donna Tartt", signature: "Obsessive detail, aesthetic beauty alongside darkness, literary suspense, campus/intellectual settings" },
+      { name: "Kazuo Ishiguro", signature: "Unreliable memory, quiet devastation, restraint and understatement, emotion through what's NOT said" },
+      { name: "Toni Morrison", signature: "Lyrical prose as music, cultural memory, mythic dimensions in personal stories, language as power" },
+      { name: "Chimamanda Ngozi Adichie", signature: "Dual cultural perspectives, political personal stories, sharp social observation, authentic dialogue" },
+      { name: "Cormac McCarthy", signature: "Sparse minimalist prose, biblical cadence, violence as revelation, landscape as character" },
+      { name: "Zadie Smith", signature: "Multicultural comedy, intellectual playfulness, class and identity, ensemble character novels" },
+    ]};
+  }
+  if (lower.includes("business") || lower.includes("entrepreneur") || lower.includes("finance")) {
+    return { genreLabel: "Business & Finance", authors: [
+      { name: "Simon Sinek", signature: "Start with why, clarity above all, rhetorical rhythm, cross-domain examples" },
+      { name: "Peter Thiel", signature: "Contrarian thinking, first principles, provocative opening questions, pithy aphorisms" },
+      { name: "Tim Ferriss", signature: "Ultra-practical actionable systems, personal experimentation, modular chapters, 80/20 principle" },
+      { name: "Robert Kiyosaki", signature: "Parable-based teaching, challenge sacred cows, visual models, aspirational motivation" },
+      { name: "Jim Collins", signature: "Research-backed excellence, memorable metaphors (Hedgehog/Flywheel), comparison methodology" },
+      { name: "Ray Dalio", signature: "Numbered principles, radical transparency about failures, systems thinking" },
+    ]};
+  }
+  if (lower.includes("health") || lower.includes("wellness") || lower.includes("fitness") || lower.includes("sleep") || lower.includes("nutrition")) {
+    return { genreLabel: "Health & Wellness", authors: [
+      { name: "Matthew Walker", signature: "Science storytelling, metaphors for complex biology, evidence-rich but engaging, practical endpoints" },
+      { name: "Andrew Huberman", signature: "Mechanism-first protocols, specific timing/dosage instructions, transparent limitations, empowerment" },
+      { name: "Michael Greger", signature: "Study-by-study evidence stacking, debunk industry claims, humor in health, daily checklists" },
+      { name: "James Nestor", signature: "Investigative journalism, personal guinea pig, historical context meets modern science, sensory immersion" },
+      { name: "Wim Hof", signature: "Experiential learning, progressive challenges, mind-body connection" },
+      { name: "Kelly Starrett", signature: "Diagnose then prescribe, visual step-by-step movement, daily practice integration" },
+    ]};
+  }
+  if (lower.includes("psychology") || lower.includes("philosophy") || lower.includes("mindset") || lower.includes("cognitive")) {
+    return { genreLabel: "Psychology", authors: [
+      { name: "Daniel Kahneman", signature: "Dual-process frameworks, experiments as stories, memorable acronyms, self-referential honesty about biases" },
+      { name: "Angela Duckworth", signature: "Storytelling first then data, self-assessment tools, hero profiles across fields, myth-busting with evidence" },
+      { name: "Mihaly Csikszentmihalyi", signature: "Cross-domain examples, flow model (challenge vs skill), interview-based evidence, intrinsic motivation" },
+      { name: "Viktor Frankl", signature: "Meaning through suffering, personal testimony, universal truths from specific horrors, existential courage" },
+      { name: "Carol Dweck", signature: "Fixed vs growth mindset framework, praise process not talent, education applications" },
+      { name: "Adam Grant", signature: "Counterintuitive hooks, workplace relevance, research accessibility, organizational psychology" },
+    ]};
+  }
+  if (lower.includes("self-help") || lower.includes("personal development") || lower.includes("productivity")) {
+    return { genreLabel: "Self-Help/Productivity", authors: [
+      { name: "James Clear", signature: "Atomic habits framework, 1% improvement compounding, identity-based change, systems over goals" },
+      { name: "Cal Newport", signature: "Deep work philosophy, digital minimalism, focused intensity over busyness, deliberate practice" },
+      { name: "Stephen Covey", signature: "7 habits framework, principle-centered leadership, inside-out change, character ethic" },
+      { name: "David Allen", signature: "Getting Things Done methodology, stress-free productivity, capture everything, next actions" },
+      { name: "BJ Fogg", signature: "Tiny habits, behavior design, anchor moments, celebration as reinforcement" },
+      { name: "Gretchen Rubin", signature: "Four tendencies framework, happiness project experimentation, self-knowledge as foundation" },
+    ]};
+  }
+  if (lower.includes("spiritual") || lower.includes("mindful") || lower.includes("meditat")) {
+    return { genreLabel: "Spirituality", authors: [
+      { name: "Eckhart Tolle", signature: "Present moment awareness, ego dissolution, pain body concept, stillness as power" },
+      { name: "Thich Nhat Hanh", signature: "Mindful breathing, engaged Buddhism, simple profound language, walking meditation" },
+      { name: "Deepak Chopra", signature: "Quantum consciousness, mind-body healing, seven spiritual laws, ancient wisdom meets science" },
+      { name: "Jay Shetty", signature: "Monk mindset for modern life, relatable storytelling, social media accessibility, purpose discovery" },
+      { name: "Pema Chodron", signature: "Comfortable with uncertainty, tonglen practice, compassion in difficulty, gentle warrior approach" },
+      { name: "Don Miguel Ruiz", signature: "Four agreements framework, Toltec wisdom, personal freedom, breaking domestication" },
+    ]};
+  }
+  if (lower.includes("short stor") || lower.includes("collection") || lower.includes("anthology") || lower.includes("flash fiction") || lower.includes("novelette")) {
+    return { genreLabel: "Short Story Collection", authors: [
+      { name: "Raymond Carver", signature: "Minimalist precision, every word load-bearing, working-class realism, endings that linger in silence, iceberg theory — the unsaid carries more weight than the said" },
+      { name: "Alice Munro", signature: "Compressed decades into pages, revelation through small domestic moments, time jumps that reframe everything, ordinary lives cracked open to show extraordinary depths" },
+      { name: "Flannery O'Connor", signature: "Dark grotesque comedy, violent grace moments, Southern Gothic atmosphere, characters who resist salvation until forced into confrontation with it" },
+      { name: "Neil Gaiman", signature: "Mythic resonance in modern settings, fairy tale logic made strange, endings that feel ancient and inevitable, voice as spell-casting" },
+      { name: "Ted Chiang", signature: "Single rigorously explored concept per story, philosophical stakes that feel personal, scientific wonder made emotionally devastating, elegant constraint" },
+      { name: "Shirley Jackson", signature: "Domestic dread, creeping wrongness, familiar settings turned hostile, social ritual as horror, ambiguous supernatural" },
+    ]};
+  }
+  if (lower.includes("children") || lower.includes("picture book") || lower.includes("early reader") || lower.includes("middle grade")) {
+    return { genreLabel: "Children's Fiction", authors: [
+      { name: "Roald Dahl", signature: "Delicious dark humour kids adore, villainous adults defeated by clever children, heightened absurdity grounded in real emotion, satisfying justice, vivid invented words that feel instantly real" },
+      { name: "E.B. White", signature: "Quiet profound themes (friendship, mortality, belonging) wrapped in gentle adventure, animals with full inner lives, spare poetic prose, endings that are both sad and beautiful" },
+      { name: "Beverly Cleary", signature: "Relatable everyday childhood problems, authentic child voice with genuine frustration and joy, humour rooted in real kid logic, family warmth without sentimentality" },
+      { name: "A.A. Milne", signature: "Innocent wonder, the magic of imagination, gentle philosophical musings through childlike logic, cozy world-building, warmth and friendship as the entire universe" },
+      { name: "Judy Blume", signature: "Honest depiction of childhood fears and social pressures, characters who think like real children, emotional truth without talking down to young readers" },
+      { name: "Rick Riordan", signature: "Fast-paced chapter endings, mythology made contemporary and funny, neurodivergent heroes as the strongest characters, friendship and loyalty as superpowers" },
+    ]};
+  }
+  if (lower.includes("young adult") || lower.includes("ya ") || lower === "ya") {
+    return { genreLabel: "Young Adult Fiction", authors: [
+      { name: "Suzanne Collins", signature: "High stakes from page one, first-person present tense urgency, social commentary through action, survival that costs the hero emotionally, propulsive pacing" },
+      { name: "John Green", signature: "Philosophical teenagers who speak in profound observations, finding meaning inside tragedy, the romance of ideas, humour and heartbreak interwoven" },
+      { name: "Rick Riordan", signature: "Action every chapter, inclusive diverse cast of heroes, ancient mythology in modern streets, humour as a coping mechanism, loyalty and found family" },
+      { name: "Veronica Roth", signature: "Identity as the central conflict, dystopian society as metaphor for adolescent belonging, moral complexity in faction/group loyalty, romantic tension under pressure" },
+      { name: "S.E. Hinton", signature: "Authentic teen voice without adult filtering, class conflict, brotherhood and loyalty, the tragedy of wasted potential, gritty emotional honesty" },
+      { name: "Cassandra Clare", signature: "Complex world mythology, romantic tension sustained across long arcs, chosen family over biological, queer representation, lore-rich world-building" },
+    ]};
+  }
+  return { genreLabel: "General Non-Fiction", authors: [
+    { name: "James Clear", signature: "Atomic habits framework, 1% improvement, systems thinking, identity-based behavior change" },
+    { name: "Brene Brown", signature: "Vulnerability as strength, shame resilience, wholehearted living, research-backed emotional intelligence" },
+    { name: "Malcolm Gladwell", signature: "Counterintuitive insights, tipping points, 10000 hour rule, narrative non-fiction storytelling" },
+    { name: "Mark Manson", signature: "No-BS direct voice, uncomfortable truths, values-based living, strategic irreverence with depth" },
+    { name: "Cal Newport", signature: "Deep work philosophy, digital minimalism, focused craft over hustle culture" },
+    { name: "Robert Greene", signature: "48 laws of power, historical examples as strategy, mastery through apprenticeship, seduction of narrative" },
+  ]};
+}
+
+interface StoryArchitectPlan {
+  chapters: {
+    chapterNumber: number;
+    chapterTitle: string;
+    assignedAuthors: string[];
+    reasoning: string;
+    techniqueDirective: string;
+  }[];
+}
+
+async function generateStoryArchitectPlan(
+  outline: string,
+  genre: string,
+  title: string,
+  fiction: boolean,
+  totalChapters?: number
+): Promise<StoryArchitectPlan | null> {
+  const { authors, genreLabel } = getGenreAuthorList(genre);
+
+  if (authors.length === 0) return null;
+
+  const authorMenu = authors.map((a, i) =>
+    `${i + 1}. ${a.name} — ${a.signature}`
+  ).join("\n");
+
+  const outlineChapters = parseChaptersFromOutline(outline);
+  const chapterSummaries = outlineChapters.map((ch, i) => {
+    const preview = ch.substring(0, 400);
+    return `Chapter ${i + 1}: ${preview}`;
+  }).join("\n\n");
+
+  const prompt = fiction
+    ? `You are the AI Story Architect — a master literary strategist who understands how bestselling authors craft their magic. Your job is to analyze a book outline and strategically assign which author technique(s) should drive each chapter.
+
+BOOK: "${title}" (${genreLabel})
+${totalChapters ? `TOTAL CHAPTERS TO PLAN: ${totalChapters} (you MUST assign techniques for chapters 1 through ${totalChapters})` : ''}
+
+AVAILABLE AUTHORS AND THEIR SIGNATURE TECHNIQUES:
+${authorMenu}
+
+BOOK OUTLINE:
+${chapterSummaries}
+
+YOUR MISSION:
+Analyze each chapter's emotional arc, narrative purpose, and story needs. Then assign as many authors as each chapter needs — it could be 1, 2, 3, 4, or even all of them. Think like a film director choosing which cinematographer, composer, and editor serves each scene best. Let the story decide.${totalChapters ? ` You MUST provide assignments for exactly ${totalChapters} chapters (numbered 1 through ${totalChapters}).` : ''}
+
+STRATEGIC PRINCIPLES:
+- You decide how many authors each chapter needs — 1, 2, 3, 4, or even all of them if the chapter demands it. There is NO limit.
+- Use 1 author when a chapter needs a pure, focused voice (e.g., a King-only chapter for deep psychological dread)
+- Use 2-3 authors when blending creates something richer (e.g., Jackson's domestic unease + Koontz's escalating pace)
+- Use 4+ authors for complex, pivotal chapters where multiple forces collide — a major twist might need King's realism + Barker's dark seduction + Tremblay's ambiguity + Lovecraft's cosmic scale all at once
+- VARY the combinations across chapters — don't repeat the same grouping too often
+- Consider the story's RHYTHM: quiet introspective chapters vs explosive action chapters need different masters
+- The opening chapter should hook immediately — choose authors known for powerful openings
+- Climax chapters should use the most intense combination you can imagine
+- Denouement/resolution chapters might use a single author for focused emotional landing
+- Some authors work brilliantly together, while others create fascinating tension — trust your instincts
+- The STORY dictates how many authors each chapter needs, not an arbitrary rule
+
+Respond with ONLY a valid JSON object (no markdown, no code fences):
+{
+  "chapters": [
+    {
+      "chapterNumber": 1,
+      "chapterTitle": "brief title",
+      "assignedAuthors": ["Author Name 1", "Author Name 2"],
+      "reasoning": "brief explanation of WHY these specific authors (and this many) serve this chapter",
+      "techniqueDirective": "specific instruction for the writer: which techniques to emphasize and how to blend them"
+    }
+  ]
+}`
+    : `You are the AI Story Architect — a master content strategist who understands how bestselling non-fiction authors craft their most impactful chapters. Your job is to analyze a book outline and strategically assign which author technique(s) should drive each chapter.
+
+BOOK: "${title}" (${genreLabel})
+${totalChapters ? `TOTAL CHAPTERS TO PLAN: ${totalChapters} (you MUST assign techniques for chapters 1 through ${totalChapters})` : ''}
+
+AVAILABLE AUTHORS AND THEIR SIGNATURE TECHNIQUES:
+${authorMenu}
+
+BOOK OUTLINE:
+${chapterSummaries}
+
+YOUR MISSION:
+Analyze each chapter's teaching purpose, subject matter, and reader journey stage. Then assign as many authors as each chapter needs — it could be 1, 2, 3, 4, or even all of them. Let the content decide.${totalChapters ? ` You MUST provide assignments for exactly ${totalChapters} chapters (numbered 1 through ${totalChapters}).` : ''}
+
+STRATEGIC PRINCIPLES:
+- You decide how many authors each chapter needs — 1, 2, 3, 4, or even all of them. There is NO limit.
+- Use 1 author when a chapter needs a pure, focused approach (e.g., a Ferriss-only chapter for pure actionable systems)
+- Use 2-3 authors when blending creates stronger impact (e.g., Sinek's purpose-driven framing + Ferriss's practical steps)
+- Use 4+ authors for complex foundational chapters that need everything — research depth, storytelling, practical frameworks, and motivational fire all at once
+- VARY the combinations — different chapters need different energy
+- Opening chapters should hook readers — choose authors known for compelling openings
+- Middle chapters that teach frameworks benefit from different authors than motivational chapters
+- Conclusion chapters should synthesize — choose authors who excel at big-picture wisdom
+- Consider reader fatigue: alternate between heavy research chapters and lighter, story-driven ones
+- The CONTENT dictates how many authors each chapter needs, not an arbitrary rule
+
+Respond with ONLY a valid JSON object (no markdown, no code fences):
+{
+  "chapters": [
+    {
+      "chapterNumber": 1,
+      "chapterTitle": "brief title",
+      "assignedAuthors": ["Author Name 1", "Author Name 2"],
+      "reasoning": "brief explanation of WHY these specific authors (and this many) serve this chapter",
+      "techniqueDirective": "specific instruction for the writer: which techniques to emphasize and how to blend them"
+    }
+  ]
+}`;
+
+  try {
+    console.log(`[Story Architect] Analyzing outline for "${title}" (${genreLabel}) — assigning author techniques per chapter...`);
+
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-5.2",
+      messages: [
+        { role: "system", content: "You are a literary strategy AI. You respond ONLY with valid JSON. No markdown fences, no explanation text — just the JSON object." },
+        { role: "user", content: prompt }
+      ],
+      max_completion_tokens: 4000,
+    });
+
+    const raw = response.choices[0]?.message?.content || "";
+    const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (jsonErr) {
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error("Could not extract valid JSON from AI response");
+      }
+    }
+
+    if (!parsed?.chapters || !Array.isArray(parsed.chapters)) {
+      throw new Error("AI response missing 'chapters' array");
+    }
+
+    const validAuthors = new Set(authors.map(a => a.name));
+    const plan: StoryArchitectPlan = {
+      chapters: parsed.chapters
+        .filter((ch: any) => ch && typeof ch.chapterNumber === "number" && Array.isArray(ch.assignedAuthors))
+        .map((ch: any) => ({
+          chapterNumber: ch.chapterNumber,
+          chapterTitle: ch.chapterTitle || `Chapter ${ch.chapterNumber}`,
+          assignedAuthors: ch.assignedAuthors
+            .filter((a: string) => typeof a === "string")
+            .map((a: string) => {
+              if (validAuthors.has(a)) return a;
+              const fuzzy = authors.find(au => au.name.toLowerCase().includes(a.toLowerCase()) || a.toLowerCase().includes(au.name.toLowerCase()));
+              return fuzzy ? fuzzy.name : a;
+            })
+            .filter(Boolean),
+          reasoning: ch.reasoning || "Strategic technique assignment",
+          techniqueDirective: ch.techniqueDirective || "Apply assigned author techniques",
+        }))
+    };
+
+    if (plan.chapters.length === 0) {
+      throw new Error("No valid chapters in AI response");
+    }
+
+    console.log(`[Story Architect] Plan created for "${title}":`);
+    for (const ch of plan.chapters) {
+      console.log(`  Chapter ${ch.chapterNumber}: ${ch.assignedAuthors.join(" + ")} — ${ch.reasoning.substring(0, 80)}`);
+    }
+
+    return plan;
+  } catch (error: any) {
+    console.error(`[Story Architect] Failed to generate plan for "${title}":`, error?.message);
+    return null;
+  }
+}
+
+function buildChapterTechniqueDirective(
+  chapterNum: number,
+  plan: StoryArchitectPlan | null,
+  genre: string,
+  fiction: boolean
+): string {
+  if (!plan) {
+    return getGenreWritingTechniques(genre);
+  }
+
+  let chapterPlan = plan.chapters.find(c => c.chapterNumber === chapterNum);
+  if (!chapterPlan && plan.chapters.length > 0) {
+    const closest = plan.chapters.reduce((prev, curr) =>
+      Math.abs(curr.chapterNumber - chapterNum) < Math.abs(prev.chapterNumber - chapterNum) ? curr : prev
+    );
+    if (Math.abs(closest.chapterNumber - chapterNum) <= 2) {
+      chapterPlan = closest;
+    }
+  }
+  if (!chapterPlan) {
+    return getGenreWritingTechniques(genre);
+  }
+
+  const { authors } = getGenreAuthorList(genre);
+  const authorMap = new Map(authors.map(a => [a.name.toLowerCase(), a]));
+  const fullTechniques = getGenreWritingTechniques(genre);
+  const techniqueBlocks = fullTechniques.split(/\n\n(?=[A-Z])/);
+
+  const assignedNames = chapterPlan.assignedAuthors;
+  const count = assignedNames.length;
+
+  let extractedTechniques = "";
+  for (const authorName of assignedNames) {
+    const nameLower = authorName.toLowerCase();
+    const lastName = authorName.split(" ").pop()?.toUpperCase() || authorName.toUpperCase();
+    const block = techniqueBlocks.find(b => {
+      const firstLine = b.split("\n")[0].toUpperCase();
+      return firstLine.includes(lastName) || firstLine.includes(authorName.toUpperCase());
+    });
+
+    if (block) {
+      extractedTechniques += block.trim() + "\n\n";
+    } else {
+      const info = authorMap.get(nameLower);
+      if (info) {
+        extractedTechniques += `${authorName.toUpperCase()} — Key Techniques:\n- ${info.signature.split(", ").join("\n- ")}\n\n`;
+      }
+    }
+  }
+
+  let blendInstruction: string;
+  if (count === 1) {
+    blendInstruction = `FOR THIS CHAPTER, channel ${assignedNames[0]}'s technique as the DOMINANT voice. Let their signature style drive every paragraph — this chapter should feel like it could have been written by ${assignedNames[0]} at their peak.`;
+  } else if (count === 2) {
+    blendInstruction = `FOR THIS CHAPTER, blend ${assignedNames[0]} and ${assignedNames[1]} together. Let both voices weave through the prose — ${assignedNames[0]}'s approach should create the foundation while ${assignedNames[1]}'s technique adds a contrasting layer that makes the chapter richer than either could alone.`;
+  } else {
+    const allNames = assignedNames.join(", ");
+    blendInstruction = `FOR THIS CHAPTER, orchestrate ${count} master techniques together: ${allNames}. The AI Story Architect chose this many authors because this chapter demands the combined weight of all their approaches. Use ${assignedNames[0]} as the structural backbone, weave ${assignedNames[1]}'s energy through it, and let ${assignedNames.slice(2).join(" and ")} provide distinct layers of texture, depth, and surprise. Each author's voice should be felt at different moments — the chapter should feel like a symphony conducted by multiple masters.`;
+  }
+
+  return `AI STORY ARCHITECT — CHAPTER ${chapterNum} TECHNIQUE ASSIGNMENT
+═══════════════════════════════════════════════════════════
+
+ASSIGNED AUTHORS FOR THIS CHAPTER: ${assignedNames.join(" + ")} (${count} ${count === 1 ? 'author' : 'authors'})
+
+STRATEGIC REASONING: ${chapterPlan.reasoning}
+
+TECHNIQUE DIRECTIVE: ${chapterPlan.techniqueDirective}
+
+${blendInstruction}
+
+AUTHOR TECHNIQUES TO APPLY:
+${extractedTechniques}
+NOTE: The AI Story Architect strategically chose ${count === 1 ? 'this single author' : `these ${count} authors`} for this chapter based on what the story needs at this point. Apply ${count === 1 ? 'this technique deeply and consistently' : 'these techniques in the specific blend described above'}. Other chapters use different author combinations to create variety across the book — THIS chapter's unique identity comes from ${assignedNames.join(" and ")}.`;
+}
+
+function getGenreWritingTechniques(genre: string): string {
+  const lower = genre.toLowerCase();
+
+  if (lower.includes("horror") || lower.includes("supernatural")) {
+    return `GENRE MASTERY — HORROR (Blending techniques from Stephen King, Shirley Jackson, Clive Barker, Paul Tremblay, Dean Koontz, H.P. Lovecraft):
+
+STEPHEN KING — Psychological Realism & Slow Burn:
+- THREE LAYERS OF FEAR: Use Terror (intangible dread, psychological), Horror (the macabre reveal), and Gross-out (visceral shock) — prioritize Terror above all
+- CHARACTER-DRIVEN HORROR: Develop deeply relatable characters FIRST, then unleash horror. When readers care, their fear becomes the reader's fear
+- GROUND HORROR IN REALITY: The most terrifying elements come from real human fears — isolation, madness, loss, betrayal. Supernatural threats work best alongside psychological realism
+- HORRIBLE PREDICTABILITY: Sometimes knowing what's coming is worse than surprise — dread of the inevitable
+
+SHIRLEY JACKSON — Domestic Dread & Social Horror:
+- CREEPING UNEASE: Start with normalcy that feels slightly off. The wrongness is in the air, not in the monster. A house that watches, neighbors who smile too long
+- SOCIAL DYNAMICS AS HORROR: The most terrifying force is the group — mob mentality, ostracism, conformity pressure. Horror lives in how people treat each other
+- AMBIGUOUS SUPERNATURAL: Never fully confirm or deny the supernatural. Let readers question whether the horror is real or psychological — the uncertainty IS the terror
+- DOMESTIC SPACES TURNED HOSTILE: Homes, kitchens, gardens — make the familiar feel alien. The place you should feel safest becomes the most dangerous
+
+CLIVE BARKER — Dark Fantasy & Visceral Imagination:
+- LYRICAL BODY HORROR: Describe the visceral and grotesque with poetic, almost beautiful prose. Make readers unable to look away because the writing itself is mesmerizing
+- MONSTERS WITH INVITATION: Create antagonists that don't just threaten — they seduce. They offer the protagonist something they secretly want, making the horror a choice
+- MYTHOLOGICAL WORLDBUILDING: Build original dark mythologies — create new hells, new heavens, new rules. Horror should expand the imagination, not just scare it
+- NO SELF-CENSORSHIP: Push the boundaries of what horror can show and feel. Don't hold back from the darkest implications
+
+PAUL TREMBLAY — Ambiguity & Modern Dread:
+- UNRELIABLE REALITY: Characters and readers should never be certain what's real. Use contradictory evidence, unreliable narrators, and multiple interpretations
+- FOUND-DOCUMENT TECHNIQUES: Incorporate interview transcripts, diary entries, news reports, scripts — break the fourth wall to create documentary-style dread
+- READER AS PARTICIPANT: Force readers to examine their own desire for dark content. Make them complicit in the horror
+- CONTROVERSIAL ENDINGS: Resist neat resolutions. The best horror endings leave readers unsettled for days, debating what actually happened
+
+DEAN KOONTZ — Thriller-Paced Horror:
+- ESCALATING TROUBLE: (1) Plunge characters into terrible trouble ASAP (2) Everything they do to escape makes it worse (3) Crisis deepens progressively (4) Final confrontation with dire stakes
+- BLEND GENRES FEARLESSLY: Mix horror with thriller pacing, sci-fi concepts, and emotional warmth. Not everything needs to be bleak — hope makes the horror hit harder
+
+H.P. LOVECRAFT — Cosmic & Existential Dread:
+- INSIGNIFICANCE OF HUMANITY: Horror from the realization that humans are tiny, irrelevant specks in an uncaring cosmos. The universe itself is the monster
+- FORBIDDEN KNOWLEDGE: Characters who learn too much are destroyed by what they discover. Knowledge itself becomes the threat
+- SETTING AS LIVING ENTITY: The environment should feel claustrophobic and hostile — too-quiet rooms, hallways that feel too long, shadows that cling to corners
+
+COMBINE THESE APPROACHES: Mix King's psychological realism with Jackson's social horror. Layer Barker's dark imagination over Tremblay's ambiguity. Use Lovecraft's cosmic scale alongside Koontz's thriller pacing. The best horror draws from MULTIPLE masters to create something unique.`;
+  }
+
+  if (lower.includes("romance") || lower.includes("love")) {
+    return `GENRE MASTERY — ROMANCE (Blending techniques from Nora Roberts, Colleen Hoover, Nicholas Sparks, Julia Quinn, Diana Gabaldon, Emily Henry):
+
+NORA ROBERTS — Setting as Character & Earned Endings:
+- SETTING AS THREE-DIMENSIONAL CHARACTER: The location should breathe, have history, and shape the romance. A seaside town, a family vineyard, a snowbound cabin — the setting creates the mood for love
+- HAPPY ENDINGS ARE NON-NEGOTIABLE: Romance readers expect satisfaction. The resolution must feel earned through genuine transformation — both characters should be better for having loved
+- IMMERSIVE DAILY LIFE: Show characters in their routines, work, friendships. The romance grows organically from their real lives, not in a vacuum
+
+COLLEEN HOOVER — Raw Emotion & Gut-Punch Twists:
+- FIRST-PERSON INTIMACY: Use an honest, conversational inner voice that makes readers feel they're inside the character's head — hearing every doubt, every flutter, every fear
+- ROMANCE WITH DIFFICULT SUBJECTS: Layer the love story over real trauma, mental health struggles, grief, or moral dilemmas. Love should be tested by genuine darkness, not just misunderstandings
+- GUT-PUNCH PLOT TWISTS: Deliver revelations that recontextualize the entire romance. The reader should gasp, then re-evaluate everything they thought they knew
+- GRADUAL BACKSTORY REVEALS: Don't front-load character history. Let painful truths emerge naturally as trust deepens between characters
+
+NICHOLAS SPARKS — Emotional Depth & Bittersweet Beauty:
+- SMALL-TOWN ATMOSPHERE: Root romances in specific, vivid communities. The sights, sounds, and rhythms of a place create the emotional canvas for love
+- EMOTIONAL STAKES OVER PHYSICAL: The deepest romantic tension comes from vulnerability, sacrifice, and the fear of losing love — not from physical attraction alone
+- TIME AS A CHARACTER: Use the passage of time — letters across years, reunions after decades, love remembered in old age — to give romance weight and permanence
+
+JULIA QUINN — Wit, Banter & Period Chemistry:
+- BANTER AS FOREPLAY: Witty, lively dialogue where both sides hold their own. The verbal sparring IS the chemistry — each exchange should crackle with attraction disguised as argument
+- HUMOR IN ROMANCE: Love stories need laughter. Characters who make each other laugh create deeper bonds than characters who only smolder
+- SOCIAL CONSTRAINTS AS TENSION: Use rules, expectations, class boundaries, or family obligations as forces keeping lovers apart. The forbidden nature amplifies desire
+
+DIANA GABALDON — Epic Scope & Sensory Romance:
+- ROMANCE ACROSS TIME AND SCALE: Love stories that span years, wars, continents. Give the romance epic stakes — not just "will they get together" but "can their love survive history itself"
+- SENSORY INTIMACY: Describe touch, scent, taste, temperature with precision. The reader should feel the warmth of a hand, the scratch of wool, the smell of woodsmoke on skin
+- STRONG INDEPENDENT PROTAGONISTS: Both love interests should be fully realized people with their own goals, skills, and inner lives — not satellites orbiting each other
+
+EMILY HENRY — Modern Chemistry & Emotional Armor:
+- FOUR TYPES OF ATTRACTION: Layer physical, emotional, intellectual, and social attraction — use at least 2-3 for believable chemistry
+- PROGRESSIVE VULNERABILITY: Start closed off and surface-level. Gradually become more open. By the climax, they share things they've never told anyone
+- INTERNAL CONFLICT OVER EXTERNAL: Trust issues, past wounds, fear of vulnerability — these barriers drive tension more than external obstacles
+- FORCED PROXIMITY: Create situations that keep characters together — assigned to work together, stranded, trapped, fake relationship. Proximity forces honesty
+
+COMBINE THESE APPROACHES: Mix Hoover's raw emotional honesty with Quinn's sparkling banter. Layer Sparks' bittersweet depth over Roberts' immersive settings. Use Gabaldon's epic scale alongside Henry's modern chemistry. No two love stories should feel the same.`;
+  }
+
+  if (lower.includes("mystery") || lower.includes("thriller") || lower.includes("suspense") || lower.includes("crime") || lower.includes("detective")) {
+    return `GENRE MASTERY — MYSTERY/THRILLER (Blending techniques from Gillian Flynn, Agatha Christie, Lee Child, James Patterson, Tana French, Dennis Lehane, Dean Koontz):
+
+GILLIAN FLYNN — Psychological Darkness & Unreliable Narrators:
+- UNRELIABLE NARRATOR: Characters who distort reality — cherry-picking details, lying by omission, misremembering. The narrator's version of events IS the mystery
+- REVERSAL OF EXPECTATIONS: Lead readers down a false path with reinforcing clues, then deliver a twist that feels both surprising AND inevitable in retrospect
+- TOXIC RELATIONSHIPS AS MYSTERY: The deepest mysteries are between people — marriages, friendships, families where no one is who they seem
+- MORAL AMBIGUITY: No pure heroes or villains. Every character has darkness. The protagonist's flaws should be as compelling as the antagonist's
+
+AGATHA CHRISTIE — Classic Puzzle & Fair Play:
+- FORESHADOWING THROUGH SUBTLE SEEDS: Plant hints that seem insignificant until the twist. The pieces snap into place retrospectively — "I should have seen it!"
+- PLAY FAIR: The best twists feel logical in retrospect. Plant enough clues that readers could theoretically solve it, but make the misdirection compelling enough they won't
+- RED HERRINGS: False clues that keep readers engaged and guessing. Every suspect should have means, motive, and opportunity — make each equally plausible
+- THE FINAL REVEAL: Gather all players for the revelation. Walk through the logic. Show how every clue connects. The satisfaction is in the architecture
+
+LEE CHILD — Clarity, Brevity & Suspense:
+- ULTRA-SHORT OPENERS: Start with impact — a single word, a jarring image, an immediate question. Hook readers in the first line, not the first chapter
+- SUSPENSE THROUGH QUESTIONS: "Ask a question at the beginning, and answer it at the end." Every scene should make readers desperate to know what happens next
+- EXPOSITION THROUGH ACTION: Weave information into scenes and dialogue. Never pause the story to explain. The reader learns while the action moves forward
+- COMPETENCE AS THRILL: Characters who are exceptionally skilled at what they do. Watching an expert work under pressure is inherently suspenseful
+
+JAMES PATTERSON — Pacing & Forward Motion:
+- ULTRA-SHORT CHAPTERS: Keep chapters tight — end every one with a hook, revelation, or cliffhanger that makes it IMPOSSIBLE to stop reading
+- EVERY CHAPTER MUST ADVANCE: No chapter should exist that doesn't propel plot or reveal character. "Leave out all the parts readers are going to skim"
+- RAISING STAKES CONTINUOUSLY: What's at risk must escalate. Each complication should be worse than the last. Create worthy adversaries with real power
+- MULTIPLE POV THREADS: Cut between different characters' perspectives to build parallel tension. Show the hunter AND the hunted
+
+TANA FRENCH — Atmospheric Investigation & Place:
+- SETTING AS MYSTERY: The location itself holds secrets. The landscape, the building, the neighborhood should feel like a character with its own hidden history
+- PSYCHOLOGICAL COMPLEXITY: The investigation changes the detective. Solving the case forces them to confront their own buried truths
+- SLOW-BURN TENSION: Let the mystery unfold through conversation, observation, and growing unease rather than car chases and gunfire
+- COMMUNITY SECRETS: The crime is just the surface. Underneath lies a web of community lies, old grudges, and collective guilt
+
+DENNIS LEHANE — Emotional Devastation & Moral Cost:
+- CRIME AS TRAGEDY: Every crime has human cost that radiates outward — families destroyed, friendships shattered, neighborhoods changed forever
+- WORKING-CLASS AUTHENTICITY: Ground thrillers in real communities with real economic pressures, loyalties, and codes of honor
+- THE PRICE OF TRUTH: Solving the mystery should cost the protagonist something precious. Knowledge isn't free — it changes and damages those who seek it
+- TICKING CLOCK: Urgency drives tension. Give characters deadlines, countdowns, or escalating threats that compress the timeline
+
+COMBINE THESE APPROACHES: Mix Flynn's psychological darkness with Christie's puzzle architecture. Layer Child's clean suspense over French's atmospheric slow burn. Use Patterson's relentless pacing alongside Lehane's emotional depth. The best thrillers draw from MULTIPLE traditions.`;
+  }
+
+  if (lower.includes("fantasy") || lower.includes("myth")) {
+    return `GENRE MASTERY — FANTASY (Blending techniques from Tolkien, Brandon Sanderson, J.K. Rowling, George R.R. Martin, Patrick Rothfuss, Ursula K. Le Guin, Robin Hobb):
+
+J.R.R. TOLKIEN — Deep History & Linguistic Worldbuilding:
+- HISTORY AS LIVING FORCE: Past wars, legends, and mythologies should influence current politics, conflicts, and character motivations. The world existed long before the story began
+- LANGUAGE AS CULTURE: Names, place names, songs, and sayings should reflect distinct cultures. Language creates the texture of a world
+- EUCATASTROPHE: The sudden, joyous turn — the moment when all seems lost but grace intervenes. Earn this moment through genuine suffering first
+- THE WEIGHT OF AGES: Objects, places, and lineages carry the weight of centuries. A sword isn't just a weapon — it's a legacy
+
+BRANDON SANDERSON — Hard Magic & Structural Brilliance:
+- MAGIC WITH RULES AND COST: The best magic systems have clear limitations and consequences. Power without cost creates no tension. Sanderson's First Law: magic should solve problems proportional to how well readers understand it
+- THE AVALANCHE: Structure the final act so that every thread converges simultaneously. The climax should feel like an avalanche — once it starts, nothing can stop it
+- CONSISTENT INTERNAL LOGIC: Establish clear rules and stick to them. Internal consistency lets readers suspend disbelief and makes reveals satisfying
+- FORESHADOWING PAYOFFS: Plant seeds chapters or books earlier that pay off spectacularly. The best twists make readers want to re-read from the beginning
+
+GEORGE R.R. MARTIN — Moral Complexity & Consequences:
+- NO PURELY GOOD OR EVIL: Every character has credible motives. Heroes make terrible mistakes, villains have moments of genuine humanity
+- ACTIONS HAVE CONSEQUENCES: Everything that happens has meaningful payoff later. No detail is wasted, no decision is consequence-free
+- ROTATING POV CHAPTERS: Each chapter follows a different character's perspective. Readers see events through multiple lenses, creating dramatic irony and layered understanding
+- POLITICAL INTRIGUE: Power dynamics, alliances, betrayals, and strategic thinking. Fantasy worlds need politics as complex as real ones
+
+J.K. ROWLING — Wonder, Mystery & Emotional Core:
+- SENSE OF WONDER AND DISCOVERY: Create moments that make readers gasp with delight. New magical elements should inspire awe and imagination
+- MYSTERY ARCHITECTURE IN FANTASY: Layer a mystery structure over the fantasy plot. Each book/section has clues, red herrings, and a revelation that recontextualizes everything
+- FOUND FAMILY: Characters who choose each other form bonds stronger than blood. Friendship and loyalty are the deepest magic
+- HUMOR IN HIGH STAKES: Even in dark moments, wit and warmth keep readers invested. Characters who laugh together feel real
+
+PATRICK ROTHFUSS — Prose as Music & Frame Narrative:
+- PROSE THAT SINGS: Every sentence should have rhythm and beauty. Read passages aloud — they should flow like music. "It was a silence of three parts"
+- FRAME STORY STRUCTURE: Story within a story — the narrator's present and the tale they tell create two layers of engagement and dramatic irony
+- DETAIL ONLY WHAT MATTERS: Describe vividly but selectively. Every sensory detail should reveal character, advance plot, or deepen theme — never describe just to describe
+- NAMES CARRY POWER: Names of characters, places, and magic should feel meaningful and musical. They should stick in the reader's mind
+
+URSULA K. LE GUIN — Philosophical Depth & Cultural Anthropology:
+- WORLDBUILDING AS THOUGHT EXPERIMENT: Build societies that challenge assumptions about gender, power, property, and identity. Use fantasy to ask profound questions
+- CULTURAL ANTHROPOLOGY: Create cultures with complete belief systems, daily rituals, gender roles, and relationship structures that differ fundamentally from our own
+- RESTRAINT IN PROSE: Say more with less. The most powerful moments come from simplicity and silence, not from spectacle
+- MAGIC AS ECOLOGY: Magic, nature, and society exist in balance. Using power always shifts that balance — sometimes catastrophically
+
+ROBIN HOBB — Deep Character Interiority & Emotional Devastation:
+- DEEP POV INTIMACY: Live inside the protagonist's consciousness so completely that readers feel every emotion, every doubt, every physical sensation as their own
+- EARNED SUFFERING: Characters endure genuine, prolonged hardship — not for shock value, but because growth requires pain. Make readers weep because they love the characters
+- ANIMAL BONDS & NATURE: The bond between humans and animals/nature carries profound emotional and thematic weight. Use it to reveal character depth
+- LONG-TERM CHARACTER ARCS: Characters change slowly, realistically, over hundreds of pages. Growth is measured in years, not chapters
+
+COMBINE THESE APPROACHES: Mix Tolkien's deep history with Martin's moral complexity. Layer Sanderson's structural precision over Rothfuss's lyrical prose. Use Le Guin's philosophical depth alongside Rowling's sense of wonder. Channel Hobb's emotional devastation through any of these frameworks.`;
+  }
+
+  if (lower.includes("sci-fi") || lower.includes("science fiction") || lower.includes("dystopian") || lower.includes("cyberpunk")) {
+    return `GENRE MASTERY — SCIENCE FICTION (Blending techniques from Frank Herbert, Isaac Asimov, Philip K. Dick, William Gibson, Octavia Butler, Liu Cixin, Neal Stephenson):
+
+FRANK HERBERT — Ecological Thinking & Political Depth:
+- ECOLOGICAL WORLDBUILDING: Every environment, economy, and ecosystem must feel interconnected. Resources, climate, and biology shape politics, religion, and culture
+- POLITICAL CHESS: Layer factions, alliances, and betrayals with the complexity of real geopolitics. Power is a game played across generations
+- PRESCIENT THEMES: Technology, religion, and human evolution intertwined. The most powerful force isn't technology — it's human consciousness and adaptation
+- SENSORY IMMERSION: Make alien worlds tangible through specific physical sensations — the bite of sand, the taste of recycled water, the smell of spice
+
+ISAAC ASIMOV — Ideas as Protagonists & Logical Extrapolation:
+- SPECULATIVE EXTRAPOLATION: Take real science/technology and ask "what if?" Push current trends to their logical extremes with rigorous internal logic
+- IDEAS-DRIVEN NARRATIVE: The concept itself — robots with ethical laws, a galactic empire's mathematical prediction — can be the central character
+- DIALOGUE AS DISCOVERY: Characters debate, theorize, and reason their way through problems. Intellectual conversation IS the action
+- CIVILIZATION-SCALE THINKING: Think in centuries and millennia. How do societies rise, stagnate, and fall? What forces shape the arc of intelligent life?
+
+PHILIP K. DICK — Reality Questioning & Paranoid Humanity:
+- REALITY IS UNSTABLE: Characters and readers should question what is real — memories, identities, perceptions. Nothing can be trusted, including the narrator
+- EMPATHY AS THE CORE TEST: In a world of artificial beings and simulated realities, what makes someone human? Empathy, compassion, and connection define humanity
+- ORDINARY PEOPLE IN EXTRAORDINARY WORLDS: Protagonists aren't heroes — they're regular people trying to survive in systems designed to crush them
+- PARANOID ATMOSPHERE: Surveillance, corporate control, government manipulation. The world is watching, and the watchers have agendas
+
+WILLIAM GIBSON — Cyberpunk Texture & Cultural Commentary:
+- DENSE ATMOSPHERIC PROSE: Build the future through texture — brand names, street slang, fashion, architecture. The world reveals itself through sensory detail, not exposition
+- TECHNOLOGY AS CULTURE: Tech doesn't exist in a vacuum. It reshapes language, fashion, relationships, crime, art, and identity. Show the cultural fallout of every innovation
+- CONVERGENT STORYLINES: Multiple characters in different locations whose stories collide and interweave, revealing the larger picture through their individual perspectives
+- STREET-LEVEL FUTURISM: See the future from the bottom up — hackers, fixers, refugees, and hustlers — not from corporate boardrooms
+
+OCTAVIA BUTLER — Power, Identity & Survival:
+- POWER DYNAMICS AS SCIENCE: Explore how power — racial, genetic, economic, physical — shapes every interaction and institution. Who has power and how they use it IS the story
+- SURVIVAL THROUGH ADAPTATION: Characters survive not through strength alone but through intelligence, flexibility, and willingness to change. Evolution is a choice
+- UNCOMFORTABLE COMPROMISES: Characters make morally agonizing choices with no good options. There are no clean victories — survival always costs something
+- INTIMATE SCALE IN COSMIC STORIES: Even in stories about aliens, genetic engineering, or apocalypse, the emotional core is always personal — family, identity, belonging
+
+LIU CIXIN — Hard Science & Cosmic Scale:
+- PHYSICS AS PLOT: Real scientific concepts — the three-body problem, dark forest theory, dimensional reduction — become the source of awe, terror, and narrative structure
+- COSMIC INDIFFERENCE: The universe has no interest in humanity's survival. This isn't malice — it's mathematics. The horror comes from the scale of our insignificance
+- CIVILIZATIONAL STAKES: Think beyond individual survival. What threatens or transforms all of human civilization? Raise the stakes to species-level
+- SENSE OF WONDER: Create moments of genuine awe — first contact, impossible physics, revelations that reshape understanding of the universe
+
+NEAL STEPHENSON — Maximalist Detail & Technical Wonder:
+- TECHNOLOGY AS CHARACTER: Describe how things WORK — code, cryptography, engineering, economics — with enough precision that readers feel like they've learned something real
+- HUMOR IN COMPLEXITY: Even the most complex ideas can be funny. Use wit, irreverence, and pop culture to make dense technical concepts entertaining
+- MULTIPLE KNOWLEDGE DOMAINS: Weave together science, history, philosophy, linguistics, and economics. The richness comes from unexpected connections between disciplines
+- GROUNDED DIALOGUE: Characters in the future still speak naturally. Avoid excessive jargon — introduce new terms organically through context
+
+COMBINE THESE APPROACHES: Mix Herbert's ecological depth with Gibson's street-level texture. Layer Asimov's logical extrapolation over Dick's reality-questioning paranoia. Use Butler's power dynamics alongside Liu's cosmic scale. Channel Stephenson's technical wonder through any of these lenses.`;
+  }
+
+  if (lower.includes("historical")) {
+    return `GENRE MASTERY — HISTORICAL FICTION (Blending techniques from Hilary Mantel, Ken Follett, Philippa Gregory, Colson Whitehead, Anthony Doerr, Umberto Eco):
+
+HILARY MANTEL — Intimate POV & Living History:
+- CAMERA BEHIND THE EYES: Write in close third-person that stays inside the protagonist's consciousness. The reader sees, hears, and interprets the world through one specific pair of eyes
+- PRESENT TENSE IMMEDIACY: Use present tense to duplicate how memory and experience work — in leaps, loops, and flashes. History isn't past — it's happening NOW
+- INHABIT THE ERA COMPLETELY: Five senses, period-accurate thought patterns, contemporary beliefs. Characters don't know they're "historical" — they live in their present
+- MORAL AMBIGUITY IN HISTORY: Avoid judging historical characters by modern standards. Show the genuine beliefs, fears, and constraints of the era — let readers form their own judgments
+
+KEN FOLLETT — Epic Scope & Story Turns:
+- STORY TURNS EVERY 4-6 PAGES: The situation must change constantly — a lie discovered, a new threat, a moment of tenderness, a betrayal. Never let the reader settle
+- MULTIPLE PROTAGONIST VIEWPOINTS: Follow 4-6 characters across different social classes, locations, and perspectives. Their stories interweave and collide around historical events
+- RESEARCH AS FOUNDATION: Specific, accurate details — food, clothing, architecture, weapons, customs — create believability. Hire experts, visit locations, read primary sources
+- CHARACTERS WHO EMBODY THEIR ERA: Each protagonist's desires and conflicts should be shaped by the specific historical forces of their time — not modern characters in costume
+
+PHILIPPA GREGORY — Personal Drama in Political History:
+- WOMEN'S UNTOLD STORIES: Center narratives on women whose perspectives history overlooked. Use fiction to fill the gaps in the historical record
+- CREATIVE INTERPRETATION OF GAPS: Where historical evidence is silent, the novelist's imagination takes over. Speculation should be plausible, compelling, and dramatically rich
+- DOMESTIC SPACES AS BATTLEFIELDS: Courts, bedchambers, and gardens are where real power is negotiated. Political intrigue happens in intimate settings
+- EMOTIONAL TRUTH OVER FACTUAL CERTAINTY: What characters felt matters more than exactly what they said. Capture the emotional reality of historical moments
+
+COLSON WHITEHEAD — Mythology & Metaphor in History:
+- MAGICAL REALISM IN HISTORICAL SETTINGS: Use metaphor made literal — an underground railroad that's actually underground, for instance. Transform historical reality into mythic narrative
+- STRUCTURAL INNOVATION: Break with linear chronology. Use chapters as self-contained episodes, alternate time periods, or shift perspectives to fracture and reassemble history
+- VIOLENCE WITHOUT FLINCHING: When history is brutal, show it honestly. Don't sanitize suffering — but frame it with humanity and dignity
+- HISTORICAL MEMORY: How events are remembered, distorted, and mythologized matters as much as what actually happened
+
+ANTHONY DOERR — Sensory Beauty & Parallel Lives:
+- POETIC PRECISION: Describe historical settings with lyrical, sensory prose that makes readers feel the texture of fabric, the warmth of light, the weight of stone
+- PARALLEL NARRATIVE STRUCTURE: Follow characters on opposite sides whose lives converge. The dramatic irony of knowing they'll meet creates mounting tension
+- SMALL MOMENTS IN VAST CONFLICTS: Find the intimate human story within the sweeping historical event. One child's experience of war can say more than any battle description
+- SCIENCE AND WONDER IN HISTORY: Weave in the scientific understanding of the era — what people knew, what they were discovering, how they understood their world
+
+UMBERTO ECO — Intellectual Mystery & Period Authenticity:
+- INTELLECTUAL PUZZLES IN HISTORICAL SETTINGS: Layer a mystery or philosophical quest over the historical narrative. Characters search for truth across centuries of knowledge
+- LANGUAGE AS TIME MACHINE: Dialogue, narration, and thought should reflect the intellectual framework of the era — how people reasoned, what they considered knowledge
+- LABYRINTHINE STRUCTURE: Complex, multilayered plots that reward patient readers. The historical world itself is the labyrinth
+
+COMBINE THESE APPROACHES: Mix Mantel's intimate POV with Follett's epic scope. Layer Whitehead's mythic metaphors over Doerr's poetic precision. Use Gregory's personal drama alongside Eco's intellectual depth. The best historical fiction makes the past feel more real than the present.`;
+  }
+
+  if (lower.includes("business") || lower.includes("entrepreneur") || lower.includes("finance") || lower.includes("investing") || lower.includes("career") || lower.includes("leadership")) {
+    return `GENRE MASTERY — BUSINESS & FINANCE (Blending techniques from Simon Sinek, Peter Thiel, Tim Ferriss, Robert Kiyosaki, Jim Collins, Ray Dalio):
+
+SIMON SINEK — Purpose-Driven Communication:
+- START WITH WHY: Structure every concept around purpose first, then method, then action. Readers need to believe in the "why" before they'll follow the "how"
+- CLARITY ABOVE ALL: Write so a 14-year-old could understand it. Brilliant ideas lose their value when wrapped in complex language
+- RHETORICAL RHYTHM: Use alliteration, parallelism, and repetition to make concepts memorable and quotable. Ideas that sound beautiful spread faster
+- CROSS-DOMAIN EXAMPLES: Draw from military leadership, civil rights, tech startups, and everyday workers to prove universal principles
+
+PETER THIEL — Contrarian Thinking & First Principles:
+- PROVOCATIVE OPENING QUESTIONS: Start with questions that challenge everything the reader assumes — "What important truth do very few people agree with you on?"
+- FRAMEWORK-DRIVEN CHAPTERS: Structure each chapter around a specific mental model. Readers should leave with a new way of thinking, not just new information
+- PITHY APHORISMS: Distill complex ideas into perfectly quotable single sentences. Make concepts "tweetable" and shareable
+- FIRST-PRINCIPLES REASONING: Strip away conventional wisdom and rebuild from fundamental truths. Challenge every assumption
+
+TIM FERRISS — Actionable Systems & Experimentation:
+- ULTRA-PRACTICAL CONTENT: Step-by-step frameworks, checklists, templates, and exact instructions. Answer "what do I do Monday morning?" for everything you teach
+- PERSONAL EXPERIMENTATION: Use yourself as the test subject. Document real results with specific numbers — weight lost, revenue gained, hours saved
+- MODULAR CHAPTERS: Design so readers can jump to any chapter and get value. Each section is self-contained and immediately useful
+- 80/20 PRINCIPLE: Identify the 20% of actions that produce 80% of results. Cut everything else. Respect the reader's time
+
+ROBERT KIYOSAKI — Parable-Based Teaching & Visual Models:
+- STORIES AS LESSONS: Teach through contrasting characters and scenarios. "Rich Dad" vs "Poor Dad" makes abstract financial concepts visceral and memorable
+- CHALLENGE SACRED COWS: Question conventional wisdom directly — "Your house is NOT an asset." Shock readers into rethinking beliefs they've never questioned
+- VISUAL DIAGRAMS: Use simple graphics, quadrants, and flow charts to make concepts stick. Visual learners need pictures, not paragraphs
+- ASPIRATIONAL MOTIVATION: Tap into the reader's desire for freedom, independence, and control. Connect every lesson to the life they want
+
+JIM COLLINS — Research-Backed Excellence & Built to Last:
+- MASSIVE DATA SETS: Ground every claim in years of research across hundreds of companies. Authority comes from evidence, not opinion
+- MEMORABLE METAPHORS: Hedgehog Concept, Flywheel Effect, Level 5 Leadership — create named frameworks that become industry language
+- COMPARISON METHODOLOGY: Show what separates great companies from merely good ones. Contrast creates clarity
+
+RAY DALIO — Principles-Based Decision Making:
+- NUMBERED PRINCIPLES: Organize wisdom as a numbered list of principles that build on each other. Readers can reference specific rules by number
+- RADICAL TRANSPARENCY: Share failures as openly as successes. Document the mistakes that taught the most valuable lessons
+- SYSTEMS THINKING: Show how individual principles interconnect to form complete decision-making systems
+
+COMBINE THESE APPROACHES: Mix Sinek's purpose-driven clarity with Thiel's contrarian frameworks. Layer Ferriss's practical systems over Kiyosaki's story-based teaching. Use Collins's research depth alongside Dalio's principles architecture. The best business books change how people think AND act.`;
+  }
+
+  if (lower.includes("health") || lower.includes("wellness") || lower.includes("fitness") || lower.includes("medical") || lower.includes("nutrition") || lower.includes("sleep") || lower.includes("diet")) {
+    return `GENRE MASTERY — HEALTH & WELLNESS (Blending techniques from Matthew Walker, Andrew Huberman, Michael Greger, James Nestor, Wim Hof, Kelly Starrett):
+
+MATTHEW WALKER — Science Storytelling & Research Translation:
+- METAPHORS FOR COMPLEX BIOLOGY: Translate neuroscience into vivid analogies anyone can understand. "Sleep is your brain's overnight cleaning crew" is better than explaining glymphatic drainage
+- CHAPTER FLEXIBILITY: Design so readers can read cover-to-cover OR jump to specific topics. Both paths should feel complete
+- EVIDENCE-RICH BUT ENGAGING: Back every claim with research, but present it as detective stories — "Scientists were puzzled until they discovered..."
+- PRACTICAL ENDPOINT: After explaining the science, always end with specific, actionable tips. The reader should know exactly what to DO differently
+
+ANDREW HUBERMAN — Mechanism-First Protocols:
+- EXPLAIN THE WHY BEFORE THE WHAT: Help readers understand the biological mechanism BEFORE giving the protocol. When they understand WHY something works, they'll actually do it
+- SPECIFIC PROTOCOLS: Give exact instructions — timing, dosage, duration, frequency. "Morning sunlight for 10 minutes within 30 minutes of waking" not just "get more sunlight"
+- TRANSPARENT LIMITATIONS: Be honest about what the science doesn't yet know. Credibility comes from acknowledging gaps, not pretending certainty
+- EMPOWERMENT OVER PRESCRIPTION: Teach readers to understand their own biology so they can make informed decisions, not just follow orders
+
+MICHAEL GREGER — Evidence-Based Nutrition & Myth-Busting:
+- STUDY-BY-STUDY BUILDING: Stack multiple studies on top of each other to build an overwhelming case. Each piece of evidence reinforces the last
+- DEBUNK INDUSTRY CLAIMS: Challenge food industry marketing with actual research. Show readers where conventional nutrition advice comes from and who funded the studies
+- HUMOR IN HEALTH: Use wit to make potentially dry nutritional science entertaining. Laughter keeps readers engaged through dense material
+- DAILY DOZEN FRAMEWORKS: Create simple, memorable checklists readers can follow daily. Reduce complexity to actionable daily habits
+
+JAMES NESTOR — Investigative Health Journalism:
+- PERSONAL GUINEA PIG: Put yourself through the experiments you're writing about. First-person experience makes health science visceral and real
+- HISTORICAL CONTEXT: Show how ancient practices (breathing techniques, cold exposure) are validated by modern research. Tradition meets science
+- NARRATIVE INVESTIGATION: Structure health topics as mystery stories — "I set out to discover why..." The reader is on a journey of discovery with you
+- SENSORY IMMERSION: Describe physical sensations in detail — what it FEELS like when the body responds to a protocol. Make health tangible
+
+KELLY STARRETT — Movement Science & Practical Biomechanics:
+- DIAGNOSE THEN PRESCRIBE: Identify the specific problem before offering the solution. Help readers understand WHAT'S WRONG before telling them how to fix it
+- VISUAL STEP-BY-STEP: Describe exercises and movements with enough precision that readers can perform them correctly without a trainer
+- DAILY PRACTICE INTEGRATION: Show how health practices fit into real daily life — at a desk, in a car, waking up, going to sleep
+
+WIM HOF — Experiential Learning & Challenge:
+- CHALLENGE THE READER: Include progressive challenges that build confidence. Start easy, escalate gradually. The reader proves to themselves that change is possible
+- MIND-BODY CONNECTION: Show how mental state directly affects physical health. The separation between mind and body is an illusion
+
+COMBINE THESE APPROACHES: Mix Walker's research translation with Huberman's specific protocols. Layer Greger's evidence stacking over Nestor's investigative narrative. Use Starrett's practical movement focus alongside Hof's experiential challenges. The best health books make readers feel AND act healthier.`;
+  }
+
+  if (lower.includes("psychology") || lower.includes("philosophy") || lower.includes("mindset") || lower.includes("cognitive") || lower.includes("behavioral")) {
+    return `GENRE MASTERY — PSYCHOLOGY & PHILOSOPHY (Blending techniques from Daniel Kahneman, Angela Duckworth, Mihaly Csikszentmihalyi, Viktor Frankl, Carol Dweck, Adam Grant):
+
+DANIEL KAHNEMAN — Dual-Process Thinking & Bias Revelation:
+- TWO-SYSTEM FRAMEWORK: Organize complex ideas around a clear, intuitive framework. System 1 vs System 2 makes decades of research instantly graspable
+- EXPERIMENTS AS STORIES: Present research studies as mini-narratives with setup, surprise, and revelation. "Researchers asked participants to..." becomes a page-turner
+- MEMORABLE ACRONYMS: Create shorthand for complex concepts — WYSIATI ("What You See Is All There Is") — that readers remember and use in daily life
+- SELF-REFERENTIAL HONESTY: Acknowledge that even YOU fall prey to the biases you're describing. Humility builds trust
+
+ANGELA DUCKWORTH — Data Meets Human Stories:
+- STORYTELLING FIRST: Open every concept with a vivid human story — a spelling bee champion, a West Point cadet, a swimmer who almost quit. THEN explain the research
+- SELF-ASSESSMENT TOOLS: Give readers quizzes, scales, and frameworks to evaluate themselves. The Grit Scale makes the concept personal and immediate
+- HERO PROFILES: Profile specific gritty individuals across diverse fields — athletes, artists, scientists, entrepreneurs. Variety proves the principle is universal
+- MYTH-BUSTING WITH EVIDENCE: Challenge the "talent is everything" narrative with specific, compelling counter-evidence. Don't just assert — prove
+
+MIHALY CSIKSZENTMIHALYI — Optimal Experience & Cross-Cultural Depth:
+- CROSS-DOMAIN EXAMPLES: Draw from rock climbing, surgery, chess, factory work, music, poetry. The same principle working across wildly different contexts proves its universality
+- THE FLOW MODEL: Create a visual framework (challenge vs. skill) that readers can apply to any activity in their life. Simple diagrams carry immense explanatory power
+- INTERVIEW-BASED EVIDENCE: Ground concepts in what real people reported experiencing. Direct quotes from thousands of interviews carry more weight than theory
+- INTRINSIC MOTIVATION FOCUS: Help readers find meaning in activity itself, not external rewards. The process IS the reward
+
+VIKTOR FRANKL — Meaning Through Suffering:
+- PERSONAL TESTIMONY: Share the most extreme human experiences — survival, loss, transformation — to prove that meaning can be found in ANY circumstance
+- LOGOTHERAPY PRINCIPLES: Provide a framework for finding purpose that's both philosophical and practical. Theory must serve action
+- UNIVERSAL TRUTHS FROM SPECIFIC HORRORS: Extract lessons about human nature from the most challenging contexts. The extremity of the example makes the lesson unforgettable
+- EXISTENTIAL COURAGE: Write with the conviction that readers can face any truth. Don't soften reality — strengthen the reader
+
+CAROL DWECK — Growth Mindset & Transformation:
+- FIXED VS GROWTH FRAMEWORK: Create a clear binary that readers can immediately apply to their own thinking. "Which mindset am I in right now?"
+- PRAISE PROCESS, NOT TALENT: Show through research how the language we use shapes outcomes. Practical language changes readers can make TODAY
+- EDUCATION APPLICATIONS: Connect psychological research to parenting, teaching, and leadership. Show how abstract concepts play out in daily interactions
+
+ADAM GRANT — Organizational Psychology & Counterintuitive Findings:
+- COUNTERINTUITIVE HOOKS: Lead with findings that surprise — "Givers outperform takers" or "Procrastination can boost creativity." Surprise creates engagement
+- WORKPLACE RELEVANCE: Connect every concept to professional life. Readers should see their office, their team, their career in every chapter
+- RESEARCH ACCESSIBILITY: Translate organizational psychology into stories about real companies, real leaders, real decisions
+
+COMBINE THESE APPROACHES: Mix Kahneman's framework thinking with Duckworth's storytelling. Layer Csikszentmihalyi's cross-domain evidence over Frankl's existential depth. Use Dweck's practical language changes alongside Grant's counterintuitive discoveries. The best psychology books change how readers understand themselves.`;
+  }
+
+  if (lower.includes("biograph") || lower.includes("memoir") || lower.includes("autobiography")) {
+    return `GENRE MASTERY — BIOGRAPHY & MEMOIR (Blending techniques from Michelle Obama, Tara Westover, David Sedaris, Mary Karr, Walter Isaacson, Robert Caro):
+
+MICHELLE OBAMA — Conversational Warmth & Three-Act Transformation:
+- THREE-PART STRUCTURE: Organize the life story as "Becoming Me / Becoming Us / Becoming More" — each section represents a stage of personal evolution
+- CONVERSATIONAL INTIMACY: Write as if sitting with a trusted friend. The reader should feel welcomed into the narrator's world, not lectured
+- PRESENT-TENSE IMMEDIACY: Write moments as they were experienced — with uncertainty, hope, and fear intact. Don't impose hindsight on lived experience
+- SENSORY DETAIL FROM MEMORY: Bring childhood scenes alive through specific details — the apartment's layout, the sound of a piano through the wall, the smell of dinner cooking
+
+TARA WESTOVER — Lyrical Honesty & Memory as Theme:
+- CHAPTER AS STANDALONE SCENE: Each chapter functions as a self-contained story focused tightly on one theme or turning point. This creates natural page-turning momentum
+- LYRICAL PROSE FOR DARK MATERIAL: Use beautiful, poetic language to describe painful experiences. The contrast between elegant writing and harsh reality creates powerful impact
+- ACKNOWLEDGE UNCERTAIN MEMORY: Use footnotes or asides when memories conflict. Honesty about uncertainty increases trust more than false certainty
+- MULTIDIMENSIONAL CHARACTERS: Show family members with full complexity — they can be both loving AND harmful. Avoid reducing real people to heroes or villains
+
+DAVID SEDARIS — Humor as Truth-Telling:
+- SELF-DEPRECATING COMEDY: Make yourself the butt of the joke. Humor disarms readers and makes vulnerability safe
+- FIND ABSURDITY IN THE ORDINARY: The funniest material comes from everyday moments observed with a sharp, slightly askew eye
+- EXAGGERATION FOR EMOTIONAL TRUTH: Amplify details not to lie but to capture how moments FELT, not just how they looked from the outside
+- TIGHT ESSAY STRUCTURE: Short, punchy chapters with clear beginnings, middles, and ends. Every word earns its place
+
+MARY KARR — Brutal Honesty & Voice:
+- UNFLINCHING TRUTH: Write about the hardest experiences without softening, apologizing, or seeking pity. Raw honesty is the memoir's greatest weapon
+- AUTHENTIC REGIONAL VOICE: Let the narrator's real speech patterns, vocabulary, and rhythm come through. Don't polish the voice into something generic
+- SENSORY GROUNDING: Root every scene in physical, tangible detail — textures, temperatures, tastes, smells. The body remembers what the mind forgets
+- EMOTIONAL TRUTH OVER FACTUAL PRECISION: What something MEANT matters more than the exact sequence of events
+
+WALTER ISAACSON — Definitive Research & Legacy:
+- COMPREHENSIVE DOCUMENTATION: Interview hundreds of people, review thousands of documents. The depth of research creates authority that no one can challenge
+- MULTIPLE PERSPECTIVES: Show the subject through the eyes of friends, rivals, family, colleagues. One person's hero is another's villain — include both views
+- HISTORICAL CONTEXT: Place the individual's story within the broader sweep of their era. Show how the times shaped the person AND how the person shaped the times
+- SCENE RECONSTRUCTION: Recreate pivotal moments with dramatic narrative detail — dialogue, setting, tension — turning history into cinema
+
+ROBERT CARO — Power, Obsession & Investigative Depth:
+- YEARS OF RESEARCH: Spend whatever time it takes to understand the subject completely. Move to where they lived, walk where they walked, talk to everyone who knew them
+- POWER AS CENTRAL THEME: Every biography is ultimately about power — how people get it, use it, and are changed by it. This lens makes any life story compelling
+- SETTING AS CHARACTER: The landscape, the neighborhood, the city shapes the person. Describe places with the same attention you give to people
+
+COMBINE THESE APPROACHES: Mix Obama's warmth with Westover's lyrical honesty. Layer Sedaris's humor over Karr's unflinching truth. Use Isaacson's comprehensive research alongside Caro's investigative depth. The best memoirs make one life illuminate the human condition.`;
+  }
+
+  if (lower.includes("cook") || lower.includes("food") || lower.includes("recipe") || lower.includes("culinary") || lower.includes("baking")) {
+    return `GENRE MASTERY — COOKBOOKS & FOOD WRITING (Blending techniques from Yotam Ottolenghi, Samin Nosrat, J. Kenji Lopez-Alt, Anthony Bourdain, Julia Child, Ina Garten):
+
+YOTAM OTTOLENGHI — Bold Flavors & Visual Storytelling:
+- STORY-DRIVEN HEADNOTES: Every recipe needs context — where it came from, why it matters, what memory it carries. The story makes the recipe worth trying
+- VEGETABLES AS STARS: Elevate ingredients readers might overlook. Show unexpected brilliance in humble foods. Challenge what "exciting" cooking looks like
+- UNEXPECTED COMBINATIONS: Pair ingredients that surprise — sweet with savory, Middle Eastern with Asian, rustic with refined. Adventurous flavor combinations keep readers curious
+- INGREDIENT EDUCATION: Teach readers about unfamiliar ingredients — their origin, flavor profile, and substitutions — so they feel empowered, not intimidated
+
+SAMIN NOSRAT — First-Principles Teaching:
+- FRAMEWORK OVER RECIPES: Teach the WHY behind cooking — Salt, Fat, Acid, Heat — so readers develop intuition, not just follow steps. A reader who understands principles can improvise forever
+- SENSORY INSTRUCTION: "Taste as you go," "Listen to the sizzle," "Feel the dough." Teach readers to use their senses as the primary cooking tool
+- PROGRESSIVE CONFIDENCE: Start with simple concepts and build to complex techniques. Each chapter should make the reader feel more capable than the last
+- WARM, MENTORING VOICE: Write like a patient friend in the kitchen, not a demanding chef. Mistakes are learning opportunities, not failures
+
+J. KENJI LOPEZ-ALT — Science-Driven & Myth-Busting:
+- EXPLAIN THE SCIENCE: Why does searing create flavor? Why does resting meat matter? Show the Maillard reaction, emulsification, and protein denaturation in plain language
+- SIDE-BY-SIDE TESTING: Show multiple approaches and their results. "I tested 12 methods for the perfect chocolate chip cookie" creates authority through transparency
+- TROUBLESHOOTING GUIDES: Anticipate what can go wrong and explain how to fix it. "If your sauce breaks, here's exactly what to do"
+- CHALLENGE KITCHEN MYTHS: Test conventional cooking wisdom and report honestly — some rules are real, some are nonsense. Readers trust an author who questions everything
+
+ANTHONY BOURDAIN — Raw Storytelling & Cultural Exploration:
+- FOOD AS CULTURAL GATEWAY: Every dish tells the story of a place, a people, a history. Connect recipes to the human stories behind them
+- ANTI-PRETENTIOUS VOICE: Celebrate street food, home cooking, and imperfect meals alongside fine dining. Great food doesn't require expensive ingredients
+- CONFESSIONAL HONESTY: Share kitchen disasters, burned pans, and lessons learned the hard way. Authenticity beats perfection
+- TRAVEL AS INGREDIENT: The best food writing transports readers to the place where the food was born. Describe the market, the kitchen, the conversation over the meal
+
+JULIA CHILD — Demystification & Joy:
+- METICULOUS TECHNIQUE: Break complex French techniques into clear, achievable steps. No shortcut is offered until the proper method is understood
+- JOY AS ESSENTIAL INGREDIENT: The pleasure of cooking should radiate from every page. If the writer isn't enjoying this, neither will the reader
+- ENCOURAGING TONE: "The only time to eat diet food is while waiting for the steak to cook." Give readers permission to enjoy food fully
+
+INA GARTEN — Elegant Simplicity & Reliability:
+- TESTED TO PERFECTION: Every recipe must work perfectly, every time, for a home cook. Reliability builds reader loyalty above all
+- SIMPLE ELEGANCE: Achieve impressive results with straightforward techniques. The best cooking looks effortless
+- GATHERING AS PURPOSE: Frame recipes around bringing people together. Food serves connection — menus for dinner parties, holidays, celebrations
+
+COMBINE THESE APPROACHES: Mix Ottolenghi's bold creativity with Nosrat's first-principles teaching. Layer Lopez-Alt's scientific rigor over Bourdain's cultural storytelling. Use Child's joyful technique alongside Garten's reliable simplicity. The best food writing makes readers hungry AND inspired.`;
+  }
+
+  if (lower.includes("parent") || lower.includes("relationship") || lower.includes("marriage") || lower.includes("family") || lower.includes("dating")) {
+    return `GENRE MASTERY — PARENTING & RELATIONSHIPS (Blending techniques from John Gottman, Esther Perel, Janet Lansbury, Gary Chapman, Adele Faber, Dan Siegel):
+
+JOHN GOTTMAN — Research-Based Systems & Prediction:
+- DATA-DRIVEN FRAMEWORKS: Ground every piece of advice in decades of research with thousands of couples and families. "We studied 3,000 couples over 20 years and found..."
+- NUMBERED SYSTEMS: Create memorable numbered frameworks — The Four Horsemen, Seven Principles, Five-Step Emotion Coaching — that readers can reference and apply immediately
+- DIAGNOSTIC SELF-ASSESSMENT: Include quizzes and questionnaires so readers can identify their own patterns. Self-awareness is the first step to change
+- REPAIR TECHNIQUES: Don't just identify problems — provide specific scripts, phrases, and exercises for fixing them. "Instead of saying X, try saying Y"
+
+ESTHER PEREL — Provocative Questions & Cultural Lens:
+- PARADOX AS ORGANIZING PRINCIPLE: Explore the contradictions inherent in love — desire vs. security, freedom vs. commitment, mystery vs. intimacy. Tension IS the story
+- QUESTION-DRIVEN EXPLORATION: Ask questions that make readers think rather than prescribing answers. "What does desire mean to you?" creates deeper engagement than "Do this"
+- CULTURAL CONTEXT: Show how different cultures approach love, sex, family, and commitment. Challenge readers' assumption that their way is the only way
+- POETIC LANGUAGE: Use evocative, sensual prose that captures the emotional texture of relationships. Clinical language kills intimacy on the page too
+
+JANET LANSBURY — Respectful Parenting & Child's Perspective:
+- WRITE FROM THE CHILD'S VIEWPOINT: Help parents see behavior through their child's eyes. When parents understand WHY a child acts out, compassion replaces frustration
+- CALM, REASSURING TONE: Non-judgmental guidance that reduces parental anxiety. Parents need to feel supported, not criticized
+- SPECIFIC LANGUAGE SCRIPTS: Provide exact phrases parents can use — "I won't let you hit" is more useful than "set firm boundaries." Concrete beats abstract
+- REAL PARENT SCENARIOS: Use letters and questions from actual parents to illustrate concepts. "A mother wrote to me about..." makes advice feel targeted and real
+
+GARY CHAPMAN — Love Languages & Practical Translation:
+- SIMPLE TYPOLOGY: Create a memorable framework that helps people understand fundamental differences — Five Love Languages gives couples a shared vocabulary
+- COUPLES APPLICATION: Every concept should lead to something partners can DO together. Include exercises, conversations, and experiments for two people
+- RECOGNITION MOMENTS: Help readers see themselves and their partner in the descriptions. "If this sounds like you..." creates instant personal connection
+- BRIDGE-BUILDING LANGUAGE: Frame differences as diversity, not dysfunction. "You're not wrong — you're speaking a different language"
+
+ADELE FABER — Dialogue-Based Teaching:
+- COMIC STRIP ILLUSTRATIONS: Show parent-child interactions as visual before/after scenarios. "Instead of this..." → "Try this..." with illustrated dialogue
+- SKILLS PRACTICE: Provide explicit communication skills — acknowledging feelings, engaging cooperation, alternatives to punishment — with practice exercises
+- WORKSHOP FORMAT: Structure chapters as learning experiences with activities, role-plays, and homework. Reading becomes active participation
+
+DAN SIEGEL — Neuroscience of Connection:
+- BRAIN SCIENCE MADE ACCESSIBLE: Explain the developing brain in simple terms — "upstairs brain" vs "downstairs brain" — so parents understand the biology behind behavior
+- INTEGRATION FRAMEWORK: Show how emotional and rational thinking must work together. Name it ("Name it to tame it") to give parents simple, brain-based tools
+- DEVELOPMENTAL STAGES: Help parents understand what's normal at each age. Perspective reduces anxiety — "Their brain literally can't do that yet" is liberating
+
+COMBINE THESE APPROACHES: Mix Gottman's research rigor with Perel's provocative exploration. Layer Lansbury's respectful tone over Chapman's practical frameworks. Use Faber's dialogue-based teaching alongside Siegel's neuroscience. The best relationship books transform how people connect.`;
+  }
+
+  if (lower.includes("spiritual") || lower.includes("mindful") || lower.includes("meditation") || lower.includes("manifestation") || lower.includes("faith") || lower.includes("religion") || lower.includes("yoga")) {
+    return `GENRE MASTERY — SPIRITUALITY & MINDFULNESS (Blending techniques from Eckhart Tolle, Thich Nhat Hanh, Deepak Chopra, Jay Shetty, Pema Chodron, Don Miguel Ruiz):
+
+ECKHART TOLLE — Present-Moment Awakening:
+- MIRROR THE READER'S MIND: Articulate the exact thought patterns readers experience but never examine. When they read "you probably think..." and it's exactly right, recognition creates breakthrough
+- QUESTION-AND-ANSWER STRUCTURE: Use Q&A format to guide readers through complex spiritual concepts. Each question addresses what the reader is silently asking
+- SIMPLICITY AS DEPTH: Use clear, direct language for profound ideas. Spiritual truth doesn't need complex vocabulary — complexity is the ego's disguise
+- INTERRUPT AUTOMATIC THINKING: Write in a way that creates gaps, pauses, and spaces in the reader's mental chatter. The silence between insights IS the teaching
+
+THICH NHAT HANH — Mindful Observation & Poetic Simplicity:
+- FIND INFINITY IN THE ORDINARY: Washing dishes, drinking tea, walking — show how every mundane activity contains the entire universe when approached with attention
+- LYRICAL, FLOWING PROSE: Write with the rhythm and beauty of poetry. Sentences should create calm in the reader's nervous system, not just convey information
+- PRACTICAL EXERCISES IN EVERY CHAPTER: Breathing exercises, walking meditations, eating practices — every concept comes with something the reader can do RIGHT NOW
+- INTERCONNECTION AS THEME: Everything is connected to everything else. A flower contains the sun, the rain, the earth. Help readers see this web of relationship
+
+DEEPAK CHOPRA — East-West Synthesis & Scientific Spirituality:
+- BRIDGE TRADITIONS: Connect ancient Vedic wisdom with modern quantum physics, neuroscience, and psychology. Show that Eastern and Western knowledge systems confirm each other
+- SEVEN-DAY OR STEP-BY-STEP PROGRAMS: Create structured transformation programs that build progressively. Day 1, Day 2... gives readers a clear path forward
+- MIND-BODY INTEGRATION: Show how thoughts directly affect physical health. The separation between mental and physical is an illusion — help readers experience this
+- ACCESSIBLE MYSTICISM: Take traditionally esoteric concepts and make them practical and relatable for modern Western readers
+
+JAY SHETTY — Ancient Wisdom for Modern Life:
+- MONK WISDOM, MODERN APPLICATION: Take lessons from monastic traditions and show exactly how they apply to careers, relationships, social media, and modern stress
+- PERSONAL TRANSFORMATION STORY: Use your own journey — from ordinary life to monastic training and back — as the narrative backbone. Transformation is credible when the author lived it
+- SOCIAL MEDIA LITERACY: Address the specific spiritual challenges of the digital age — comparison, distraction, superficial connection — with targeted wisdom
+- EXERCISES AND JOURNALING: Include specific prompts, meditations, and reflection questions. Don't just inspire — provide tools for daily practice
+
+PEMA CHODRON — Embracing Difficulty:
+- COMFORT IN DISCOMFORT: Teach readers to lean INTO anxiety, fear, and uncertainty rather than running from them. The path through suffering IS the spiritual path
+- GENTLE HUMOR: Use warm, self-deprecating humor to make difficult spiritual truths approachable. Laughter opens the door that fear keeps closed
+- GROUNDLESSNESS AS FREEDOM: Reframe the loss of certainty not as crisis but as liberation. When there's nothing to hold onto, there's nothing to lose
+- SHORT, POWERFUL CHAPTERS: Deliver insights in concentrated bursts that readers can absorb, contemplate, and return to. Less is more
+
+DON MIGUEL RUIZ — Ancient Agreements & Toltec Wisdom:
+- NUMBERED AGREEMENTS/PRINCIPLES: Organize wisdom as simple, memorable rules — The Four Agreements — that readers can carry with them daily
+- ANCESTRAL PERSPECTIVE: Draw from indigenous wisdom traditions to offer perspectives that modern psychology has only recently validated
+- DREAM METAPHOR: Use the concept of life as a dream to help readers question their assumptions about reality, identity, and truth
+- RADICAL SIMPLICITY: The most powerful spiritual truths can be stated in a single sentence. "Don't take anything personally." The depth is in the practice, not the explanation
+
+COMBINE THESE APPROACHES: Mix Tolle's present-moment awareness with Thich Nhat Hanh's poetic observation. Layer Chopra's scientific bridging over Shetty's modern application. Use Pema Chodron's embrace of difficulty alongside Ruiz's radical simplicity. The best spiritual books don't just inform — they transform.`;
+  }
+
+  if (lower.includes("science") || lower.includes("technology") || lower.includes("physics") || lower.includes("biology") || lower.includes("education") || lower.includes("research")) {
+    return `GENRE MASTERY — SCIENCE & TECHNOLOGY (Blending techniques from Bill Bryson, Neil deGrasse Tyson, Mary Roach, Yuval Noah Harari, Carl Sagan, Michio Kaku):
+
+BILL BRYSON — Curiosity-Driven & Humorous Discovery:
+- WRITE AS THE CURIOUS AMATEUR: Approach science with genuine wonder and naivety. Ask the "dumb" questions readers are too afraid to ask. Your ignorance IS your superpower
+- WIT AS DELIVERY SYSTEM: Use humor, irony, and entertaining anecdotes to make dense science digestible. If readers are laughing, they're learning
+- TRAVEL-WRITING SENSIBILITY: Visit labs, interview scientists, describe the people behind discoveries. Science has human characters — quirky, brilliant, sometimes wrong
+- ACCESSIBLE SCALE: Help readers grasp cosmic scales through relatable comparisons. "If the history of Earth were compressed into a single day..."
+
+NEIL DEGRASSE TYSON — Communication & Pop-Culture Connection:
+- SHORT RHYTHMIC SENTENCES: Keep sentences to 5-7 word "pulses" for maximum impact. Short sentences create rhythm, clarity, and quotability
+- POP-CULTURE ANALOGIES: Explain black holes through Star Wars, evolution through superhero movies, physics through sports. Meet readers where they already are
+- ENTHUSIASM AS CONTAGION: Write with genuine passion and wonder. If the author is excited, the reader will be excited. Enthusiasm is the most underrated teaching tool
+- INCOMPLETE PICTURES: Give enough information to spark curiosity without overwhelming. Create hunger for more knowledge, not information overload
+
+MARY ROACH — Investigative Humor & Taboo Science:
+- GO WHERE OTHERS WON'T: Explore the science of topics most people avoid — death, digestion, sex, space hygiene. The uncomfortable questions are the most fascinating
+- FIRST-PERSON INVESTIGATION: Put yourself in the lab, the morgue, the spaceship simulator. Your reactions and discomfort are as valuable as the science you're reporting
+- HUMOR IN THE GROTESQUE: Find comedy in cadavers, flatulence research, and decomposition. Laughter makes the unflinchable approachable
+- FOOTNOTES AS COMEDY: Use footnotes, asides, and parenthetical observations for bonus laughs and tangential discoveries
+
+YUVAL NOAH HARARI — Big-Picture Narrative & Species-Level Thinking:
+- CIVILIZATIONAL SCOPE: Zoom out to the level of entire species, millennia, and global systems. Help readers see individual moments as part of vast patterns
+- STORYTELLING + DATA: Combine sweeping narrative with specific evidence. "70,000 years ago, something remarkable happened..." hooks readers with story before delivering science
+- CHALLENGE ASSUMPTIONS: Question the beliefs readers have never thought to question. "Money is a shared fiction" or "Agriculture was humanity's biggest mistake" — provoke rethinking
+- CONNECT PAST TO FUTURE: Use deep history to illuminate present trends and future possibilities. Yesterday explains today explains tomorrow
+
+CARL SAGAN — Cosmic Wonder & Poetic Science:
+- SENSE OF AWE: Create moments that make readers feel the vastness, beauty, and strangeness of the universe. Science should inspire, not just inform
+- PALE BLUE DOT PERSPECTIVE: Use cosmic scale to create humility and connection. Seeing Earth from space changes how we think about everything on it
+- DEMOCRATIC SCIENCE: Write for everyone, not just the educated. Science belongs to all humans — make it feel that way
+- ETHICAL DIMENSION: Connect scientific discoveries to human values, responsibility, and the future of civilization
+
+MICHIO KAKU — Futurism & Accessible Physics:
+- FUTURE AS FRAMEWORK: Use emerging technology to structure discussions of fundamental science. "Here's what's coming and here's the physics behind it"
+- CLASSIFICATION SYSTEMS: Organize complex topics into types and categories — Type I, II, III civilizations. Frameworks make the incomprehensible graspable
+- INTERVIEW THE EXPERTS: Include perspectives from leading researchers. Let scientists speak in their own words, then translate for the general reader
+- IMAGINATION AS SCIENCE: Start with science fiction scenarios, then show how real physics makes them possible (or impossible). Dreams fuel discovery
+
+COMBINE THESE APPROACHES: Mix Bryson's curious humor with Tyson's rhythmic enthusiasm. Layer Roach's investigative courage over Harari's civilizational scope. Use Sagan's cosmic wonder alongside Kaku's future-focused frameworks. The best science writing makes readers see the world differently.`;
+  }
+
+  if (lower.includes("productivity") || lower.includes("motivat") || lower.includes("success") || lower.includes("habits") || lower.includes("personal development") || lower.includes("self-improvement")) {
+    return `GENRE MASTERY — PRODUCTIVITY & PERSONAL DEVELOPMENT (Blending techniques from James Clear, Cal Newport, Stephen Covey, David Allen, BJ Fogg, Gretchen Rubin):
+
+JAMES CLEAR — Atomic Habits & Systems Thinking:
+- SYSTEMS OVER GOALS: Teach readers to build repeatable systems rather than set goals. "You don't rise to the level of your goals, you fall to the level of your systems"
+- MEMORABLE FRAMEWORKS: Create numbered laws, simple formulas, and named concepts that readers remember and apply — the Two-Minute Rule, Habit Stacking, the Four Laws
+- STORY THEN SCIENCE: Open each concept with a vivid real-world story, THEN explain the research behind it. Narrative first, evidence second
+- RUTHLESS EDITING: Every paragraph must earn its place. If a section doesn't teach something actionable, cut it. Respect the reader's time
+
+CAL NEWPORT — Deep Work & Contrarian Productivity:
+- CONTRARIAN THESIS: Take a position against popular advice and prove it with evidence. "Follow your passion is bad advice" — then demonstrate why with case studies
+- SPECIFIC RULES AND PROTOCOLS: Give readers exact instructions — "Work in 90-minute blocks with no digital distractions" not just "focus more"
+- CASE STUDIES OF EXCELLENCE: Profile specific individuals who achieved extraordinary results through the principles you're teaching. Stories prove theories
+- ECONOMIC LENS: Frame productivity in terms of career capital, market value, and rare skills. Make self-improvement feel strategic, not just inspirational
+
+STEPHEN COVEY — Principle-Centered Living & Character Ethics:
+- INSIDE-OUT APPROACH: Start with character and principles, not techniques and shortcuts. Lasting change comes from who you ARE, not what you DO
+- NUMBERED HABITS WITH PROGRESSION: Build habits sequentially — each habit depends on mastering the previous one. The order matters. Create a journey, not a menu
+- TIMELESS PRINCIPLES: Ground advice in universal truths that transcend trends. Principles from 1989 should still work in 2030
+- QUADRANT THINKING: Create visual frameworks (Urgent/Important matrix) that readers can immediately apply to their daily decisions
+
+DAVID ALLEN — Getting Things Done & Stress-Free Productivity:
+- CAPTURE EVERYTHING: Teach readers to externalize every commitment, idea, and task into a trusted system. The mind is for having ideas, not holding them
+- WORKFLOW DIAGRAMS: Create clear visual processes — Capture → Clarify → Organize → Reflect → Engage — that readers can follow step by step
+- NEXT ACTION THINKING: Break every project into its next physical action. "What's the very next thing I need to DO?" eliminates overwhelm
+- CONTEXT-BASED ORGANIZATION: Organize tasks by where and when they can be done, not by project. This matches how real life works
+
+BJ FOGG — Tiny Habits & Behavior Design:
+- START IMPOSSIBLY SMALL: Make new behaviors so tiny they require almost no motivation — "After I pour my morning coffee, I will write one sentence." Scale up from success
+- CELEBRATION AS ANCHOR: Teach readers to celebrate tiny wins immediately. Positive emotion wires habits into the brain faster than repetition alone
+- BEHAVIOR RECIPE FORMAT: Use a simple template for every new habit — "After I [ANCHOR], I will [TINY BEHAVIOR]." Give readers a fill-in-the-blank they can use immediately
+- DESIGN THINKING FOR LIFE: Apply product design principles to personal change. Remove friction from good behaviors, add friction to bad ones
+
+GRETCHEN RUBIN — Self-Knowledge & Tendency Framework:
+- KNOW THYSELF FIRST: Help readers identify their own type (Upholder, Questioner, Obliger, Rebel) before giving advice. One-size-fits-all productivity advice fails most people
+- PERSONAL EXPERIMENTS: Document trying different approaches on yourself. Honest reporting of what worked AND what didn't builds credibility
+- EVERYDAY APPLICATIONS: Connect big productivity concepts to tiny daily decisions — when to check email, how to organize a closet, whether to say yes to an invitation
+- CONCRETE OVER ABSTRACT: Replace vague advice ("be more organized") with specific, testable instructions ("spend 15 minutes every Sunday planning the week")
+
+COMBINE THESE APPROACHES: Mix Clear's systems thinking with Newport's contrarian rigor. Layer Covey's principle-centered depth over Allen's practical workflow systems. Use Fogg's tiny habits approach alongside Rubin's self-knowledge framework. The best productivity books don't just organize time — they transform how readers approach their entire lives.`;
+  }
+
+  if (!isFictionGenre(genre)) {
+    return `GENRE MASTERY — NON-FICTION (Blending techniques from James Clear, Brene Brown, Malcolm Gladwell, Mark Manson, Cal Newport, Robert Greene):
+
+JAMES CLEAR — Systems, Habits & Ruthless Clarity:
+- SYSTEMS OVER GOALS: Teach readers to build repeatable systems, not just set goals. "You don't rise to the level of your goals, you fall to the level of your systems"
+- MEMORABLE FRAMEWORKS: Create numbered laws, simple formulas, and named concepts that readers remember and apply. The Two-Minute Rule, Habit Stacking, the Four Laws — make ideas stick
+- STORY THEN SCIENCE: Open each concept with a vivid real-world story, THEN explain the research behind it. Narrative first, evidence second
+- RUTHLESS EDITING: Every paragraph must earn its place. If a section doesn't teach something actionable, cut it. Respect the reader's time
+
+BRENE BROWN — Vulnerability, Research & Personal Voice:
+- RESEARCH MADE PERSONAL: Ground findings in your own struggles and breakthroughs. The author's vulnerability gives readers permission to be honest with themselves
+- DEBUNK MYTHS: Challenge cultural assumptions head-on. "Vulnerability is weakness" → vulnerability is courage. Confront the lies readers have internalized
+- WARM AUTHORITY: Write as "you/we/us" — create intimacy and presence. The reader should feel like they're having a conversation with a wise, honest friend
+- SHAME RESILIENCE: Name the emotional barriers (shame, fear, perfectionism) that prevent readers from changing. Acknowledging the struggle IS the first step
+
+MALCOLM GLADWELL — Narrative Non-Fiction & Counterintuitive Hooks:
+- THE COUNTERINTUITIVE HOOK: Start with a surprising premise that challenges conventional wisdom. "What if everything you know about X is wrong?" — make readers reconsider their assumptions
+- CASE STUDY AS DETECTIVE STORY: Use real-world characters and scenarios like a mystery — introduce a puzzle, investigate clues, build toward a revelation
+- PATTERN RECOGNITION ACROSS DOMAINS: Connect stories from completely different fields — sports, crime, music, medicine — to reveal hidden principles
+- ACCESSIBLE SCIENCE: Translate academic research into page-turning prose. The reader should feel like they're discovering something, not being lectured
+
+MARK MANSON — Raw Honesty & Anti-Guru Voice:
+- COUNTERINTUITIVE WISDOM: Challenge the toxic positivity of traditional self-help. Not everything can be fixed, and pretending otherwise is dishonest
+- BRUTAL HONESTY: Use direct, no-BS language. Share failures without polish. The author's imperfection IS their credibility
+- VALUES-BASED GUIDANCE: Help readers choose what's actually worth caring about, rather than trying to care about everything. Priority over productivity
+- HUMOR AS TEACHING TOOL: Use irreverence, self-deprecation, and pop culture references to keep heavy topics from becoming preachy
+
+CAL NEWPORT — Deep Work, Evidence & Contrarian Thinking:
+- CONTRARIAN THESIS: Take a position that goes against popular advice — then prove it with evidence. "Follow your passion" is bad advice? Show why, with specific examples
+- RULES AND PROTOCOLS: Give readers specific, implementable rules — not vague inspiration. "Work in 90-minute blocks" is better than "work harder"
+- CASE STUDIES OF EXCELLENCE: Profile specific people who achieved extraordinary results. Use their stories to extract replicable principles
+- DEPTH OVER BREADTH: Go deep on fewer concepts rather than skimming many. A reader should feel they have COMPLETE mastery after each chapter
+
+ROBERT GREENE — Historical Examples & Power Dynamics:
+- HISTORICAL PARABLES: Use stories from history — Napoleon, Cleopatra, Carnegie, Sun Tzu — to illustrate timeless principles. The past is the best teacher
+- LAWS AND FRAMEWORKS: Structure content as numbered laws, principles, or strategies. Each one is a standalone lesson with clear application
+- PSYCHOLOGICAL DEPTH: Explore the hidden motivations behind human behavior — ego, fear, desire for status, need for control. Don't just tell people what to do — explain why they resist
+- COMPREHENSIVE DEPTH: Every chapter should be so thorough that if someone read only that chapter, they'd have a complete understanding of that subtopic
+
+COMBINE THESE APPROACHES: Mix Clear's actionable frameworks with Brown's emotional depth. Layer Gladwell's narrative investigations over Manson's raw honesty. Use Newport's contrarian evidence alongside Greene's historical wisdom. The best non-fiction transforms how readers think AND act.`;
+  }
+
+  return `GENRE MASTERY — LITERARY FICTION (Blending techniques from Donna Tartt, Kazuo Ishiguro, Toni Morrison, Chimamanda Ngozi Adichie, Cormac McCarthy, Zadie Smith):
+
+DONNA TARTT — Atmospheric Immersion & Suspenseful Beauty:
+- LUSH MAXIMALIST PROSE: Rich, erudite language with extraordinary attention to detail — clothing, settings, objects, light. Every sentence should be beautiful enough to re-read
+- FILM-STYLE SETTINGS: Create immersive, atmospheric locations that drive the plot forward. Settings reflect character psychology and themes
+- SUSPENSE THROUGH CHARACTER: Build deep emotional connections before creating suspenseful situations. Readers should care about the outcome of a conversation as much as a car chase
+- MASTERFUL OPENINGS: Reveal key information upfront — "Bunny had been dead for several weeks." Create a "whydunnit" instead of "whodunnit" to sustain tension
+
+KAZUO ISHIGURO — Restraint, Memory & Unreliable Narration:
+- EMOTIONAL UNDERSTATEMENT: Let restraint carry immense emotional weight. What characters DON'T say matters more than what they do. Formal language masking deep feeling
+- UNRELIABLE MEMORY: Explore how characters reshape their past to protect themselves. Memory is manipulated according to emotional need — and the gap between memory and truth IS the story
+- GRADUAL REVELATION: Slowly uncover devastating truths through controlled pacing. Let readers piece together what the narrator can't admit to themselves
+- REGRET AND SELF-DECEPTION: Characters who realize too late what they've lost. The tragedy is in the recognition — the moment when illusion finally breaks
+
+TONI MORRISON — Poetic Power & Cultural Memory:
+- LANGUAGE AS MUSIC: Write prose that sounds like music when read aloud — rhythm, repetition, cadence. Sentences should have physical impact
+- COLLECTIVE MEMORY: Stories that belong to a community, not just an individual. Personal trauma reflects cultural trauma. Individual identity is inseparable from collective history
+- NON-LINEAR TIME: Move through time freely — past and present coexist, memories intrude on the current moment, the dead speak alongside the living
+- MORAL COURAGE: Address the hardest truths about human nature and society without flinching. Don't comfort the reader — challenge them
+
+CHIMAMANDA NGOZI ADICHIE — Specificity, Humor & Cultural Collision:
+- RADICAL SPECIFICITY: Describe the exact texture of fufu, the specific brand of hair relaxer, the particular shade of red earth. Specificity creates universality
+- CULTURAL COLLISION: Place characters between worlds — countries, classes, languages, identities. The tension of belonging to multiple worlds simultaneously
+- HUMOR IN SERIOUS FICTION: Even in stories about war, immigration, or identity crisis, humor reveals truth and keeps prose from becoming heavy-handed
+- QUIET DEVASTATION: The most powerful moments are quiet — a glance, a pause, a small betrayal. Understatement hits harder than melodrama
+
+CORMAC MCCARTHY — Sparse Power & Mythic Landscape:
+- STRIPPED-DOWN PROSE: Remove everything unnecessary — quotation marks, commas, excess adjectives. Let the starkness of the language mirror the starkness of the world
+- LANDSCAPE AS CHARACTER: The physical world — deserts, mountains, rivers — is a force as powerful as any human character. Nature is indifferent and vast
+- BIBLICAL RHYTHM: Write with the cadence of ancient texts. Short declarative sentences. And. And. And. Build through accumulation
+- VIOLENCE AS REVELATION: When violence occurs, it reveals fundamental truths about the characters and the world they inhabit. Never gratuitous — always meaningful
+
+ZADIE SMITH — Voice, Culture & Structural Play:
+- DISTINCTIVE VOICES: Each character should speak, think, and perceive the world differently. Voice IS character — dialect, vocabulary, rhythm, humor
+- STRUCTURAL EXPERIMENTATION: Play with form — shift perspectives, break timelines, use different modes of storytelling within a single novel
+- MULTICULTURAL TEXTURE: Layer multiple cultural perspectives, languages, and worldviews. The richness comes from the collision and blending of traditions
+- INTELLECTUAL PLAY: Ideas, theories, and philosophical questions woven through the narrative. Characters who think deeply about the world they inhabit
+
+COMBINE THESE APPROACHES: Mix Tartt's atmospheric beauty with Ishiguro's emotional restraint. Layer Morrison's poetic power over Adichie's cultural specificity. Use McCarthy's spare intensity alongside Smith's playful structure. Great literary fiction creates its own rules.`;
+}
+
+function getCoverImageryDescription(title: string, genre: string, coverAnalysis?: string): string {
+  if (coverAnalysis) {
+    return `COVER ART ANALYSIS (Your story/content MUST reflect this visual world):
+${coverAnalysis}
+
+The cover art is the reader's first impression. Every scene, setting, atmosphere, and mood in your writing should feel like it belongs in the same world depicted on the cover. Specific visual elements from the cover should appear as descriptions, settings, or symbolic motifs throughout the text.`;
+  }
+  return `The book cover depicts a cinematic scene inspired by the title "${title}" in the ${genre} genre. Imagine the visual world the cover art portrays — the setting, atmosphere, colors, mood, and any symbolic imagery the title evokes. This cover imagery should be reflected in the writing.`;
+}
+
+async function analyzeCoverForContent(coverUrl: string, title: string, genre: string): Promise<string> {
+  try {
+    let imageUrl = coverUrl;
+
+    if (!coverUrl.startsWith("http://") && !coverUrl.startsWith("https://") && !coverUrl.startsWith("data:")) {
+      const cleanPath = coverUrl.startsWith("/") ? coverUrl.substring(1) : coverUrl;
+      const filePath = path.join(process.cwd(), cleanPath);
+      if (fs.existsSync(filePath)) {
+        const imageBuffer = fs.readFileSync(filePath);
+        const base64 = imageBuffer.toString("base64");
+        const ext = coverUrl.endsWith(".png") ? "png" : "jpeg";
+        imageUrl = `data:image/${ext};base64,${base64}`;
+      } else {
+        console.warn(`[Cover Analysis] Cover file not found at ${filePath} for "${title}"`);
+        return "";
+      }
+    }
+
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert at analyzing book cover artwork and translating visual imagery into vivid written descriptions that can guide story/content creation."
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Analyze this book cover for "${title}" (${genre}). Describe in rich detail:
+1. THE SCENE: What environment, location, or world is depicted? (e.g., a dark forest, a futuristic city, a cozy library, an ancient temple)
+2. KEY VISUAL ELEMENTS: What specific objects, symbols, or figures are visible? (e.g., a glowing artifact, a shadowy figure, a spacecraft, flowers)
+3. ATMOSPHERE & MOOD: What emotional tone does the cover convey? (e.g., mysterious, romantic, menacing, hopeful, melancholic)
+4. COLOR PALETTE: What are the dominant colors and what feeling do they evoke?
+5. STYLE & ERA: Does it suggest a time period, culture, or artistic style?
+6. NARRATIVE HINTS: What story does this cover seem to promise? What kind of characters, conflicts, or themes does it suggest?
+
+Be specific and vivid. These details will be used to ensure the book's content matches its cover art perfectly.`
+            },
+            {
+              type: "image_url",
+              image_url: { url: imageUrl, detail: "low" }
+            }
+          ]
+        }
+      ],
+      max_tokens: 800,
+    });
+
+    const analysis = response.choices[0]?.message?.content || "";
+    console.log(`[Cover Analysis] Analyzed cover for "${title}": ${analysis.substring(0, 100)}...`);
+    return analysis;
+  } catch (error: any) {
+    console.error(`[Cover Analysis] Failed for "${title}":`, error?.message);
+    return "";
+  }
+}
+
+export async function generateEbookOutline(topic: string, genre: string, title?: string, coverAnalysis?: string): Promise<string> {
+  const bookTitle = title || topic;
+  const fiction = isFictionGenre(genre);
+  const coverContext = getCoverImageryDescription(bookTitle, genre, coverAnalysis);
+  const genreTechniques = getGenreWritingTechniques(genre);
+
+  const visualConfig = getVisualEnhancedConfig(genre);
+  const visualInstructions = visualConfig 
+    ? `\n\nVISUAL-ENHANCED MODE: ${visualConfig.promptPrefix}\nEach [ILLUSTRATION: ...] marker must contain a detailed, specific description of exactly what the image should show — including subject, composition, style, colors, mood. These descriptions will be sent to an AI image generator, so be extremely specific and visual. Each marker must appear on its OWN LINE.\nExample:\n[ILLUSTRATION: A three-panel comic strip showing a superhero discovering their powers — Panel 1: teenager looking surprised at floating pencils around them, Panel 2: attempting to control the floating objects with outstretched hands, Panel 3: triumphant pose with objects arranged in a pattern. Bold ink lines, vibrant colors, manga-inspired style.]`
+    : "";
+
+  const systemPrompt = fiction
+    ? `You are a masterful fiction author who has studied the techniques of the greatest bestselling novelists — Stephen King, Gillian Flynn, Tolkien, Agatha Christie, and literary masters. You create richly layered narratives with vivid characters, immersive settings, unexpected plot twists, and emotionally resonant themes. Every story you craft feels cinematic and deeply human. You understand that great fiction requires:
+- Characters readers deeply care about before anything happens to them
+- Plot twists that feel both surprising AND inevitable in retrospect
+- Settings that feel like living, breathing worlds
+- Dialogue that reveals character personality and advances the plot simultaneously
+- Thematic depth woven through every scene, not stated outright${visualInstructions}`
+    : `You are an acclaimed non-fiction author and subject-matter expert who has studied how the greatest self-help and how-to bestsellers are written — from Atomic Habits to The 7 Habits to Thinking Fast and Slow. You create comprehensive, deeply researched books that leave readers feeling they truly understand the subject and can take immediate action. Your writing is clear, authoritative, and packed with insight. You understand that great non-fiction requires:
+- Every question a reader could ask must be anticipated and answered
+- Actionable frameworks, exercises, and step-by-step guidance in every chapter
+- Real-world case studies and vivid examples that make abstract concepts concrete
+- A conversational but authoritative voice that guides like a trusted expert
+- Complete coverage so no aspect of the topic is left unexplored${visualInstructions}`;
+
+  const chapterSpec = getGenreChapterSpec(genre);
+  const chapterRange = `${chapterSpec.targetChapters.min}-${chapterSpec.targetChapters.max}`;
+  
+  const isCollectionGenre = /short stor|collection|anthology/i.test(genre);
+
+  const userPrompt = isCollectionGenre
+    ? `Create a detailed outline for a ${genre} titled "${bookTitle}".
+CREATIVE DIRECTION (internal use only — use it to shape the tone, themes, and variety of stories. Do NOT copy this text into the outline or book):
+${topic}
+
+${genreTechniques}
+
+CRITICAL — THIS IS A SHORT STORY COLLECTION, NOT A NOVEL. Every rule below is mandatory:
+- Each chapter = one COMPLETELY STANDALONE short story with its own unique title
+- DIFFERENT characters in every story — no recurring protagonists across stories
+- DIFFERENT settings in every story — different town, time period, world, or situation
+- Each story has its own beginning, conflict, and COMPLETE resolution — no cliffhangers into the next story
+- Stories may share a THEME or TONE (e.g. "cozy AI mysteries" or "hopepunk near-future") but NEVER shared characters or ongoing plot
+- Think: like a published anthology or short story magazine — a reader can open to any story and read it standalone
+
+IMPORTANT — The title "${bookTitle}" should be honored as the collection's theme and promise to readers.
+
+${coverContext}
+
+Include:
+- Title: "${bookTitle}"
+- A brief collection overview (what thematic thread unites these stories — 2-3 sentences)
+- Between ${chapterSpec.targetChapters.min} and ${chapterSpec.targetChapters.max} standalone stories (chapters), each with:
+  - A unique, evocative story title (not "Chapter 1" — a real title)
+  - A distinct cast of 2-4 characters found ONLY in this story (name, trait, role)
+  - A specific setting unique to this story (place, time, atmosphere)
+  - A clear central conflict and complete resolution — the story ends here
+  - Key scenes, emotional beats, and a thematic connection to the collection's premise
+  - The story's unique tone or mood (e.g. "wry and darkly comic", "melancholy and spare", "urgent and propulsive")
+
+Format as a structured outline an AI can use to write each story as a complete, standalone piece of literary fiction.`
+    : fiction
+    ? `Create a detailed story outline for a ${genre} novel titled "${bookTitle}".
+CREATIVE DIRECTION (internal use only — this is the author's vision for the story. Use it to shape characters, plot, themes, and tone. Do NOT copy this text into the outline or book. Do NOT include it in any "About this Book" section. Transform these ideas into compelling fiction):
+${topic}
+
+MANDATORY COMPLIANCE: The Creative Direction above is NOT a suggestion — it is the author's binding requirement. You MUST:
+- Use the EXACT character demographics specified (race, ethnicity, gender, background). Do NOT substitute, diversify, or change the demographics the author specified.
+${(() => { const gl = (genre || '').toLowerCase(); const isKids = gl.includes("children") || gl.includes("picture book") || gl.includes("early reader") || gl.includes("middle grade"); const isYA = gl.includes("young adult") || gl.includes("ya ") || gl.trim() === "ya"; if (isKids) return "- CHILDREN'S CONTENT SAFETY OVERRIDE: This is a children's book. ALL content MUST be appropriate for readers ages 6–12. No violence, profanity, adult themes, sexual content, or horror — regardless of what the creative direction says. If the creative direction requests mature content, reinterpret it in a child-safe way."; if (isYA) return "- YOUNG ADULT CONTENT GUIDELINES: This is a YA book for readers ages 13–18. Romantic tension is fine but no explicit sex scenes. Conflict and danger are fine but no graphic gore or torture. Mild profanity only. Emotional honesty and real stakes are expected and encouraged."; return "- Include ALL content themes and explicit elements described. Do NOT sanitize, soften, or omit mature content the author requested."; })()}
+- Follow the specific scenarios, settings, and dynamics described. The author knows what story they want told.
+- If the creative direction specifies a particular community, culture, or setting, every character must authentically belong to that world.
+Failure to follow these requirements means the outline does not serve the author's vision.
+
+${genreTechniques}
+
+IMPORTANT — The title "${bookTitle}" must be central to the story. It should represent a key theme, location, character, object, or turning point in the narrative. The title should feel inevitable by the end.
+
+${coverContext}
+
+GENRE PACING NOTE: ${chapterSpec.pacing}
+
+Include:
+- Title: "${bookTitle}"
+- A compelling premise/hook (2-3 sentences establishing the world and central conflict — make it irresistible)
+- Main characters (3-5) with:
+  - Full names and distinct personality traits
+  - Deep motivations and inner conflicts that drive them
+  - Flaws and vulnerabilities that make them human
+  - How they relate to and clash with each other
+  - Character arcs showing genuine transformation
+- Setting description — the world, time period, atmosphere (MUST connect to the cover imagery)
+- At least ONE major plot twist that recontextualizes earlier events
+- Between ${chapterSpec.targetChapters.min} and ${chapterSpec.targetChapters.max} chapters with evocative titles. Do NOT default to ${chapterSpec.targetChapters.min} — that is the absolute minimum for a thin story. Most compelling novels need ${Math.round((chapterSpec.targetChapters.min + chapterSpec.targetChapters.max) / 2)}-${chapterSpec.targetChapters.max} chapters to properly develop characters, build tension, and deliver a satisfying arc. Let the story decide how many chapters it truly needs. Each chapter containing:
+  - A chapter summary (what happens, key scenes, emotional beats)
+  - Character development moments
+  - Key dialogue moments or confrontations (with specific emotional stakes)
+  - How the chapter advances the central mystery/conflict/romance
+  - Sensory details: what readers should see, hear, smell, and feel
+- A satisfying climax and resolution that ties back to the title's meaning
+- Thematic threads that run throughout (at least 2-3 recurring motifs connected to the cover imagery)
+- Specific moments of tension, surprise, emotion, and wonder
+
+Format as a structured outline an AI can use to write rich, literary prose that reads like a published bestseller.`
+    : `Create a comprehensive outline for a ${genre} book titled "${bookTitle}".
+CREATIVE DIRECTION (internal use only — this is the author's vision. Use it to shape the book's structure, tone, and depth. Do NOT copy this text into the outline or book. Transform these ideas into expert-level content):
+${topic}
+
+${genreTechniques}
+
+IMPORTANT — The title "${bookTitle}" must be the organizing principle of the entire book. Every chapter should clearly connect back to the promise the title makes to the reader.
+
+${coverContext}
+
+GENRE PACING NOTE: ${chapterSpec.pacing}
+
+Include:
+- Title: "${bookTitle}"
+- A compelling introduction concept (why this book matters, what the reader will gain, and why NOW)
+- Between ${chapterSpec.targetChapters.min} and ${chapterSpec.targetChapters.max} chapters with clear, descriptive titles. Do NOT default to ${chapterSpec.targetChapters.min} — that is the absolute minimum for a shallow book. Most comprehensive non-fiction books need ${Math.round((chapterSpec.targetChapters.min + chapterSpec.targetChapters.max) / 2)}-${chapterSpec.targetChapters.max} chapters to thoroughly cover the subject. Let the depth of the topic decide how many chapters are needed. Each chapter containing:
+  - 4-6 detailed subsections with specific content descriptions
+  - Key concepts, frameworks, or principles to explain (with memorable names)
+  - Real-world examples, case studies, or scenarios — with specific details, not generic placeholders
+  - Practical exercises, reflection questions, action steps, or checklists readers can USE immediately
+  - Common misconceptions to debunk
+  - "What if" scenarios addressing reader objections
+- A powerful conclusion that synthesizes all chapters into a complete transformation
+- Throughout: connect every chapter back to the title's core promise
+- Anticipate EVERY question a reader might have — this book should be the DEFINITIVE resource
+
+The outline should be detailed enough that the resulting book could answer any question a reader might have about "${bookTitle}". Format as a structured outline.`;
+
+  const response = await getContentClient().chat.completions.create({
+    model: "gpt-5.2",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    max_completion_tokens: 8000,
+  });
+
+  const outlineText = response.choices[0]?.message?.content || "";
+
+  if (detectRefusal(outlineText)) {
+    console.log(`[Content Gen] REFUSED outline for "${bookTitle}" — trying Direct OpenAI first`);
+    console.log(`[Content Gen] Refusal detected in first 200 chars: "${outlineText.substring(0, 200)}"`);
+    const openAIResponse = await getFallbackClient().chat.completions.create({
+      model: "gpt-5.2",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      max_completion_tokens: 8000,
+    });
+    const openAIText = openAIResponse.choices[0]?.message?.content || "";
+    if (!detectRefusal(openAIText)) {
+      console.log(`[Content Gen] Direct OpenAI accepted outline`);
+      return openAIText;
+    }
+    console.log(`[Content Gen] Direct OpenAI also refused — trying Replit AI as last resort`);
+    const replitResponse = await getSecondFallbackClient().chat.completions.create({
+      model: "gpt-5.2",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      max_completion_tokens: 8000,
+    });
+    const replitText = replitResponse.choices[0]?.message?.content || "";
+    if (!detectRefusal(replitText)) {
+      console.log(`[Content Gen] Replit AI accepted outline`);
+      return replitText;
+    }
+    console.log(`[Content Gen] Both providers refused outline — using best available result`);
+    return openAIText.length > replitText.length ? openAIText : replitText;
+  }
+
+  return outlineText;
+}
+
+function parseChaptersFromOutline(outline: string): string[] {
+  const chapters: string[] = [];
+  const lines = outline.split("\n");
+  let currentChapter = "";
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const isChapterHeading = /^#{1,3}\s*\**\s*(chapter|part)\s+\d+/i.test(trimmed) ||
+                             /^\*\*(chapter|part)\s+\d+/i.test(trimmed) ||
+                             /^\d+[.)]\s/i.test(trimmed) ||
+                             /^(chapter|part)\s+\d+/i.test(trimmed);
+    
+    if (isChapterHeading && currentChapter.trim()) {
+      chapters.push(currentChapter.trim());
+      currentChapter = line + "\n";
+    } else {
+      currentChapter += line + "\n";
+    }
+  }
+  if (currentChapter.trim()) chapters.push(currentChapter.trim());
+  
+  if (chapters.length <= 2) {
+    const sectionSplit = outline.split(/\n(?=#{1,3}\s|\*\*[A-Z])/);
+    const filtered = sectionSplit.filter(s => s.trim().length > 30);
+    if (filtered.length >= 3) return filtered;
+  }
+  
+  if (chapters.length < 8) {
+    const TARGET_CHAPTERS = 10;
+    const totalLines = outline.split("\n").filter(l => l.trim().length > 0);
+    const linesPerChapter = Math.max(Math.floor(totalLines.length / TARGET_CHAPTERS), 3);
+    const synthesized: string[] = [];
+    for (let i = 0; i < totalLines.length; i += linesPerChapter) {
+      synthesized.push(totalLines.slice(i, i + linesPerChapter).join("\n"));
+    }
+    if (synthesized.length >= 8) return synthesized;
+  }
+  
+  return chapters.length > 0 ? chapters : [outline];
+}
+
+function getGenreChapterSpec(genre: string): { minWordsPerChapter: number; maxWordsPerChapter: number; targetChapters: { min: number; max: number }; pacing: string } {
+  const lower = (genre || "").toLowerCase();
+
+  if (lower.includes("short stor") || lower.includes("collection") || lower.includes("anthology")) {
+    return { minWordsPerChapter: 1500, maxWordsPerChapter: 3000, targetChapters: { min: 8, max: 15 }, pacing: "Each chapter is a STANDALONE short story — its own beginning, middle, and end. Fresh characters and setting every story. No continuity between stories." };
+  }
+  if (lower.includes("thriller") || lower.includes("mystery") || lower.includes("suspense")) {
+    return { minWordsPerChapter: 1500, maxWordsPerChapter: 2500, targetChapters: { min: 8, max: 15 }, pacing: "Fast-paced with short, punchy chapters. End every chapter on a cliffhanger or revelation." };
+  }
+  if (lower.includes("romance")) {
+    return { minWordsPerChapter: 2000, maxWordsPerChapter: 3000, targetChapters: { min: 10, max: 15 }, pacing: "Smooth emotional pacing with romantic tension building across chapters. Each chapter should deepen the connection or introduce a complication." };
+  }
+  if (lower.includes("fantasy") || lower.includes("epic") || lower.includes("sci-fi") || lower.includes("science fiction")) {
+    return { minWordsPerChapter: 3000, maxWordsPerChapter: 5000, targetChapters: { min: 8, max: 12 }, pacing: "Immersive longer chapters that allow deep worldbuilding. Balance exposition with action and character moments." };
+  }
+  if (lower.includes("horror")) {
+    return { minWordsPerChapter: 1500, maxWordsPerChapter: 3000, targetChapters: { min: 8, max: 14 }, pacing: "Atmospheric slow-burn with short, tense chapters. Use the three layers of fear: gross-out, horror, and terror." };
+  }
+  if (lower.includes("historical")) {
+    return { minWordsPerChapter: 2500, maxWordsPerChapter: 4000, targetChapters: { min: 8, max: 12 }, pacing: "Rich, detailed chapters that immerse readers in the era. Weave historical facts seamlessly into character-driven narrative." };
+  }
+  if (lower.includes("drama") && !lower.includes("literary")) {
+    return { minWordsPerChapter: 2000, maxWordsPerChapter: 4000, targetChapters: { min: 8, max: 14 }, pacing: "Character-driven chapters with intense emotional beats. Each chapter escalates conflict through dialogue, confrontation, and internal struggle. Scenes should feel raw and grounded in real human experience." };
+  }
+  if (lower.includes("literary")) {
+    return { minWordsPerChapter: 2000, maxWordsPerChapter: 4000, targetChapters: { min: 8, max: 12 }, pacing: "Prose-driven chapters with deep character interiority. Each chapter should feel like a short story within the larger narrative." };
+  }
+  if (lower.includes("self-help") || lower.includes("personal development") || lower.includes("productivity")) {
+    return { minWordsPerChapter: 2500, maxWordsPerChapter: 4000, targetChapters: { min: 8, max: 12 }, pacing: "Each chapter covers one core concept with frameworks, examples, and actionable exercises. The reader should be able to implement immediately." };
+  }
+  if (lower.includes("business") || lower.includes("finance") || lower.includes("entrepreneur")) {
+    return { minWordsPerChapter: 3000, maxWordsPerChapter: 5000, targetChapters: { min: 8, max: 12 }, pacing: "Data-driven chapters with case studies, frameworks, and strategic insights. Build from foundational concepts to advanced applications." };
+  }
+  if (lower.includes("health") || lower.includes("wellness") || lower.includes("fitness")) {
+    return { minWordsPerChapter: 2000, maxWordsPerChapter: 3500, targetChapters: { min: 8, max: 12 }, pacing: "Evidence-based chapters with practical protocols. Include specific routines, meal plans, or exercise programs readers can follow." };
+  }
+  if (lower.includes("psychology") || lower.includes("philosophy")) {
+    return { minWordsPerChapter: 2500, maxWordsPerChapter: 4000, targetChapters: { min: 8, max: 12 }, pacing: "Thought-provoking chapters that blend research with relatable examples. Each chapter should shift the reader's perspective." };
+  }
+  
+  const isFiction = isFictionGenre(genre || "");
+  if (isFiction) {
+    return { minWordsPerChapter: 2000, maxWordsPerChapter: 3500, targetChapters: { min: 8, max: 14 }, pacing: "Balanced pacing with engaging chapters. Every scene should advance plot, reveal character, or build atmosphere." };
+  }
+  return { minWordsPerChapter: 2000, maxWordsPerChapter: 3500, targetChapters: { min: 8, max: 12 }, pacing: "Clear, structured chapters with comprehensive coverage. Each chapter should fully address its topic with examples and takeaways." };
+}
+
+export async function generateEbookContent(outline: string, topic: string, genre?: string, title?: string, coverAnalysis?: string, onChapterComplete?: (contentSoFar: string) => Promise<void>, existingContent?: string, storedChapterCount?: number, stopEpochAtStart?: number): Promise<string> {
+  const bookTitle = title || topic;
+  const fiction = isFictionGenre(genre || "");
+  const coverContext = getCoverImageryDescription(bookTitle, genre || "General", coverAnalysis);
+  const genreTechniques = getGenreWritingTechniques(genre || "General");
+  const chapterSpec = getGenreChapterSpec(genre || "General");
+
+  const outlineChapters = parseChaptersFromOutline(outline);
+  const parsedCount = outlineChapters.length;
+  const outlineChapterMentions = (outline.match(/chapter\s+\d+/gi) || []);
+  const uniqueOutlineChapterNums = new Set(outlineChapterMentions.map(m => parseInt(m.match(/\d+/)![0])));
+  const outlineMentionCount = uniqueOutlineChapterNums.size;
+  const bestCount = storedChapterCount && storedChapterCount > 0 ? storedChapterCount : (outlineMentionCount > parsedCount ? outlineMentionCount : parsedCount);
+  const totalChapters = Math.min(Math.max(bestCount, chapterSpec.targetChapters.min), chapterSpec.targetChapters.max);
+  console.log(`[Content Gen] Chapter count: parsed=${parsedCount}, outlineMentions=${outlineMentionCount}, stored=${storedChapterCount || 'none'}, final=${totalChapters}`);
+  const wordsPerChapter = Math.round((chapterSpec.minWordsPerChapter + chapterSpec.maxWordsPerChapter) / 2);
+  const targetTotalWords = totalChapters * wordsPerChapter;
+
+  let existingChapterTexts: string[] = [];
+  let resumeFromChapter = 0;
+  if (existingContent && existingContent.trim().length > 500) {
+    const chapterSplitPattern = /(?=##\s*Chapter\s+\d+)/gi;
+    const rawChunks = existingContent.split(chapterSplitPattern).filter(chunk => {
+      return /^##\s*Chapter\s+\d+/i.test(chunk.trim()) && chunk.trim().length > 100;
+    });
+
+    const parsedChapters: { num: number; text: string; words: number }[] = [];
+    for (const chunk of rawChunks) {
+      const numMatch = chunk.match(/^##\s*Chapter\s+(\d+)/i);
+      if (numMatch) {
+        const num = parseInt(numMatch[1]);
+        const words = chunk.split(/\s+/).length;
+        parsedChapters.push({ num, text: chunk.trim(), words });
+      }
+    }
+
+    parsedChapters.sort((a, b) => a.num - b.num);
+
+    if (parsedChapters.length > 0) {
+      let sequentialChapters: typeof parsedChapters = [];
+      for (let idx = 0; idx < parsedChapters.length; idx++) {
+        const expected = idx + 1;
+        if (parsedChapters[idx].num === expected) {
+          sequentialChapters.push(parsedChapters[idx]);
+        } else {
+          console.log(`[Content Gen] RESUME: Gap detected at chapter ${expected} (found ${parsedChapters[idx].num}). Using ${sequentialChapters.length} sequential chapters.`);
+          break;
+        }
+      }
+
+      if (sequentialChapters.length === 0) {
+        console.log(`[Content Gen] RESUME: No sequential chapters found starting from 1. Starting fresh.`);
+      } else {
+        const lastParsed = sequentialChapters[sequentialChapters.length - 1];
+        const isLastComplete = lastParsed.words >= Math.round(chapterSpec.minWordsPerChapter * 0.4);
+
+        if (isLastComplete) {
+          existingChapterTexts = sequentialChapters.map(c => c.text);
+          resumeFromChapter = Math.min(lastParsed.num, totalChapters);
+        } else if (sequentialChapters.length > 1) {
+          const completeChapters = sequentialChapters.slice(0, -1);
+          existingChapterTexts = completeChapters.map(c => c.text);
+          resumeFromChapter = Math.min(completeChapters[completeChapters.length - 1].num, totalChapters);
+        } else {
+          console.log(`[Content Gen] RESUME: Only 1 chapter found and it's incomplete (${lastParsed.words} words). Starting fresh.`);
+        }
+
+        if (resumeFromChapter > 0) {
+          const existingWords = existingChapterTexts.join(" ").split(/\s+/).length;
+          console.log(`[Content Gen] RESUME MODE: ${sequentialChapters.length} sequential chapters found (${existingWords} words, ${existingChapterTexts.length} kept). Resuming from chapter ${resumeFromChapter + 1}/${totalChapters}`);
+        }
+      }
+    }
+  }
+  
+  console.log(`[Content Gen] Writing "${bookTitle}" (${genre}): ${totalChapters} chapters, ~${wordsPerChapter} words each (range: ${chapterSpec.minWordsPerChapter}-${chapterSpec.maxWordsPerChapter}), target: ${targetTotalWords} total`);
+
+  const storyArchitectPlan = await generateStoryArchitectPlan(outline, genre || "General", bookTitle, fiction, totalChapters);
+  if (storyArchitectPlan) {
+    console.log(`[Story Architect] Technique map ready — ${storyArchitectPlan.chapters.length} chapters mapped with strategic author assignments`);
+  } else {
+    console.log(`[Story Architect] Using standard genre-wide techniques (architect plan unavailable)`);
+  }
+
+  const isCollectionGenre = /short stor|collection|anthology/i.test(genre || "");
+
+  const systemPrompt = isCollectionGenre
+    ? `You are a master short story writer — the kind whose work appears in The New Yorker, Best American Short Stories, and acclaimed anthologies. Each story you write is completely self-contained: its own world, its own characters, its own emotional arc, its own resolution. You understand that short fiction must:
+- Establish character and setting IMMEDIATELY — the reader is dropped in mid-life, not at the beginning of history
+- Every sentence pulls double or triple duty — reveals character AND advances plot AND builds atmosphere
+- The ending must feel both surprising and inevitable — it recontextualizes what came before
+- NO story ends on a cliffhanger — each story is COMPLETE and satisfying on its own
+- Each story feels like it could be published as a standalone piece in a literary magazine
+CRITICAL: You are writing stories for a COLLECTION, not chapters of a novel. Each story has ENTIRELY DIFFERENT characters from all other stories in the collection. Do NOT reference events, characters, or settings from other stories. A reader who picks up story 7 without reading story 1 should have no confusion whatsoever.`
+    : fiction
+    ? (() => {
+        const gl = (genre || '').toLowerCase();
+        if (gl.includes("children") || gl.includes("picture book") || gl.includes("early reader") || gl.includes("middle grade")) {
+          return `You are a celebrated children's book author whose work has delighted generations of young readers. You write with the warmth, wonder, and wit of the greatest children's authors — Roald Dahl, E.B. White, Beverly Cleary, and A.A. Milne. Your prose is:
+- Written at a reading level appropriate for children ages 6–12 — clear vocabulary, shorter sentences, lively rhythm
+- Full of imagination and wonder — magical moments feel earned and real within the story's world
+- Emotionally honest without being dark — children face real fears and friendships, but the world remains fundamentally safe and good
+- Driven by child protagonists who are curious, brave, and funny — never passive bystanders
+- FREE of violence, adult themes, sexual content, substance use, or horror — this is content a parent hands a child with confidence
+- Told with humour that both children AND adults can appreciate — wit layered at different levels
+- Paced with energy — short punchy chapters that end with just enough hook to make a child beg for one more chapter
+CRITICAL CONTENT RULES: No profanity. No graphic violence. No romantic or sexual content. No alcohol, drugs, or adult vices. Conflict is real but resolved with courage, kindness, or cleverness — not adult intervention alone. Write prose worthy of a school reading list AND a bedtime story.`;
+        }
+        if (gl.includes("young adult") || gl.includes("ya ") || gl.trim() === "ya") {
+          return `You are a celebrated Young Adult author whose books have been devoured by teenagers worldwide. You write with the emotional intensity, authentic voice, and page-turning momentum of the best YA fiction — Suzanne Collins, John Green, Rick Riordan, and S.E. Hinton. Your prose:
+- Captures the authentic inner voice of a teenager — passionate, searching, occasionally melodramatic, but always emotionally true
+- Tackles real coming-of-age themes: identity, belonging, first love, loss, injustice, and finding your own courage
+- Moves FAST — short punchy chapters, propulsive pacing, every scene earns its place
+- Features teen protagonists making real choices with real consequences — not adults solving problems for them
+- Handles romantic tension with emotional depth — the longing, the uncertainty, the electricity — without explicit sexual content
+- Includes conflict and stakes that feel genuinely dangerous, without gratuitous gore or horror
+- Is age-appropriate for readers 13–18 — no explicit sex scenes, no graphic torture, language kept to mild profanity at most
+VOICE: The narrative should sound like a teenager narrating their own extraordinary story — not an adult writing down to youth. The reader should feel SEEN.`;
+        }
+        return `You are a celebrated literary fiction author who writes at the level of published bestsellers. Your work has been compared to the masters of each genre you write in. Your prose is vivid, atmospheric, and deeply emotional — every sentence has purpose, every scene is cinematic, every character feels real. You excel at:
+- Rich sensory descriptions that put readers physically IN the scene — sights, sounds, smells, textures, tastes
+- Natural, revealing dialogue where each character has a DISTINCT voice, speech pattern, and personality that comes through in how they talk
+- Deep internal monologue that creates intimacy — readers should feel they are inside the character's mind
+- Building tension through escalation, misdirection, and perfectly timed reveals
+- Plot twists that make readers gasp, then think "of course — the signs were there all along"
+- Weaving symbolic imagery and thematic motifs that gain deeper meaning with each chapter
+- Creating a world that feels lived-in, with history, culture, and atmosphere breathing from every page
+- Ending chapters with hooks that make it IMPOSSIBLE to stop reading
+Write prose that could be published as a standalone novel. This is NOT a summary or outline — this is a real book.`;
+      })()
+    : (() => {
+  const g = (genre || '').toLowerCase();
+  if (['journals'].some(t => g.includes(t)))
+    return `You are an expert journal and guided writing book designer. You create beautiful, functional journal pages that invite readers to write, reflect, and grow. You excel at:
+- Creating thoughtful writing prompts that spark deep self-reflection
+- Designing page layouts with clear sections: prompts, lined writing areas, reflection boxes, gratitude lists
+- Using markdown formatting to create visual structure (headers, horizontal rules, blockquotes for prompts)
+- Including brief introductory text for each section explaining its purpose
+- Creating variety — different prompt styles, exercises, and page layouts throughout
+- Making every page feel like a gift the reader gives themselves
+CRITICAL: This is a JOURNAL, not a novel. Do NOT write narrative prose with characters and scenes. Create actual journal pages with prompts, writing spaces (use blank lines and "___" for fill-in areas), and brief guiding text. Each chapter is a themed section of the journal.`;
+  if (['quote books'].some(t => g.includes(t)))
+    return `You are a master curator of quotes and wisdom. You create beautifully organized quote collections with thoughtful commentary. You excel at:
+- Selecting and presenting quotes with proper attribution
+- Organizing quotes thematically with brief, insightful introductions to each section
+- Adding reflection prompts after key quotes to help readers internalize the wisdom
+- Creating variety in quote presentation — some standalone, some paired, some with extended commentary
+- Writing brief but powerful commentary that adds context and deeper meaning to each quote
+CRITICAL: This is a QUOTE BOOK, not a novel. Do NOT write narrative prose with fictional characters and timestamped scenes. Present real quotes (or realistic attributed quotes) with thoughtful arrangement and commentary. Each chapter is a themed collection.`;
+  if (['workbooks', 'activity books'].some(t => g.includes(t)))
+    return `You are an expert workbook and activity book designer who creates engaging, hands-on learning materials. You excel at:
+- Creating clear, step-by-step exercises and activities
+- Designing fill-in sections, checklists, and worksheets using markdown formatting
+- Writing concise instructional text that explains HOW to complete each activity
+- Including varied activity types: matching, fill-in-the-blank, drawing prompts, reflection questions, projects
+- Making activities progressively more challenging throughout
+CRITICAL: This is a WORKBOOK/ACTIVITY BOOK, not a novel. Do NOT write narrative prose with characters. Create actual exercises, activities, and fill-in sections. Each chapter is a themed set of activities.`;
+  if (['planners'].some(t => g.includes(t)))
+    return `You are an expert planner and organizer designer who creates functional, beautiful planning tools. You excel at:
+- Creating structured planning templates with clear sections for goals, tasks, schedules, and reflections
+- Designing daily, weekly, and monthly planning pages using markdown formatting
+- Including habit trackers, goal-setting frameworks, and review sections
+- Writing brief motivational and instructional text to guide users
+CRITICAL: This is a PLANNER, not a novel. Do NOT write narrative prose with characters. Create actual planning pages, templates, and organizational tools.`;
+  return `You are a world-renowned non-fiction author and subject-matter expert whose books have changed millions of lives. Your writing is comprehensive, deeply insightful, and transformative. You excel at:
+- Breaking down complex ideas into clear, accessible explanations that anyone can understand
+- Providing rich real-world examples with specific names, dates, details, and outcomes — never generic placeholders
+- Creating memorable frameworks and models (numbered lists, step-by-step systems, acronyms) that readers remember and apply
+- Anticipating EVERY question a reader might have and answering it thoroughly
+- Using vivid case studies and personal anecdotes that make abstract concepts feel real and urgent
+- Including actionable exercises, checklists, and reflection prompts that create immediate transformation
+- Writing with conversational authority — warm but expert, like a trusted mentor
+- Covering each subtopic so comprehensively that no reader is left with unanswered questions
+IMPORTANT: VARY your chapter openings. Do NOT start every chapter with "At [time], [name]..." timestamps and character scenes. Mix it up — use bold statements, provocative questions, surprising statistics, direct reader address, or brief anecdotes. Each chapter should feel fresh and different from the last.
+Write as if this is THE definitive, most comprehensive book ever written on this subject. Leave no stone unturned.`;
+})();
+
+  let aboutSection = "";
+  if (resumeFromChapter === 0) {
+    console.log(`[Content Gen] Generating "About this Book" section for "${bookTitle}"...`);
+    try {
+      const aboutPrompt = fiction
+        ? `Write the "About this Book" section for the ${genre || 'fiction'} novel "${bookTitle}".
+
+BOOK OUTLINE (for full context):
+${outline.substring(0, 2000)}
+
+${coverContext}
+
+This section appears at the very beginning of the book, BEFORE Chapter 1. It is the FIRST thing a reader sees after the title page. Write it as polished, atmospheric marketing copy that:
+- Hooks the reader with a provocative question, vivid scene fragment, or emotionally charged statement
+- Sets the mood and atmosphere — the reader should FEEL the world of this book
+- Hints at the central conflict and stakes without spoiling anything
+- Creates an irresistible urge to keep reading
+- Matches the tone and style of the genre (${genre || 'fiction'})
+- Reads like the back cover of a bestselling novel — every word chosen for impact
+- 100-150 words MAXIMUM — keep it SHORT and punchy, a tight 1-2 paragraph summary
+- Do NOT mention specific character names — describe them by role, type, or situation instead
+- CRITICAL: Do NOT copy the author's raw notes or creative direction. Write entirely original prose. Do NOT include a table of contents.`
+        : `Write the "About this Book" section for the ${genre || 'non-fiction'} book "${bookTitle}".
+
+BOOK OUTLINE (for full context):
+${outline.substring(0, 2000)}
+
+${coverContext}
+
+This section appears at the very beginning of the book, BEFORE Chapter 1. Write it as compelling marketing copy that:
+- Opens with a powerful statement about why this book matters NOW
+- Previews the transformation the reader will experience
+- Lists 2-3 key takeaways (what the reader will learn/gain)
+- 100-200 words MAXIMUM — keep it concise and impactful, 2-3 paragraphs at most
+- CRITICAL: Do NOT copy the author's raw notes. Write entirely original professional copy.`;
+
+      const aboutResponse = await getContentClient().chat.completions.create({
+        model: "gpt-5.2",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: aboutPrompt }
+        ],
+        max_completion_tokens: 800,
+      });
+      aboutSection = aboutResponse.choices[0]?.message?.content?.trim() || "";
+      if (detectRefusal(aboutSection)) {
+        console.log(`[Content Gen] "About this Book" REFUSED — trying Direct OpenAI`);
+        const openAIAbout = await getFallbackClient().chat.completions.create({
+          model: "gpt-5.2",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: aboutPrompt }
+          ],
+          max_completion_tokens: 800,
+        });
+        const openAIText = openAIAbout.choices[0]?.message?.content?.trim() || "";
+        if (!detectRefusal(openAIText) && openAIText.length > 50) {
+          aboutSection = openAIText;
+        } else {
+          console.log(`[Content Gen] Direct OpenAI also refused "About this Book" — trying Replit AI`);
+          const replitAbout = await getSecondFallbackClient().chat.completions.create({
+            model: "gpt-5.2",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: aboutPrompt }
+            ],
+            max_completion_tokens: 800,
+          });
+          aboutSection = replitAbout.choices[0]?.message?.content?.trim() || aboutSection;
+        }
+      }
+      if (aboutSection) {
+        if (!aboutSection.toLowerCase().startsWith("## about") && !aboutSection.toLowerCase().startsWith("# about")) {
+          aboutSection = `## About this Book\n\n${aboutSection}`;
+        }
+        console.log(`[Content Gen] "About this Book" section generated: ${aboutSection.split(/\s+/).length} words`);
+      }
+    } catch (error: any) {
+      console.error(`[Content Gen] Failed to generate "About this Book" section:`, error?.message);
+    }
+  }
+
+  const allChapterContent: string[] = [...existingChapterTexts];
+  let previousChapterSummary = "";
+  if (existingChapterTexts.length > 0) {
+    previousChapterSummary = existingChapterTexts[existingChapterTexts.length - 1].substring(0, 600);
+  }
+
+  for (let i = 0; i < totalChapters; i++) {
+    const chapterNum = i + 1;
+    if (chapterNum <= resumeFromChapter) {
+      continue;
+    }
+
+    if (stopEpochAtStart !== undefined && getStopEpoch() !== stopEpochAtStart) {
+      console.log(`[Content Gen] STOPPED: "${bookTitle}" — stop signal received before chapter ${chapterNum}. Saving ${allChapterContent.length} chapters written so far.`);
+      break;
+    }
+
+    const chapterOutline = outlineChapters[i] || `Chapter ${i + 1}`;
+    const isFirstChapter = i === 0 && resumeFromChapter === 0;
+    const isLastChapter = i === totalChapters - 1;
+
+    console.log(`[Content Gen] Writing chapter ${chapterNum}/${totalChapters} of "${bookTitle}"${resumeFromChapter > 0 ? ' (RESUMED)' : ''}`);
+
+    const chapterTechniques = buildChapterTechniqueDirective(chapterNum, storyArchitectPlan, genre || "General", fiction);
+    const architectAssignment = storyArchitectPlan?.chapters.find(c => c.chapterNumber === chapterNum);
+    if (architectAssignment) {
+      console.log(`[Story Architect] Ch${chapterNum}: ${architectAssignment.assignedAuthors.join(" + ")}`);
+    }
+
+    const continuityContext = (!isCollectionGenre && previousChapterSummary)
+      ? `\n\nPREVIOUS CHAPTER SUMMARY (maintain continuity): ${previousChapterSummary}` 
+      : "";
+
+    const chapterVisualConfig = getVisualEnhancedConfig(genre || "");
+    const chapterVisualInstructions = chapterVisualConfig
+      ? `\n\nVISUAL-ENHANCED CONTENT: This is a visual-enhanced ${genre} book. You MUST include 2-4 [ILLUSTRATION: detailed description] markers within this chapter at natural points where visual examples would help the reader understand the concepts being taught.
+Each [ILLUSTRATION: ...] marker must contain an extremely detailed, specific description suitable for AI image generation. Include: subject matter, composition, art style (${chapterVisualConfig.illustrationStyle}), colors, mood, and any text/labels that should appear.
+CRITICAL ILLUSTRATION RULE — NEVER use metaphors, analogies, or symbolic stand-ins in illustration descriptions. Always describe imagery that DIRECTLY depicts the actual subject matter of the book. For example, if this is a cybersecurity book and the text uses the analogy "like brushing your teeth," the illustration must NOT show someone brushing teeth — it must show an actual cybersecurity concept (e.g., a password manager interface, a lock icon over a network diagram). Only describe what a reader would expect to literally SEE in a book about this topic.
+Example for a comics chapter: [ILLUSTRATION: A professional three-panel comic strip demonstrating the rule of thirds in panel composition. Panel 1 shows a close-up of a detective's face with dramatic shadows, Panel 2 shows a wide shot of a rain-soaked city street at night with neon reflections, Panel 3 shows a medium shot of a mysterious figure turning a corner. Bold ink lines, vibrant noir color palette with deep blues and amber highlights, professional comic book art style.]
+Place each [ILLUSTRATION: ...] marker on its OWN LINE (not embedded within a sentence) — right after explaining a concept where a visual example would reinforce the lesson. The marker must be the only content on that line.`
+      : "";
+
+    const chapterPrompt = isCollectionGenre
+      ? `You are writing Story ${chapterNum} of ${totalChapters} for the ${genre || 'Short Story Collection'} "${bookTitle}".
+
+${chapterTechniques}
+
+COLLECTION OVERVIEW (for thematic context only — do NOT reuse characters or settings from other stories):
+${outline}
+
+THIS STORY'S OUTLINE:
+${chapterOutline}
+
+${coverContext}
+
+GENRE PACING: ${chapterSpec.pacing}
+
+⚠️ CRITICAL — THIS IS A STANDALONE SHORT STORY:
+- Introduce ENTIRELY NEW characters that appear ONLY in this story — do NOT use characters from any other story in this collection
+- Use a UNIQUE setting distinct from all other stories in this collection
+- This story must have its OWN complete arc: setup → rising tension → climax → resolution
+- The story ENDS HERE — no "to be continued," no open threads, no references to other stories
+- A reader who has read none of the other stories must be able to enjoy this one completely
+
+STORY REQUIREMENTS:
+- Write ${chapterSpec.minWordsPerChapter}-${chapterSpec.maxWordsPerChapter} words of rich, literary short fiction
+- Open IMMEDIATELY in scene — drop the reader mid-life, mid-moment. No backstory preamble
+- Establish this story's unique characters through action and dialogue, not description
+- Build to a clear climax and deliver a satisfying resolution — the ending must feel both surprising and inevitable
+- SENSORY IMMERSION: Describe what characters see, hear, smell, feel, and taste. Make readers feel physically present
+- DIALOGUE: Distinct voice for every character — unique speech patterns, vocabulary, rhythm
+- SHOW DON'T TELL: Reveal emotions through physical reactions, actions, and dialogue
+- The collection's theme ("${bookTitle}") should be felt in this story's tone and subject matter — but organically, not forced
+- DO NOT summarize or outline — write the actual prose and dialogue as they would appear in a published anthology
+- DO NOT write "to be continued" — this story is complete and self-contained
+
+Format: Start with "## Story ${chapterNum}: [Story Title]" (use an evocative story title, not "Chapter ${chapterNum}") then write the full story prose.`
+      : fiction
+      ? `You are writing Chapter ${chapterNum} of ${totalChapters} for the ${genre || 'fiction'} novel "${bookTitle}".
+
+${chapterTechniques}
+
+FULL BOOK OUTLINE (for context):
+${outline}
+
+THIS CHAPTER'S OUTLINE:
+${chapterOutline}
+${continuityContext}
+
+${coverContext}
+
+GENRE PACING: ${chapterSpec.pacing}
+${chapterVisualInstructions}
+
+CHAPTER REQUIREMENTS:
+- Write ${chapterSpec.minWordsPerChapter}-${chapterSpec.maxWordsPerChapter} words of rich, literary prose for THIS chapter (this is an industry standard ${genre || 'fiction'} chapter length)
+- ${isFirstChapter ? 'Open with a compelling hook that draws readers in IMMEDIATELY — drop them into a scene with tension, mystery, or emotion. Establish the world through sensory detail, not exposition. Introduce characters through action and dialogue, not description.' : ''}
+- ${isLastChapter ? 'Bring the story to a satisfying, emotionally resonant conclusion. Resolve the central conflict in a way that feels earned. Give the title deeper meaning — by the last page, the reader should understand WHY this book is called "${bookTitle}". Do NOT write "to be continued" or leave it open-ended. Tie up all major threads.' : 'End the chapter with a cliffhanger, revelation, or emotionally charged moment that makes it IMPOSSIBLE to stop reading.'}
+- SENSORY IMMERSION: Describe what characters see, hear, smell, feel, and taste in every scene. Make readers feel physically present
+- DIALOGUE: Each character must have a DISTINCT voice — unique speech patterns, vocabulary, rhythm. Dialogue should reveal personality AND advance the plot simultaneously
+- INTERNAL MONOLOGUE: Give readers access to characters' deepest thoughts, fears, and desires. Create intimacy
+- TENSION: Every scene should have some form of tension — conflict, unresolved questions, anticipation, emotional stakes
+- SHOW DON'T TELL: Never state emotions — show them through physical reactions, actions, and dialogue
+- The title "${bookTitle}" and the cover art imagery should feel woven into the narrative as setting, atmosphere, or symbolic motifs
+- DO NOT summarize or outline — write the actual prose, scenes, and dialogue as they would appear in a published novel
+- DO NOT write "to be continued" — this chapter must be COMPLETE
+
+Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the full chapter prose.`
+      : `You are writing Chapter ${chapterNum} of ${totalChapters} for the ${genre || 'non-fiction'} book "${bookTitle}".
+
+${chapterTechniques}
+
+FULL BOOK OUTLINE (for context):
+${outline}
+
+THIS CHAPTER'S OUTLINE:
+${chapterOutline}
+${continuityContext}
+
+${coverContext}
+
+GENRE PACING: ${chapterSpec.pacing}
+${chapterVisualInstructions}
+
+CHAPTER REQUIREMENTS:
+- Write ${chapterSpec.minWordsPerChapter}-${chapterSpec.maxWordsPerChapter} words of comprehensive, expert-level content for THIS chapter (this is an industry standard ${genre || 'non-fiction'} chapter length)
+- ${isFirstChapter ? (() => {
+  const g = (genre || '').toLowerCase();
+  if (['journals', 'workbooks', 'activity books', 'planners'].some(t => g.includes(t)))
+    return 'Open with a direct, warm welcome that explains what this section helps the reader DO. No fictional characters, no "At 3:17 a.m." scene-setting, no novel-style narratives. Get straight into the purpose, how to use the pages, and what the reader will gain. This is a hands-on book — treat the reader as a participant, not an audience.';
+  if (['quote books'].some(t => g.includes(t)))
+    return 'Open with the most powerful quote in this section, followed by a brief reflection on why these quotes were chosen and how to use them. No fictional characters or novel-style storytelling.';
+  if (['reference books', 'technical manuals', 'textbooks'].some(t => g.includes(t)))
+    return 'Open with a clear, authoritative introduction to the topic — why it matters, what the reader will learn, and how to use this section. Use a surprising fact or counterintuitive insight as the hook, NOT a fictional character scene. No "At 3:17 a.m." openings.';
+  if (['tutorials', 'education / learning'].some(t => g.includes(t)))
+    return 'Open with an engaging hook — a surprising result, a "what if you could..." scenario, or a quick win preview. Then get into teaching. VARY your opening style — do NOT default to "At [time], [character name]..." scene-setting. Some chapters can open with a bold statement, a question, a statistic, or a direct address to the reader.';
+  return 'Open with a compelling hook — a surprising statistic, a provocative question, a bold counterintuitive claim, or a brief vivid anecdote. VARY your opening technique across chapters — do NOT start every chapter with "At [time], [character name]..." timestamps. Mix it up: some chapters open with questions, some with statistics, some with direct statements, some with brief stories.';
+})() : ''}
+- ${isLastChapter ? 'Conclude with a powerful synthesis tying everything back to the title\'s core message. Provide a complete action plan, final exercises, and motivating words that leave the reader feeling empowered and equipped. This is the reader\'s graduation moment.' : 'End with a bridge to the next topic and a mini-exercise or reflection question.'}
+- SPECIFIC EXAMPLES: Use real-world case studies with vivid details — names, scenarios, outcomes. Never use generic "imagine a person who..." — make it specific and memorable
+- ACTIONABLE CONTENT: Include step-by-step instructions, numbered frameworks, checklists, or exercises. Answer "HOW do I actually do this?" for everything you teach
+- ANTICIPATE QUESTIONS: Address the "but what about..." objections and edge cases. Leave no question unanswered
+- MISCONCEPTIONS: Debunk at least one common myth or misunderstanding in this chapter
+- DEPTH OVER BREADTH: Go deep on each subtopic rather than skimming many. A reader should feel they have COMPLETE mastery after reading this chapter
+- Write with conversational authority — warm but expert, like a trusted mentor sitting across from the reader
+- The title "${bookTitle}" should be the connecting thread — reference it naturally as the organizing principle
+- DO NOT summarize or outline — write the actual detailed, transformative content
+- DO NOT write "to be continued" — this chapter must be COMPLETE
+
+Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the full chapter content.`;
+
+    const MAX_RETRIES = 3;
+    let chapterWritten = false;
+    
+    for (let attempt = 1; attempt <= MAX_RETRIES && !chapterWritten; attempt++) {
+      try {
+        const extraInstruction = attempt > 1 
+          ? `\n\nCRITICAL: Previous attempt produced insufficient content. You MUST write at least ${chapterSpec.minWordsPerChapter} words of actual prose, dialogue, and detailed content. Do NOT summarize. Do NOT write an outline. Write the actual book chapter as it would appear in a published bestselling book. Every scene needs full dialogue, sensory detail, and emotional depth.`
+          : "";
+
+        const truncationFix = attempt > 1
+          ? `\n\nIMPORTANT: Your chapter MUST end with a complete sentence and proper punctuation. The last paragraph must feel like a natural chapter ending — not cut off mid-thought.`
+          : "";
+        
+        const maxTokens = Math.min(16384, Math.max(8000, Math.round(chapterSpec.maxWordsPerChapter * 3)));
+        const response = await getContentClient().chat.completions.create({
+          model: "gpt-5.2",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: chapterPrompt + extraInstruction + truncationFix }
+          ],
+          max_completion_tokens: maxTokens,
+        });
+
+        let chapterContent = response.choices[0]?.message?.content || "";
+        
+        if (detectRefusal(chapterContent)) {
+          console.log(`[Content Gen] Chapter ${chapterNum} of "${bookTitle}" REFUSED — trying Direct OpenAI`);
+          const openAIFallback = await getFallbackClient().chat.completions.create({
+            model: "gpt-5.2",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: chapterPrompt + extraInstruction + truncationFix }
+            ],
+            max_completion_tokens: maxTokens,
+          });
+          const openAIChapter = openAIFallback.choices[0]?.message?.content || "";
+          if (!detectRefusal(openAIChapter) && openAIChapter.trim().length > 100) {
+            chapterContent = openAIChapter;
+            console.log(`[Content Gen] Direct OpenAI wrote Chapter ${chapterNum}: ${chapterContent.split(/\s+/).length} words`);
+          } else {
+            console.log(`[Content Gen] Direct OpenAI also refused Chapter ${chapterNum} — trying Replit AI`);
+            const replitFallback = await getSecondFallbackClient().chat.completions.create({
+              model: "gpt-5.2",
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: chapterPrompt + extraInstruction + truncationFix }
+              ],
+              max_completion_tokens: maxTokens,
+            });
+            const replitChapter = replitFallback.choices[0]?.message?.content || "";
+            if (!detectRefusal(replitChapter) && replitChapter.trim().length > 100) {
+              chapterContent = replitChapter;
+            } else {
+              chapterContent = openAIChapter.length > replitChapter.length ? openAIChapter : replitChapter;
+            }
+            console.log(`[Content Gen] Replit AI wrote Chapter ${chapterNum}: ${chapterContent.split(/\s+/).length} words`);
+          }
+        }
+
+        const chapterWords = chapterContent.split(/\s+/).length;
+        const finishReason = response.choices[0]?.finish_reason;
+        
+        if (chapterContent.trim().length < 100 || chapterWords < Math.round(chapterSpec.minWordsPerChapter * 0.7)) {
+          console.warn(`[Content Gen] Chapter ${chapterNum} attempt ${attempt}: only ${chapterWords} words, ${attempt < MAX_RETRIES ? 'retrying...' : 'using best result'}`);
+          if (attempt === MAX_RETRIES) {
+            allChapterContent.push(chapterContent.trim().length > 50 ? chapterContent : `## Chapter ${chapterNum}\n\n[Content generation incomplete for this chapter. Please regenerate this ebook.]`);
+            previousChapterSummary = chapterContent.substring(0, 300);
+          }
+          continue;
+        }
+
+        const { truncated, reason } = detectChapterTruncation(chapterContent);
+        if (truncated && attempt < MAX_RETRIES) {
+          console.warn(`[Content Gen] Chapter ${chapterNum} attempt ${attempt}: truncated (${reason}), finish_reason=${finishReason}, retrying...`);
+          continue;
+        }
+        if (truncated) {
+          console.warn(`[Content Gen] Chapter ${chapterNum} attempt ${attempt}: still truncated (${reason}) on final attempt — accepting with flag`);
+        }
+        
+        allChapterContent.push(chapterContent);
+        previousChapterSummary = chapterContent.substring(0, 300);
+        chapterWritten = true;
+
+        const wordsSoFar = allChapterContent.reduce((sum, ch) => sum + ch.split(/\s+/).length, 0);
+        console.log(`[Content Gen] Chapter ${chapterNum} complete (attempt ${attempt}): ${chapterWords} words, truncated=${truncated}. Total so far: ${wordsSoFar}`);
+
+        // ── Chapter Hook Check (DURING) ────────────────────────────────────
+        // Only on chapter 1, midpoint, and final chapter to minimise API cost
+        try {
+          const hookResult = await checkChapterHook(chapterContent, chapterNum, totalChapters, genre || "General", bookTitle);
+          const label = chapterNum === 1 ? "Ch1 opening" : chapterNum === totalChapters ? "Final chapter" : `Ch${chapterNum} midpoint`;
+          console.log(`[Chapter Quality] ${label}: opening=${hookResult.openingHook}/10, ending=${hookResult.endingHook}/10, voice=${hookResult.voiceScore}/10${hookResult.issue ? ` — ⚠ ${hookResult.issue}` : " ✓"}`);
+        } catch { /* non-blocking */ }
+
+        if (onChapterComplete) {
+          const headerPrefix = aboutSection
+            ? `# ${bookTitle}\n\n---\n\n${aboutSection}\n\n---\n\n`
+            : `# ${bookTitle}\n\n---\n\n`;
+          const progressContent = headerPrefix + allChapterContent.join("\n\n---\n\n");
+          await onChapterComplete(progressContent).catch(() => {});
+        }
+      } catch (error: any) {
+        console.error(`[Content Gen] Chapter ${chapterNum} attempt ${attempt} failed:`, error?.message);
+        if (attempt === MAX_RETRIES) {
+          allChapterContent.push(`## Chapter ${chapterNum}\n\n[Content generation failed for this chapter after ${MAX_RETRIES} attempts. Please regenerate this ebook.]`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  const chaptersText = allChapterContent.join("\n\n---\n\n");
+  const fullContent = aboutSection
+    ? `# ${bookTitle}\n\n---\n\n${aboutSection}\n\n---\n\n${chaptersText}`
+    : `# ${bookTitle}\n\n---\n\n${chaptersText}`;
+  const totalWords = fullContent.split(/\s+/).length;
+  console.log(`[Content Gen] "${bookTitle}" COMPLETE: ${totalWords} words across ${totalChapters} chapters${aboutSection ? ' + About this Book' : ''}`);
+  
+  return fullContent;
+}
+
+const MIN_WORD_COUNT = 5000;
+
+let activeGenerationCount = 0;
+
+export function getActiveGenerationCount(): number {
+  return activeGenerationCount;
+}
+
+export function isGenerationActive(): boolean {
+  return activeGenerationCount > 0;
+}
+
+let contentGenProgress: { total: number; completed: number; current: string; currentId: number | null; nextTitle: string; nextId: number | null; running: boolean; failed: string[] } = {
+  total: 0, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: false, failed: []
+};
+
+let contentGenStopEpoch = 0;
+let pendingIllustrationIds: number[] = [];
+
+let illustrationProgress: {
+  running: boolean;
+  bookId: number | null;
+  bookTitle: string;
+  totalBooks: number;
+  completedBooks: number;
+  currentImage: number;
+  totalImages: number;
+  lastGeneratedFile: string;
+} = {
+  running: false, bookId: null, bookTitle: "", totalBooks: 0, completedBooks: 0,
+  currentImage: 0, totalImages: 0, lastGeneratedFile: ""
+};
+
+export function getIllustrationProgress() {
+  return { ...illustrationProgress };
+}
+
+export function queueIllustrations(ids: number[]) {
+  pendingIllustrationIds = [...new Set([...pendingIllustrationIds, ...ids])];
+  console.log(`[Illustrations Queue] Queued ${ids.length} books for illustration generation after bulk completes. Total queued: ${pendingIllustrationIds.length}`);
+}
+
+async function runPendingIllustrations() {
+  if (pendingIllustrationIds.length === 0) return;
+  const ids = [...pendingIllustrationIds];
+  pendingIllustrationIds = [];
+  console.log(`[Illustrations Queue] Bulk complete — starting queued illustration generation for ${ids.length} books: ${ids.join(", ")}`);
+  try {
+    await generateIllustrationsOnly(ids);
+  } catch (err: any) {
+    console.error(`[Illustrations Queue] Failed to start: ${err?.message}`);
+  }
+}
+
+export async function autoResumeIllustrations(): Promise<void> {
+  const visualGenres = [
+    "Comics", "Graphic Novels", "Photography Books", "Coloring Books", "Art Books",
+    "Educational", "Textbooks", "Workbooks", "Tutorials", "Reference"
+  ];
+
+  const allDrafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    content: draftEbooks.content,
+    status: draftEbooks.status,
+  }).from(draftEbooks).where(
+    sql`${draftEbooks.content} IS NOT NULL AND ${draftEbooks.content} LIKE '%[ILLUSTRATION:%'`
+  );
+
+  const pendingIds: number[] = [];
+  for (const d of allDrafts) {
+    if (!d.content) continue;
+    if (isColoringBookGenre(d.genre || "")) {
+      const pageDir = `uploads/coloring-pages/${d.id}`;
+      const hasImages = fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter(f => f.endsWith('.png')).length >= 20;
+      if (!hasImages) pendingIds.push(d.id);
+      continue;
+    }
+    const textMarkers = [...d.content.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)]
+      .filter(m => { const src = m[1].trim(); return !(src.startsWith("/") || src.startsWith("http")); });
+    if (textMarkers.length > 0) pendingIds.push(d.id);
+  }
+
+  if (pendingIds.length === 0) {
+    console.log(`[Auto-Resume Illustrations] No books with pending illustration markers found`);
+    return;
+  }
+
+  console.log(`[Auto-Resume Illustrations] Found ${pendingIds.length} books with unprocessed illustration markers: ${pendingIds.join(", ")}`);
+  setTimeout(async () => {
+    try {
+      if (contentGenProgress.running) {
+        queueIllustrations(pendingIds);
+        console.log(`[Auto-Resume Illustrations] Generation already running — queued for later`);
+        return;
+      }
+      await generateIllustrationsOnly(pendingIds);
+      console.log(`[Auto-Resume Illustrations] Started illustration generation for ${pendingIds.length} books`);
+    } catch (err: any) {
+      console.error(`[Auto-Resume Illustrations] Failed:`, err?.message);
+    }
+  }, 20000);
+}
+
+export function bumpStopEpoch(): number {
+  contentGenStopEpoch++;
+  return contentGenStopEpoch;
+}
+
+export function getStopEpoch(): number {
+  return contentGenStopEpoch;
+}
+
+export function getContentGenProgress() {
+  return { ...contentGenProgress };
+}
+
+export async function getIllustrationNeeds(): Promise<{ id: number; title: string; genre: string; status: string; reason: string; actionType: "illustrations-only" | "rewrite-and-illustrate" }[]> {
+  const allDrafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    content: draftEbooks.content,
+    status: draftEbooks.status,
+  }).from(draftEbooks);
+
+  const needs: { id: number; title: string; genre: string; status: string; reason: string; actionType: "illustrations-only" | "rewrite-and-illustrate" }[] = [];
+
+  for (const d of allDrafts) {
+    if (!d.content || d.status === "generating" || d.status === "draft") continue;
+    const genre = d.genre || "";
+    if (!isVisualEnhancedGenre(genre) && !isColoringBookGenre(genre)) continue;
+
+    if (isColoringBookGenre(genre)) {
+      const pageDir = `uploads/coloring-pages/${d.id}`;
+      const hasLocalImages = fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter(f => f.endsWith('.png')).length >= 20;
+      if (!hasLocalImages) {
+        // In production, coloring pages live in GCS not on local disk.
+        // A published coloring book with Page markers was processed through the pipeline
+        // and its pages were uploaded to GCS at generation time — don't flag as missing.
+        const hasPageContent = /\*\*Page\s+\d+:\*\*/i.test(d.content);
+        const isProcessed = d.status === 'published' && hasPageContent;
+        if (!isProcessed) {
+          needs.push({ id: d.id, title: d.title || "", genre, status: d.status || "", reason: "Coloring book missing pages", actionType: "illustrations-only" });
+        }
+      }
+    } else if (isVisualEnhancedGenre(genre)) {
+      const hasInlineImages = d.content.includes('/uploads/illustrations/') || d.content.includes('/objstore/illustrations/');
+      if (!hasInlineImages) {
+        const hasMarkers = d.content.includes('[ILLUSTRATION:');
+        if (hasMarkers) {
+          needs.push({ id: d.id, title: d.title || "", genre, status: d.status || "", reason: "Has markers, needs image generation", actionType: "illustrations-only" });
+        } else {
+          const headingCount = (d.content.match(/^##\s/gm) || []).length;
+          const bulletCount = (d.content.match(/^[\s]*[-*]\s/gm) || []).length;
+          const structuralMarkers = (d.content.match(/\*\*Exercise|\*\*Step|\*\*Practice|\*\*Worksheet|\*\*Template|\*\*Checklist|\*\*Try This|\*\*Action|\*\*Quick Guide|\*\*How to|\*\*Pro Tip|\*\*Key Takeaway|\*\*Summary|\*\*Week |\*\*Day |\*\*Phase |\*\*Tool|\*\*Tip|\*\*Rule|\*\*Strategy|```/gi) || []).length;
+          const isStructured = headingCount >= 20 && bulletCount >= 50;
+          if (isStructured) {
+            needs.push({ id: d.id, title: d.title || "", genre, status: d.status || "", reason: "Written correctly, just needs art added", actionType: "illustrations-only" });
+          } else {
+            needs.push({ id: d.id, title: d.title || "", genre, status: d.status || "", reason: "Written like a novel, needs rewrite + illustrations", actionType: "rewrite-and-illustrate" });
+          }
+        }
+      }
+    }
+  }
+
+  return needs;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROFESSIONAL QUALITY PIPELINE
+// Before → During → After writing quality gates, modelled on what manuscript
+// assessors, literary agents, and ProWritingAid check for.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── 1. EDITORIAL BRIEF (BEFORE) ─────────────────────────────────────────────
+// Evaluates a new outline against editorial & manuscript-assessment standards
+// before a single word of the book is written.
+export async function runEditorialBrief(
+  outline: string,
+  genre: string,
+  title: string,
+  fiction: boolean
+): Promise<{ score: number; strengths: string[]; concerns: string[]; recommendations: string[] }> {
+  const prompt = fiction
+    ? `You are a senior literary agent and manuscript assessor specializing in ${genre} fiction.
+A new novel outline has been submitted: "${title}".
+Evaluate it BEFORE any prose is written, exactly as a top manuscript consultant would.
+
+Assess against these editorial standards:
+1. HOOK STRENGTH: Is the premise exciting and distinctive enough for the ${genre} market?
+2. STRUCTURAL BEATS: Does the outline hit required ${genre} genre beats (inciting incident, midpoint reversal, dark night of the soul, climax, resolution)?
+3. CHARACTER ARC: Is there a clear protagonist transformation? Do they want something AND need something different?
+4. STAKES & TENSION: Are stakes clearly established and escalating?
+5. MARKET APPEAL: Fresh concept or done-to-death? Would a ${genre} reader buy this today?
+6. PACING INDICATORS: Does chapter breakdown suggest good action/quiet moment variety?
+7. THEME: Is there a central thematic question that will resonate emotionally?
+
+OUTLINE:
+${outline.substring(0, 5000)}
+
+JSON only:
+{
+  "score": 7,
+  "strengths": ["Specific strength"],
+  "concerns": ["Specific concern — with fix"],
+  "recommendations": ["Actionable recommendation for the writing phase"]
+}
+Score 1-10: 8-10=strong, 6-7=solid, 4-5=structural gaps, <4=fundamental problems.`
+    : `You are a senior non-fiction acquisitions editor specializing in ${genre}.
+Evaluate this outline for "${title}" BEFORE any prose is written.
+
+1. PROMISE & PREMISE: Clear, compelling reader promise in one sentence?
+2. AUDIENCE CLARITY: Will target readers immediately recognize this is for them?
+3. UNIQUE ANGLE: What makes this different from the 50 similar ${genre} books already published?
+4. CREDIBILITY HOOKS: Enough real examples, case studies, or frameworks?
+5. TRANSFORMATION ARC: Clear before/after capability for readers?
+6. CHAPTER LOGIC: Logical learning sequence? Anything missing or out of order?
+7. ACTIONABILITY: Does this teach HOW to do things, not just what to think?
+
+OUTLINE:
+${outline.substring(0, 5000)}
+
+JSON only:
+{
+  "score": 7,
+  "strengths": ["Specific strength"],
+  "concerns": ["Specific concern — with fix"],
+  "recommendations": ["Actionable recommendation for the writing phase"]
+}`;
+
+  try {
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Professional literary editor. Respond ONLY with valid JSON." },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 600,
+      temperature: 0.3,
+    });
+    const raw = (response.choices[0]?.message?.content ?? "{}").trim()
+      .replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+    const r = JSON.parse(raw);
+    return {
+      score: r.score ?? 5,
+      strengths: Array.isArray(r.strengths) ? r.strengths : [],
+      concerns: Array.isArray(r.concerns) ? r.concerns : [],
+      recommendations: Array.isArray(r.recommendations) ? r.recommendations : [],
+    };
+  } catch (err: any) {
+    console.error(`[Editorial Brief] Failed:`, err?.message);
+    return { score: 5, strengths: [], concerns: [], recommendations: [] };
+  }
+}
+
+// ─── 2. CHAPTER HOOK CHECK (DURING) ──────────────────────────────────────────
+// Lightweight per-chapter quality check on key structural chapters only
+// (first, midpoint, last) to minimise API costs while catching major issues.
+export async function checkChapterHook(
+  chapterText: string,
+  chapterNum: number,
+  totalChapters: number,
+  genre: string,
+  bookTitle: string
+): Promise<{ openingHook: number; endingHook: number; voiceScore: number; issue: string | null }> {
+  const isMidpoint = chapterNum === Math.ceil(totalChapters / 2);
+  const isFirst = chapterNum === 1;
+  const isLast = chapterNum === totalChapters;
+  if (!isFirst && !isMidpoint && !isLast) {
+    return { openingHook: 7, endingHook: 7, voiceScore: 7, issue: null };
+  }
+
+  const opener = chapterText.substring(0, 1200);
+  const closer = chapterText.substring(Math.max(0, chapterText.length - 700));
+
+  const prompt = `You are a ${genre} book editor. Rate chapter ${chapterNum}/${totalChapters} from "${bookTitle}".
+
+OPENING (~200 words):
+${opener}
+
+ENDING (~120 words):
+${closer}
+
+Rate 1-10:
+- opening_hook: Does the opening immediately pull a reader in?
+- ending_hook: Does it end in a way that compels reading the next chapter?
+- voice_score: Does prose feel distinctly human and compelling (1=robotic AI, 10=bestseller)?
+
+JSON only: {"opening_hook":7,"ending_hook":8,"voice_score":7,"main_issue":"one specific issue or null"}`;
+
+  try {
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Book editor. JSON only." },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 120,
+      temperature: 0.2,
+    });
+    const raw = (response.choices[0]?.message?.content ?? "{}").trim()
+      .replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+    const r = JSON.parse(raw);
+    return {
+      openingHook: r.opening_hook ?? 7,
+      endingHook: r.ending_hook ?? 7,
+      voiceScore: r.voice_score ?? 7,
+      issue: r.main_issue && r.main_issue !== "null" ? String(r.main_issue) : null,
+    };
+  } catch {
+    return { openingHook: 7, endingHook: 7, voiceScore: 7, issue: null };
+  }
+}
+
+// ─── 3. PRO-WRITING METRICS (AFTER) ──────────────────────────────────────────
+// ProWritingAid-style analysis: passive voice density, adverb overuse, AI-tell
+// phrases, opening hook quality, pacing rhythm.
+export async function runProWritingMetrics(
+  content: string,
+  title: string,
+  genre: string
+): Promise<{
+  passiveVoicePct: number;
+  adverbPct: number;
+  aiTellCount: number;
+  aiTellScore: number;
+  openingHookScore: number;
+  pacingReport: string;
+  issues: string[];
+  overallScore: number;
+}> {
+  const words = content.split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+
+  // ── Regex metrics ────────────────────────────────────────────────────────
+  const passiveMatches = (content.match(/\b(was|were|been|being|is|are|am)\s+\w+ed\b/gi) ?? []).length;
+  const passiveVoicePct = wordCount > 0 ? Math.round((passiveMatches / wordCount) * 1000) / 10 : 0;
+
+  const adverbMatches = (content.match(/\b\w{4,}ly\b/gi) ?? []).length;
+  const adverbPct = wordCount > 0 ? Math.round((adverbMatches / wordCount) * 1000) / 10 : 0;
+
+  const AI_TELL_RES = [
+    /\bIn conclusion\b/gi, /\bFurthermore\b/gi, /\bMoreover\b/gi,
+    /\bAdditionally\b/gi, /\bIt is worth noting\b/gi,
+    /\bIt is important to note\b/gi, /\bIn summary\b/gi,
+    /\bTo summarize\b/gi, /\bIn today's world\b/gi,
+    /\bDelve into\b/gi, /\bUnpack\b/gi, /\bTapestry\b/gi,
+    /\bThe landscape of\b/gi, /\bThe realm of\b/gi,
+    /\bUnleash your\b/gi, /\bEmpower(ing|ed|s)?\b/gi,
+    /\bNavigate the complex\b/gi, /\bIn today's society\b/gi,
+    /\bIt's worth mentioning\b/gi, /\bCrucially\b/gi,
+  ];
+  const aiTellCount = AI_TELL_RES.reduce((sum, re) => {
+    const count = (content.match(re) ?? []).length;
+    re.lastIndex = 0;
+    return sum + count;
+  }, 0);
+  const aiTellScore = Math.max(0, 10 - Math.floor(aiTellCount / 2));
+
+  const issues: string[] = [];
+  if (passiveVoicePct > 3.5) issues.push(`High passive voice: ${passiveVoicePct}% (target < 3%)`);
+  if (adverbPct > 1.8) issues.push(`Adverb overuse: ${adverbPct}% of words end in -ly (target < 1.5%)`);
+  if (aiTellCount > 4) issues.push(`${aiTellCount} AI-tell phrases detected (e.g. "Furthermore", "Delve", "Empower", "Tapestry")`);
+
+  // ── AI analysis for opening hook + pacing ────────────────────────────────
+  const segments = content.split(/\n\n---\n\n/);
+  const firstChapterText = segments.length > 1 ? segments[1] : content;
+  const opening = firstChapterText.substring(0, 1800);
+
+  let openingHookScore = 7;
+  let pacingReport = "Pacing analysis unavailable";
+
+  try {
+    const resp = await getContentClient().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Literary editor. JSON only." },
+        {
+          role: "user",
+          content: `Analyze this ${genre} book opening from "${title}":
+
+${opening}
+
+Rate and report:
+- opening_hook_score (1-10): Does paragraph 1 grip a reader who is deciding whether to buy?
+- pacing_report: One sentence on opening energy and what it signals about the book's pace.
+- specific_issues: Up to 3 opening weaknesses (e.g. "Starts with weather", "Page 1 is backstory", "Too much internal monologue before action")
+
+JSON: {"opening_hook_score":7,"pacing_report":"...","specific_issues":[]}`,
+        },
+      ],
+      max_tokens: 220,
+      temperature: 0.2,
+    });
+    const raw = (resp.choices[0]?.message?.content ?? "{}").trim()
+      .replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+    const r = JSON.parse(raw);
+    openingHookScore = r.opening_hook_score ?? 7;
+    pacingReport = r.pacing_report ?? pacingReport;
+    if (Array.isArray(r.specific_issues)) {
+      for (const iss of r.specific_issues) {
+        if (iss) issues.push(`Opening: ${iss}`);
+      }
+    }
+  } catch {}
+
+  const overallScore = Math.round(
+    (Math.max(0, 10 - passiveVoicePct * 1.5) +
+      Math.max(0, 10 - adverbPct * 3) +
+      aiTellScore +
+      openingHookScore) / 4
+  );
+
+  return {
+    passiveVoicePct,
+    adverbPct,
+    aiTellCount,
+    aiTellScore,
+    openingHookScore,
+    pacingReport,
+    issues,
+    overallScore,
+  };
+}
+
+// ─── 4. ANTI-AI-TELLS PASS (ADMIN-TRIGGERED) ──────────────────────────────────
+// Scans the full book for AI-tell patterns and rewrites flagged paragraphs to
+// sound natural and human. Never runs automatically — admin-triggered only.
+export async function runAntiAITellsPass(
+  content: string,
+  title: string,
+  genre: string
+): Promise<{ fixedContent: string; changesCount: number; patterns: string[] }> {
+  const AI_TELL_PATTERNS: { re: RegExp; label: string }[] = [
+    { re: /\bIn conclusion,?\b/gi, label: "In conclusion" },
+    { re: /\bFurthermore,?\b/gi, label: "Furthermore" },
+    { re: /\bMoreover,?\b/gi, label: "Moreover" },
+    { re: /\bAdditionally,?\b/gi, label: "Additionally" },
+    { re: /\bIt is worth noting that\b/gi, label: "It is worth noting" },
+    { re: /\bIt is important to note that\b/gi, label: "It is important to note" },
+    { re: /\bIn summary,?\b/gi, label: "In summary" },
+    { re: /\bTo summarize,?\b/gi, label: "To summarize" },
+    { re: /\bIn today's (world|society|landscape)\b/gi, label: "In today's world/society" },
+    { re: /\bDelve into\b/gi, label: "Delve into" },
+    { re: /\bUnpack\b/gi, label: "Unpack" },
+    { re: /\b(T|t)apestry\b/g, label: "Tapestry" },
+    { re: /\bThe (landscape|realm) of\b/gi, label: "landscape/realm of" },
+    { re: /\bUnleash your\b/gi, label: "Unleash your" },
+    { re: /\bEmpower(ing|ed|s)?\b/gi, label: "Empower" },
+    { re: /\bNavigate the complex\b/gi, label: "Navigate the complex" },
+    { re: /\bCrucially,?\b/gi, label: "Crucially" },
+    { re: /\bIt's worth mentioning\b/gi, label: "It's worth mentioning" },
+  ];
+
+  const paragraphs = content.split(/\n\n/);
+  const flaggedIndexes: number[] = [];
+  const foundPatterns = new Set<string>();
+
+  for (let i = 0; i < paragraphs.length; i++) {
+    for (const { re, label } of AI_TELL_PATTERNS) {
+      re.lastIndex = 0;
+      if (re.test(paragraphs[i])) {
+        flaggedIndexes.push(i);
+        foundPatterns.add(label);
+        re.lastIndex = 0;
+        break;
+      }
+    }
+  }
+
+  if (flaggedIndexes.length === 0) {
+    return { fixedContent: content, changesCount: 0, patterns: [] };
+  }
+
+  console.log(`[Anti-AI Pass] "${title}" — ${flaggedIndexes.length} flagged paragraphs, patterns: ${[...foundPatterns].join(", ")}`);
+
+  const BATCH_SIZE = 8;
+  const rewrittenParagraphs = [...paragraphs];
+  let changesCount = 0;
+
+  for (let b = 0; b < flaggedIndexes.length; b += BATCH_SIZE) {
+    const batch = flaggedIndexes.slice(b, b + BATCH_SIZE);
+    const batchText = batch.map((idx, bi) => `[P${bi}]:\n${paragraphs[idx]}`).join("\n\n");
+
+    try {
+      const resp = await getContentClient().chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are rewriting sections of a ${genre} book called "${title}" to sound more natural and human. Remove AI-tell phrases (Furthermore, Moreover, Additionally, In conclusion, Delve into, Empower, Tapestry, Landscape of, Navigate, In today's world, It is worth noting, Unleash, Crucially, Unpack, etc.) and replace with natural prose that a bestselling ${genre} author would write. Preserve ALL meaning, plot details, and character information exactly. Return ONLY JSON.`,
+          },
+          {
+            role: "user",
+            content: `Rewrite each paragraph removing AI-tell phrases. Keep all content intact:\n\n${batchText}\n\nReturn JSON: {"rewrites":{"P0":"rewritten text","P1":"rewritten text",...}}`,
+          },
+        ],
+        max_tokens: 2500,
+        temperature: 0.7,
+      });
+
+      const raw = (resp.choices[0]?.message?.content ?? "{}").trim()
+        .replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+      const result = JSON.parse(raw);
+      if (result.rewrites) {
+        for (let bi = 0; bi < batch.length; bi++) {
+          const rewrite = result.rewrites[`P${bi}`];
+          if (rewrite && rewrite.trim().length > 20) {
+            rewrittenParagraphs[batch[bi]] = rewrite;
+            changesCount++;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[Anti-AI Pass] Batch ${b / BATCH_SIZE + 1} failed:`, err?.message);
+    }
+  }
+
+  const fixedContent = rewrittenParagraphs.join("\n\n");
+  console.log(`[Anti-AI Pass] "${title}" — rewrote ${changesCount}/${flaggedIndexes.length} paragraphs`);
+  return { fixedContent, changesCount, patterns: [...foundPatterns] };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function checkDialogueQuality(content: string, title: string, genre: string, outline?: string): Promise<{ pass: boolean; issues: string[]; summary: string }> {
+  const fiction = isFictionGenre(genre);
+
+  const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+  if (chapterMatches.length === 0) {
+    return { pass: true, issues: [], summary: "No chapters found to check" };
+  }
+
+  const MAX_CHARS_PER_CHUNK = 380000;
+  const fullText = content;
+  const chunks: string[] = [];
+  if (fullText.length <= MAX_CHARS_PER_CHUNK) {
+    chunks.push(fullText);
+  } else {
+    let pos = 0;
+    while (pos < fullText.length) {
+      let end = Math.min(pos + MAX_CHARS_PER_CHUNK, fullText.length);
+      if (end < fullText.length) {
+        const chapterBreak = fullText.lastIndexOf("\n## Chapter", end);
+        if (chapterBreak > pos + MAX_CHARS_PER_CHUNK * 0.5) {
+          end = chapterBreak;
+        }
+      }
+      chunks.push(fullText.substring(pos, end));
+      pos = end;
+    }
+  }
+
+  console.log(`[Dialogue Check] "${title}" — analyzing entire book (${fullText.length} chars, ${chunks.length} chunk(s), ${chapterMatches.length} chapters)`);
+
+  const allIssues: string[] = [];
+  const allScores: number[] = [];
+  const allSummaries: string[] = [];
+
+  for (let ci = 0; ci < chunks.length; ci++) {
+    const chunkLabel = chunks.length > 1 ? ` (part ${ci + 1}/${chunks.length})` : "";
+    const chunkText = chunks[ci];
+
+    const outlineSection = outline && outline.trim().length > 100
+      ? `\n\nBOOK OUTLINE (the planned structure — verify the content follows this):\n${outline.length > 4000 ? outline.slice(0, 4000) + '\n...[outline truncated]' : outline}\n`
+      : '';
+
+    const prompt = fiction
+      ? `You are a professional book editor performing a FULL DIALOGUE & PROSE QUALITY REVIEW of the ${genre} novel "${title}"${chunkLabel}.
+${outlineSection}
+Read the ENTIRE text below — every chapter, every scene, every line of dialogue — and evaluate:
+
+1. NATURAL FLOW: Does dialogue sound like real people talking? Or is it stiff, expository, or robotic? Flag specific chapters/scenes where dialogue feels unnatural.
+2. CHARACTER VOICE: Do different characters have distinct speech patterns and personalities in their dialogue? Or do they all sound the same? Name specific characters if voices blend together.
+3. CONTEXT COHERENCE: Does dialogue make sense within each scene? Are characters responding logically to each other? Flag any exchanges where responses don't match what was said.
+4. CONTINUITY: Do character relationships, knowledge, and motivations stay consistent across chapters? Flag any contradictions in what characters say vs what they should know.
+5. SHOW VS TELL: Does dialogue advance the plot and reveal character? Or is it info-dumping exposition through character mouths? Flag specific "As you know, Bob..." moments.
+6. EMOTIONAL AUTHENTICITY: Do emotional reactions in dialogue feel earned and proportional? Any moments where characters react too mildly or too extremely for the situation?
+7. FORMATTING & MECHANICS: Are dialogue tags, attribution, and paragraph breaks handled properly throughout? Any orphan quotes, broken formatting, or missing closing quotes?
+8. OUTLINE ALIGNMENT: Does each chapter deliver what the outline planned? Does the story progress logically from beginning to end? Are all planned plot points, themes, and arcs present? Does the book reach a satisfying conclusion that resolves the story? Flag any chapters that deviate from the outline or skip planned content.
+
+FULL BOOK TEXT:
+${chunkText}
+
+Respond in this exact JSON format:
+{
+  "pass": true/false,
+  "score": 1-10,
+  "issues": ["Chapter X: specific issue description", "Chapter Y: specific issue description"],
+  "summary": "One sentence overall assessment of the entire book's dialogue quality"
+}
+
+SCORING: Set "pass" to true if score >= 6. Only fail for genuinely problematic dialogue — minor imperfections are acceptable in published fiction. Be thorough but fair. A score of 7-8 means good quality with minor issues. 9-10 is exceptional. Below 6 means significant problems that would pull a reader out of the story.`
+      : `You are a professional book editor performing a FULL WRITING QUALITY REVIEW of the ${genre} non-fiction book "${title}"${chunkLabel}.
+${outlineSection}
+Read the ENTIRE text below — every chapter, every section — and evaluate:
+
+1. CLARITY & STRUCTURE: Is the writing clear, logical, and well-organized? Flag any confusing passages or jumbled explanations.
+2. VOICE & TONE: Does the author maintain a consistent, engaging voice throughout? Flag any tonal shifts or passages that sound robotic/AI-generated.
+3. DIALOGUE & QUOTES: When dialogue, interviews, quotes, or anecdotes appear, are they natural and contextually relevant? Flag any that feel forced or fabricated.
+4. CONTINUITY: Does information stay consistent across chapters? Flag any contradictions or repeated information presented as new.
+5. READABILITY: Does the prose flow well? Flag any overly dense, jargon-heavy, or needlessly complex passages.
+6. CREDIBILITY: Do examples, case studies, and claims feel authentic and well-supported? Flag any that seem invented or unsupported.
+7. FORMATTING & MECHANICS: Are structural elements (headers, lists, transitions) handled properly throughout?
+8. OUTLINE ALIGNMENT: Does each chapter deliver what the outline planned? Does the book cover all planned topics and sections? Does the content progress logically from introduction through conclusion? Flag any chapters that skip planned content or deviate from the outline's structure.
+
+FULL BOOK TEXT:
+${chunkText}
+
+Respond in this exact JSON format:
+{
+  "pass": true/false,
+  "score": 1-10,
+  "issues": ["Chapter X: specific issue description", "Chapter Y: specific issue description"],
+  "summary": "One sentence overall assessment of the entire book's writing quality"
+}
+
+SCORING: Set "pass" to true if score >= 6. Be fair — minor stylistic preferences should not cause a fail. Focus on issues that would genuinely diminish the reader's experience.`;
+
+    try {
+      const response = await getContentClient().chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "You are a professional book editor. Read the ENTIRE book text provided. Evaluate every chapter. Respond ONLY with valid JSON, no markdown formatting." },
+          { role: "user", content: prompt }
+        ],
+        max_completion_tokens: 2000,
+        temperature: 0.3,
+      });
+
+      const raw = response.choices[0]?.message?.content?.trim() || "";
+      const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+      const result = JSON.parse(cleaned);
+
+      allScores.push(result.score || 5);
+      allSummaries.push(result.summary || "No summary");
+      if (Array.isArray(result.issues)) {
+        allIssues.push(...result.issues);
+      }
+
+      console.log(`[Dialogue Check] "${title}"${chunkLabel} — score: ${result.score}/10, pass: ${result.pass}, issues: ${(result.issues || []).length}`);
+    } catch (err: any) {
+      console.error(`[Dialogue Check] Failed for "${title}"${chunkLabel}:`, err.message || err);
+      allScores.push(7);
+      allSummaries.push("Check failed for this section — not blocking");
+    }
+  }
+
+  const avgScore = allScores.length > 0 ? Math.round((allScores.reduce((a, b) => a + b, 0) / allScores.length) * 10) / 10 : 7;
+  const pass = avgScore >= 6;
+  const summary = allSummaries.length === 1 ? allSummaries[0] : `Average score ${avgScore}/10 across ${chunks.length} sections. ${allSummaries[allSummaries.length - 1]}`;
+
+  console.log(`[Dialogue Check] "${title}" FINAL — score: ${avgScore}/10, pass: ${pass}, total issues: ${allIssues.length}, summary: ${summary}`);
+  if (allIssues.length > 0) {
+    console.log(`[Dialogue Check] All issues: ${allIssues.join('; ')}`);
+  }
+
+  return { pass, issues: allIssues, summary };
+}
+
+export async function checkClimaxPresence(content: string, title: string, genre: string): Promise<{ hasClimax: boolean; score: number; analysis: string }> {
+  const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+  if (chapterMatches.length === 0) {
+    return { hasClimax: false, score: 0, analysis: "No chapters found" };
+  }
+
+  const totalChapters = chapterMatches.length;
+  const lastThirdStart = Math.max(0, Math.floor(totalChapters * 0.6));
+  const chapterSplitPattern = /(?=##\s*Chapter\s+\d+)/gi;
+  const chunks = content.split(chapterSplitPattern).filter(c => /^##\s*Chapter\s+\d+/i.test(c.trim()));
+  const lastThirdChapters = chunks.slice(lastThirdStart);
+  const analysisText = lastThirdChapters.join('\n\n');
+  const truncated = analysisText.length > 200000 ? analysisText.slice(-200000) : analysisText;
+
+  const prompt = `You are a professional fiction editor. Analyze the FINAL THIRD of this ${genre} novel "${title}" (chapters ${lastThirdStart + 1}-${totalChapters} of ${totalChapters}).
+
+Evaluate whether the story has a proper CLIMAX — the moment of highest tension, the turning point where the central conflict reaches its peak. A good climax should have:
+
+1. RISING ACTION leading to peak tension
+2. A DECISIVE MOMENT — confrontation, revelation, battle, or critical choice
+3. STAKES that feel real and consequential
+4. EMOTIONAL INTENSITY — the reader should feel the weight of the moment
+5. RESOLUTION — the aftermath and how things settle after the climax
+
+CHAPTERS TO ANALYZE:
+${truncated}
+
+Respond in this exact JSON format:
+{
+  "hasClimax": true/false,
+  "score": 1-10,
+  "climaxLocation": "Chapter X — brief description of the climax moment",
+  "analysis": "2-3 sentence assessment of the story's climax quality, or what's missing if there isn't one"
+}
+
+SCORING: 8-10 = strong, satisfying climax. 6-7 = climax exists but could be stronger. 4-5 = weak or rushed climax. 1-3 = no real climax, story just fizzles out.`;
+
+  try {
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You are a professional fiction editor analyzing story structure. Respond ONLY with valid JSON." },
+        { role: "user", content: prompt }
+      ],
+      max_completion_tokens: 1000,
+      temperature: 0.3,
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() || "";
+    const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    const result = JSON.parse(cleaned);
+
+    console.log(`[Climax Check] "${title}" — score: ${result.score}/10, hasClimax: ${result.hasClimax}, location: ${result.climaxLocation || 'N/A'}`);
+
+    return {
+      hasClimax: result.hasClimax ?? false,
+      score: result.score || 0,
+      analysis: `${result.climaxLocation || 'No climax identified'}. ${result.analysis || ''}`.trim(),
+    };
+  } catch (err: any) {
+    console.error(`[Climax Check] Failed for "${title}":`, err.message || err);
+    return { hasClimax: false, score: 0, analysis: `Check failed: ${err.message}` };
+  }
+}
+
+export function parseSectionsFromContent(content: string): { type: "about" | "chapter"; number: number; title: string; content: string; startIndex: number; endIndex: number }[] {
+  const sections: { type: "about" | "chapter"; number: number; title: string; content: string; startIndex: number; endIndex: number }[] = [];
+  
+  const chapterPattern = /^##\s*\**\s*Chapter\s+(\d+)\s*[:—–\-]?\s*(.*?)\s*\**\s*$/gim;
+  const matches: { index: number; num: number; title: string }[] = [];
+  let m;
+  while ((m = chapterPattern.exec(content)) !== null) {
+    matches.push({ index: m.index, num: parseInt(m[1]), title: m[0].replace(/^##\s*\**\s*/, "").replace(/\s*\**\s*$/, "").trim() });
+  }
+  
+  if (matches.length > 0 && matches[0].index > 50) {
+    const aboutContent = content.substring(0, matches[0].index).trim();
+    if (aboutContent.length > 20) {
+      sections.push({ type: "about", number: 0, title: "About this Book", content: aboutContent, startIndex: 0, endIndex: matches[0].index });
+    }
+  }
+  
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].index;
+    const end = i + 1 < matches.length ? matches[i + 1].index : content.length;
+    sections.push({
+      type: "chapter",
+      number: matches[i].num,
+      title: matches[i].title,
+      content: content.substring(start, end).trim(),
+      startIndex: start,
+      endIndex: end,
+    });
+  }
+  
+  return sections;
+}
+
+export async function rewriteSection(draftId: number, sectionNumber: number): Promise<{ success: boolean; wordCount: number }> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  if (!draft.content || draft.content.trim().length < 200) throw new Error("Book has no content to rewrite sections of");
+  
+  const title = draft.title || draft.topic || "Untitled";
+  const genre = draft.genre || "General";
+  const fiction = isFictionGenre(genre);
+  const chapterSpec = getGenreChapterSpec(genre);
+  
+  const sections = parseSectionsFromContent(draft.content);
+  if (sections.length === 0) throw new Error("Could not parse any sections from the book content");
+  
+  const targetSection = sections.find(s => s.number === sectionNumber);
+  if (!targetSection) throw new Error(`Section ${sectionNumber} not found in book. Available: ${sections.map(s => s.number).join(", ")}`);
+  
+  const prevSection = sections.find(s => s.number === sectionNumber - 1);
+  const nextSection = sections.find(s => s.number === sectionNumber + 1);
+  
+  const totalChapters = sections.filter(s => s.type === "chapter").length;
+  
+  let coverAnalysis = "";
+  const coverSource = draft.backgroundUrl || draft.coverUrl;
+  if (coverSource) {
+    coverAnalysis = await analyzeCoverForContent(coverSource, title, genre);
+  }
+  const coverContext = getCoverImageryDescription(title, genre, coverAnalysis);
+  
+  let storyArchitectPlan: StoryArchitectPlan | null = null;
+  if (draft.outline && (draft.outline.includes("Story Architect") || draft.outline.includes("technique"))) {
+    try {
+      storyArchitectPlan = await generateStoryArchitectPlan(draft.outline, genre, title);
+    } catch {}
+  }
+  
+  let rewritePrompt: string;
+  
+  if (sectionNumber === 0) {
+    rewritePrompt = `You are rewriting the "About this Book" section for the ${genre} ${fiction ? "novel" : "book"} "${title}".
+
+This section appears BEFORE the Table of Contents and Chapter 1. It should be a compelling, atmospheric introduction that hooks readers and sets the tone for what's to come.
+
+${draft.outline ? `BOOK OUTLINE (for full context):\n${draft.outline.substring(0, 2000)}\n` : ""}
+${nextSection ? `CHAPTER 1 BEGINS WITH:\n${nextSection.content.substring(0, 500)}\n` : ""}
+${coverContext}
+
+REQUIREMENTS:
+- Write a captivating "About this Book" section (100-200 words MAXIMUM — 2-3 short paragraphs)
+- Set the mood and atmosphere for the entire book
+- Give readers a taste of what's to come without spoiling anything
+- Match the tone and style of the genre (${genre})
+- Do NOT include a table of contents — just the "About this Book" prose
+- CRITICAL: This is polished marketing copy for readers. Keep it SHORT. Do NOT include the author's raw notes. Write original atmospheric prose.`;
+  } else {
+    const isFirst = sectionNumber === 1;
+    const isLast = sectionNumber === totalChapters;
+    const chapterOutline = draft.outline ? parseChaptersFromOutline(draft.outline)[sectionNumber - 1] || "" : "";
+    
+    const chapterTechniques = buildChapterTechniqueDirective(sectionNumber, storyArchitectPlan, genre, fiction);
+    
+    rewritePrompt = fiction
+      ? `You are REWRITING Chapter ${sectionNumber} of ${totalChapters} for the ${genre} novel "${title}".
+
+${chapterTechniques}
+
+${draft.outline ? `FULL BOOK OUTLINE (for context):\n${draft.outline.substring(0, 3000)}\n` : ""}
+${chapterOutline ? `THIS CHAPTER'S OUTLINE:\n${chapterOutline}\n` : ""}
+${prevSection ? `PREVIOUS CHAPTER ENDED WITH:\n...${prevSection.content.slice(-800)}\n` : ""}
+${nextSection ? `NEXT CHAPTER BEGINS WITH:\n${nextSection.content.substring(0, 500)}\n` : ""}
+${coverContext}
+
+GENRE PACING: ${chapterSpec.pacing}
+
+CRITICAL REWRITE RULES:
+- Write ${chapterSpec.minWordsPerChapter}-${chapterSpec.maxWordsPerChapter} words of rich, literary prose
+- This chapter MUST flow seamlessly from the previous chapter's ending
+- This chapter MUST lead naturally into the next chapter's beginning
+- Maintain all character names, plot threads, and world details from surrounding chapters
+- ${isFirst ? "Open with a compelling hook that draws readers in IMMEDIATELY" : "Continue the story naturally from where the previous chapter left off"}
+- ${isLast ? `Bring the story to a satisfying conclusion. Resolve the central conflict. Give the title "${title}" deeper meaning.` : "End with a cliffhanger or revelation that makes it IMPOSSIBLE to stop reading"}
+- SENSORY IMMERSION, DISTINCT DIALOGUE, INTERNAL MONOLOGUE, SHOW DON'T TELL
+- Format: Start with "## Chapter ${sectionNumber}: [Chapter Title]" then write the full chapter`
+      : `You are REWRITING Chapter ${sectionNumber} of ${totalChapters} for the ${genre} book "${title}".
+
+${chapterTechniques}
+
+${draft.outline ? `FULL BOOK OUTLINE (for context):\n${draft.outline.substring(0, 3000)}\n` : ""}
+${chapterOutline ? `THIS CHAPTER'S OUTLINE:\n${chapterOutline}\n` : ""}
+${prevSection ? `PREVIOUS CHAPTER ENDED WITH:\n...${prevSection.content.slice(-800)}\n` : ""}
+${nextSection ? `NEXT CHAPTER BEGINS WITH:\n${nextSection.content.substring(0, 500)}\n` : ""}
+${coverContext}
+
+CRITICAL REWRITE RULES:
+- Write ${chapterSpec.minWordsPerChapter}-${chapterSpec.maxWordsPerChapter} words of comprehensive, expert content
+- Maintain continuity with surrounding chapters — same terminology, frameworks, and references
+- ${isFirst ? "Open with a compelling hook — a surprising fact, vivid story, or provocative question" : "Continue naturally from the previous chapter's conclusion"}
+- ${isLast ? "Conclude with a powerful synthesis and complete action plan" : "End with a bridge to the next topic"}
+- Include real-world examples, actionable frameworks, and practical exercises
+- Format: Start with "## Chapter ${sectionNumber}: [Chapter Title]" then write the full chapter`;
+  }
+  
+  const chapterVisualConfig = getVisualEnhancedConfig(genre);
+  if (chapterVisualConfig && sectionNumber > 0) {
+    rewritePrompt += `\n\nVISUAL-ENHANCED CONTENT: This is a visual-enhanced ${genre} book. You MUST include 2-4 [ILLUSTRATION: detailed description] markers within this chapter at natural points where visual examples would help the reader understand the concepts being taught.
+Each [ILLUSTRATION: ...] marker must contain an extremely detailed, specific description suitable for AI image generation. Include: subject matter, composition, art style (${chapterVisualConfig.illustrationStyle}), colors, mood, and any text/labels that should appear.
+CRITICAL ILLUSTRATION RULE — NEVER use metaphors, analogies, or symbolic stand-ins in illustration descriptions. Always describe imagery that DIRECTLY depicts the actual subject matter of the book. If the text uses an analogy (e.g. "like brushing your teeth"), the illustration must show the real concept being taught — not the analogy.
+Place each [ILLUSTRATION: ...] marker on its OWN LINE (not embedded within a sentence) — right after explaining a concept where a visual example would reinforce the lesson. The marker must be the only content on that line.`;
+  }
+  
+  const systemPrompt = fiction
+    ? `You are a team of bestselling ${genre} authors rewriting a single section of an existing published-quality novel. Your prose must be indistinguishable from a top-tier traditionally published book. Write with rich sensory detail, distinct character voices, emotional depth, and page-turning momentum.`
+    : `You are a world-renowned ${genre} author rewriting a single section of an existing comprehensive book. Your content must be deeply insightful, actionable, and transformative. Write with authority and warmth.`;
+  
+  activeGenerationCount++;
+  console.log(`[Section Rewrite] Rewriting section ${sectionNumber} of "${title}" (draft ${draftId})`);
+  
+  try {
+    const maxTokens = sectionNumber === 0 ? 4000 : Math.min(16384, Math.max(8000, Math.round(chapterSpec.maxWordsPerChapter * 3)));
+    
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-5.2",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: rewritePrompt },
+      ],
+      max_completion_tokens: maxTokens,
+    });
+    
+    const newContent = response.choices[0]?.message?.content || "";
+    if (newContent.trim().length < 100) throw new Error("Generated content too short");
+    
+    const newWords = newContent.split(/\s+/).length;
+    console.log(`[Section Rewrite] Generated ${newWords} words for section ${sectionNumber}`);
+    
+    const fullContent = draft.content!;
+    const before = fullContent.substring(0, targetSection.startIndex);
+    const after = fullContent.substring(targetSection.endIndex);
+    const updatedContent = (before + newContent.trim() + "\n\n" + after.trimStart()).trim();
+    
+    await db.update(draftEbooks)
+      .set({ content: updatedContent })
+      .where(eq(draftEbooks.id, draftId));
+    
+    console.log(`[Section Rewrite] Successfully replaced section ${sectionNumber} of "${title}" — ${newWords} words`);
+    return { success: true, wordCount: newWords };
+  } finally {
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
+  }
+}
+
+export async function addIllustrationMarkersToChapter(draftId: number, sectionNumber: number): Promise<{ success: boolean; wordCount: number }> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  if (!draft.content) throw new Error("No content");
+  
+  const genre = draft.genre || "General";
+  const title = draft.title || "Untitled";
+  const visualConfig = getVisualEnhancedConfig(genre);
+  if (!visualConfig) throw new Error(`Genre "${genre}" is not a visual-enhanced genre`);
+  
+  const sections = parseSectionsFromContent(draft.content);
+  const targetSection = sections.find(s => s.number === sectionNumber);
+  if (!targetSection) throw new Error(`Section ${sectionNumber} not found`);
+  
+  const existingMarkers = (targetSection.content.match(/\[ILLUSTRATION:/gi) || []).length;
+  if (existingMarkers >= 2) {
+    console.log(`[Add Markers] Chapter ${sectionNumber} of "${title}" already has ${existingMarkers} markers, skipping`);
+    return { success: true, wordCount: targetSection.content.split(/\s+/).length };
+  }
+  
+  activeGenerationCount++;
+  console.log(`[Add Markers] Adding illustration markers to chapter ${sectionNumber} of "${title}" (draft ${draftId})`);
+  
+  try {
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-5.2",
+      messages: [
+        { role: "system", content: `You are an expert editor for visual-enhanced ${genre} books. Your job is to take existing chapter content and insert [ILLUSTRATION: detailed description] markers at natural points where visual examples would enhance the reader's understanding. You must preserve ALL existing text exactly as written — only ADD the illustration markers between paragraphs.` },
+        { role: "user", content: `Here is Chapter ${sectionNumber} from the ${genre} book "${title}". Insert 2-4 [ILLUSTRATION: detailed description] markers at natural points where visual examples would help readers.
+
+RULES:
+- Preserve ALL existing text exactly — do not rewrite, shorten, or rephrase anything
+- Insert each [ILLUSTRATION: ...] marker on its OWN LINE between paragraphs
+- Each marker must have an extremely detailed description for AI image generation: subject, composition, style (${visualConfig.illustrationStyle}), colors, mood
+- Place markers after explaining concepts where visuals would reinforce the lesson
+- CRITICAL: NEVER describe metaphors or analogies in illustration descriptions. If the text uses an analogy (e.g., "like brushing your teeth"), describe an illustration of the ACTUAL concept being taught — not the analogy. All imagery must be directly relevant to the book's subject matter ("${title}").
+- Return the COMPLETE chapter with markers added
+
+CHAPTER CONTENT:
+${targetSection.content}` },
+      ],
+      max_completion_tokens: 16384,
+    });
+    
+    const newContent = response.choices[0]?.message?.content || "";
+    if (newContent.trim().length < targetSection.content.length * 0.5) throw new Error("Generated content too short — likely lost text");
+    
+    const newMarkers = (newContent.match(/\[ILLUSTRATION:/gi) || []).length;
+    if (newMarkers < 1) throw new Error("No illustration markers were added");
+    
+    const newWords = newContent.split(/\s+/).length;
+    console.log(`[Add Markers] Added ${newMarkers} markers to chapter ${sectionNumber} (${newWords} words)`);
+    
+    const fullContent = draft.content;
+    const before = fullContent.substring(0, targetSection.startIndex);
+    const after = fullContent.substring(targetSection.endIndex);
+    const updatedContent = (before + newContent.trim() + "\n\n" + after.trimStart()).trim();
+    
+    await db.update(draftEbooks)
+      .set({ content: updatedContent })
+      .where(eq(draftEbooks.id, draftId));
+    
+    console.log(`[Add Markers] Successfully updated chapter ${sectionNumber} of "${title}"`);
+    return { success: true, wordCount: newWords };
+  } finally {
+    activeGenerationCount--;
+  }
+}
+
+export async function rewriteChapterBatch(draftId: number, chapterNumbers: number[]): Promise<void> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  const title = draft.title || "Untitled";
+  
+  console.log(`[Batch Rewrite] Starting batch rewrite of chapters [${chapterNumbers.join(", ")}] for "${title}" (draft ${draftId})`);
+  
+  for (const chNum of chapterNumbers) {
+    try {
+      console.log(`[Batch Rewrite] Rewriting chapter ${chNum}...`);
+      const result = await rewriteSection(draftId, chNum);
+      console.log(`[Batch Rewrite] Chapter ${chNum} done — ${result.wordCount} words`);
+    } catch (err: any) {
+      console.error(`[Batch Rewrite] Failed chapter ${chNum}: ${err.message}`);
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  
+  console.log(`[Batch Rewrite] Completed batch rewrite for "${title}"`);
+}
+
+export async function addIllustrationMarkersBatch(draftId: number): Promise<void> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  const title = draft.title || "Untitled";
+  
+  const sections = parseSectionsFromContent(draft.content || "");
+  const chapters = sections.filter(s => s.type === "chapter");
+  
+  console.log(`[Batch Add Markers] Starting for "${title}" (draft ${draftId}) — ${chapters.length} chapters`);
+  
+  for (const ch of chapters) {
+    try {
+      await addIllustrationMarkersToChapter(draftId, ch.number);
+    } catch (err: any) {
+      console.error(`[Batch Add Markers] Failed chapter ${ch.number}: ${err.message}`);
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  
+  console.log(`[Batch Add Markers] Completed for "${title}"`);
+}
+
+export async function generateContentForDraft(draftId: number): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+
+  const topic = draft.topic || draft.title || "Untitled";
+  const genre = draft.genre || "General";
+  const title = draft.title || topic;
+
+  if (isColoringBookGenre(genre)) {
+    console.log(`[Content Gen] "${title}" is a Coloring Book — routing to coloring page generator`);
+    return generateColoringBookContent(draftId);
+  }
+
+  const rawContent = draft.content && draft.content.trim().length > 500 ? draft.content : null;
+  const rawChapterCount = rawContent ? (rawContent.match(/##\s*Chapter\s+\d+/gi) || []).length : 0;
+  const rawWords = rawContent ? rawContent.split(/\s+/).length : 0;
+
+  const outlineHasMarkers = draft.outline && 
+    (draft.outline.includes('Story Architect') || draft.outline.includes('technique') || draft.outline.includes('Technique'));
+  const outlineHasStructure = draft.outline && draft.outline.trim().length > 200 && 
+    (/##\s*(Title|Premise|Hook|Chapter)/i.test(draft.outline));
+  const contentLooksMultiAuthor = rawContent && rawChapterCount >= 5 && rawWords >= 10000;
+  const hasMultiAuthorOutline = outlineHasMarkers || (outlineHasStructure && contentLooksMultiAuthor);
+
+  const canResumeContent = hasMultiAuthorOutline && rawContent && rawChapterCount >= 2 && rawWords >= 3000;
+
+  const existingContent = canResumeContent ? rawContent : null;
+
+  if (canResumeContent) {
+    console.log(`[Content Gen] RESUME: "${title}" — found ${rawChapterCount} chapters (${rawWords} words) from multi-author system, resuming from where we left off`);
+  } else if (hasMultiAuthorOutline) {
+    console.log(`[Content Gen] OUTLINE REUSE: "${title}" — has multi-author outline, writing chapters from scratch using existing outline (${rawWords} words, ${rawChapterCount} chapters saved)`);
+  } else if (rawContent && rawChapterCount >= 1) {
+    console.log(`[Content Gen] FULL REWRITE: "${title}" — has ${rawChapterCount} old chapters (${rawWords} words) from pre-author system, starting fresh with multi-author pipeline`);
+  } else {
+    console.log(`[Content Gen] FULL REWRITE: "${title}" — starting from scratch`);
+  }
+
+  activeGenerationCount++;
+  const myEpoch = getStopEpoch();
+  console.log(`[Generation Guard] Active generations: ${activeGenerationCount}, epoch: ${myEpoch}`);
+  await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draftId));
+
+  try {
+    let coverAnalysis = "";
+    const coverSource = draft.backgroundUrl || draft.coverUrl;
+    if (coverSource) {
+      console.log(`[Content Gen] Analyzing cover artwork for "${title}" before writing...`);
+      coverAnalysis = await analyzeCoverForContent(coverSource, title, genre);
+    }
+
+    if (getStopEpoch() !== myEpoch) {
+      console.log(`[Content Gen] ABORTED: "${title}" — stop signal received before outline generation`);
+      await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
+      activeGenerationCount = Math.max(0, activeGenerationCount - 1);
+      return "";
+    }
+
+    const existingOutline = hasMultiAuthorOutline && draft.outline && draft.outline.trim().length > 100 ? draft.outline : null;
+    const outline = existingOutline || await generateEbookOutline(topic, genre, title, coverAnalysis);
+    if (!existingOutline) {
+      const markedOutline = outline + `\n\n<!-- Story Architect Multi-Author Pipeline -->`;
+      await db.update(draftEbooks).set({ outline: markedOutline }).where(eq(draftEbooks.id, draftId));
+
+      // ── Editorial Brief (BEFORE) ────────────────────────────────────────
+      // Evaluate the outline against manuscript-assessor standards before writing
+      try {
+        const brief = await runEditorialBrief(outline, genre, title, isFictionGenre(genre));
+        console.log(`[Editorial Brief] "${title}" outline score: ${brief.score}/10`);
+        if (brief.strengths.length) console.log(`[Editorial Brief] ✓ Strengths: ${brief.strengths.join(" | ")}`);
+        if (brief.concerns.length) console.log(`[Editorial Brief] ⚠ Concerns: ${brief.concerns.join(" | ")}`);
+        if (brief.recommendations.length) console.log(`[Editorial Brief] → Recommendations: ${brief.recommendations.join(" | ")}`);
+        // Append brief notes to saved outline for future reference
+        const briefNote = `\n\n<!-- EditorialBrief score:${brief.score}/10 | concerns:${brief.concerns.length} | recs:${brief.recommendations.join("; ")} -->`;
+        await db.update(draftEbooks).set({ outline: markedOutline + briefNote }).where(eq(draftEbooks.id, draftId));
+      } catch (briefErr: any) {
+        console.error(`[Editorial Brief] Failed (non-blocking):`, briefErr?.message);
+      }
+    } else {
+      console.log(`[Content Gen] Reusing existing multi-author outline for "${title}"`);
+    }
+
+    let content = await generateEbookContent(outline, topic, genre, title, coverAnalysis, async (contentSoFar) => {
+      await db.update(draftEbooks).set({ content: contentSoFar }).where(eq(draftEbooks.id, draftId));
+    }, existingContent || undefined, draft.outlineChapterCount || undefined, myEpoch);
+    let wordCount = content.split(/\s+/).length;
+    
+    if (wordCount < 50) {
+      console.error(`[Content Gen] "${title}" produced only ${wordCount} words — content generation failed, not saving`);
+      await db.update(draftEbooks).set({ content: null, status: "failed" }).where(eq(draftEbooks.id, draftId));
+      throw new Error(`Content generation produced only ${wordCount} words for "${title}" — likely an API failure`);
+    }
+    
+    const hasTBC = /to be continued|tbc|the story continues/i.test(content);
+    const hasPlaceholder = /\[Content generation incomplete|Please regenerate this ebook|placeholder|TODO|PLACEHOLDER/i.test(content);
+    const chapterSpec = getGenreChapterSpec(genre);
+    const genreMinWords = chapterSpec.minWordsPerChapter * chapterSpec.targetChapters.min;
+    const effectiveMinWords = Math.max(MIN_WORD_COUNT, Math.round(genreMinWords * 0.6));
+
+    const contentChapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    const qualityIssues: string[] = [];
+
+    let hasTruncatedChapter = false;
+    let hasTooShortChapter = false;
+    let hasDuplicateChapters = false;
+    let hasAIMeta = false;
+    let hasMissingChapters = false;
+
+    for (let ci = 0; ci < contentChapterMatches.length; ci++) {
+      const chStart = contentChapterMatches[ci].index!;
+      const chEnd = ci + 1 < contentChapterMatches.length ? contentChapterMatches[ci + 1].index! : content.length;
+      const chText = content.substring(chStart, chEnd);
+      const chWords = chText.split(/\s+/).filter(w => w.length > 0).length;
+      const { truncated, reason } = detectChapterTruncation(chText);
+      if (truncated) {
+        hasTruncatedChapter = true;
+        qualityIssues.push(`Ch${contentChapterMatches[ci][1]} truncated (${reason})`);
+      }
+      if (chWords < chapterSpec.minWordsPerChapter * 0.3) {
+        hasTooShortChapter = true;
+        qualityIssues.push(`Ch${contentChapterMatches[ci][1]} too short (${chWords}w, min ~${chapterSpec.minWordsPerChapter})`);
+      }
+    }
+
+    const chapterNums = contentChapterMatches.map(m => parseInt(m[1]));
+    const uniqueChapterNums = new Set(chapterNums);
+    if (uniqueChapterNums.size < chapterNums.length) {
+      hasDuplicateChapters = true;
+      const dupes = chapterNums.filter((n, i) => chapterNums.indexOf(n) !== i);
+      qualityIssues.push(`Duplicate chapters: ${[...new Set(dupes)].map(n => `Ch${n}`).join(', ')}`);
+    }
+
+    const maxChapterNum = chapterNums.length > 0 ? Math.max(...chapterNums) : 0;
+    if (maxChapterNum > 0 && uniqueChapterNums.size < maxChapterNum) {
+      hasMissingChapters = true;
+      const missing = [];
+      for (let i = 1; i <= maxChapterNum; i++) {
+        if (!uniqueChapterNums.has(i)) missing.push(i);
+      }
+      qualityIssues.push(`Missing chapters: ${missing.join(', ')}`);
+    }
+    if (chapterNums.length > 0 && chapterNums.length < chapterSpec.targetChapters.min) {
+      hasMissingChapters = true;
+      qualityIssues.push(`Only ${chapterNums.length} chapters (genre min: ${chapterSpec.targetChapters.min})`);
+    }
+
+    const aiMetaPatterns = /\bas a language model\b|\bi cannot (generate|create|write)\b|\bi don't have personal (experience|opinions|feelings)\b|\bas an ai (assistant|model|language)\b|\blet me summarize what we('ve| have) covered\b|\bas mentioned earlier in chapter\b/i;
+    if (aiMetaPatterns.test(content)) {
+      hasAIMeta = true;
+      qualityIssues.push('AI meta-commentary detected');
+    }
+
+    if (isVisualEnhancedGenre(genre)) {
+      console.log(`[Visual Enhanced] "${title}" is a ${genre} book — running illustration pipeline after content generation...`);
+      const markerCount = (content.match(/\[ILLUSTRATION:/g) || []).length;
+      if (markerCount === 0) {
+        console.log(`[Visual Enhanced] "${title}" has no illustration markers — injecting them before generating images...`);
+        content = await injectIllustrationMarkers(content, genre, title);
+        await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+      }
+      content = await generateIllustrations(content, genre, title, draftId);
+      wordCount = content.split(/\s+/).length;
+    }
+
+    let hasIllustrationIssues = false;
+    if (isVisualEnhancedGenre(genre)) {
+      const genChapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+      const illQuality = checkIllustrationQuality(content, genChapterMatches);
+      if (illQuality.issues.length > 0) {
+        hasIllustrationIssues = illQuality.hasBlockingIssues;
+        for (const issue of illQuality.issues) {
+          qualityIssues.push(issue);
+        }
+      }
+      const outlineCovIssues = checkOutlineIllustrationCoverage(content, draft.outline, genChapterMatches);
+      if (outlineCovIssues.length > 0) {
+        hasIllustrationIssues = true;
+        for (const issue of outlineCovIssues) {
+          qualityIssues.push(issue);
+        }
+      }
+    }
+
+    let structurallyComplete = wordCount >= effectiveMinWords && !hasTBC && !hasPlaceholder && !hasTruncatedChapter && !hasTooShortChapter && !hasDuplicateChapters && !hasAIMeta && !hasMissingChapters && !hasIllustrationIssues;
+
+    let dialoguePass = true;
+    if (structurallyComplete) {
+      console.log(`[Content Gen] "${title}" passed structural checks — running full dialogue quality review...`);
+      const dialogueResult = await checkDialogueQuality(content, title, genre, outline);
+      dialoguePass = dialogueResult.pass;
+      if (!dialoguePass) {
+        qualityIssues.push(`Dialogue quality failed (${dialogueResult.summary})`);
+        for (const issue of dialogueResult.issues) {
+          qualityIssues.push(`Dialogue: ${issue}`);
+        }
+      }
+
+      // ── Pro-Writing Metrics (AFTER) ─────────────────────────────────────
+      // ProWritingAid-style pass: passive voice, adverb density, AI-tells,
+      // opening hook quality, pacing. Results stored in outline for UI display.
+      try {
+        const pwm = await runProWritingMetrics(content, title, genre);
+        console.log(`[ProWriting] "${title}" — passive: ${pwm.passiveVoicePct}%, adverbs: ${pwm.adverbPct}%, AI-tells: ${pwm.aiTellCount}, opening hook: ${pwm.openingHookScore}/10, overall: ${pwm.overallScore}/10`);
+        if (pwm.pacingReport) console.log(`[ProWriting] Pacing: ${pwm.pacingReport}`);
+        if (pwm.issues.length) console.log(`[ProWriting] Issues: ${pwm.issues.join(" | ")}`);
+        // Save metrics as a JSON comment in the outline so the UI can read them
+        const currentOutline = (await db.select({ outline: draftEbooks.outline }).from(draftEbooks).where(eq(draftEbooks.id, draftId)))[0]?.outline ?? "";
+        const cleanedOutline = currentOutline.replace(/\n\n<!-- ProWritingMetrics:.*?-->/s, "").trim();
+        const metricsJson = JSON.stringify({ ...pwm, generatedAt: new Date().toISOString() });
+        await db.update(draftEbooks).set({ outline: `${cleanedOutline}\n\n<!-- ProWritingMetrics: ${metricsJson} -->` }).where(eq(draftEbooks.id, draftId));
+      } catch (pwErr: any) {
+        console.error(`[ProWriting] Metrics failed (non-blocking):`, pwErr?.message);
+      }
+    }
+
+    const isComplete = structurallyComplete && dialoguePass;
+    const newStatus = isComplete ? "ready" : "draft";
+    if (qualityIssues.length > 0) {
+      console.log(`[Content Gen] QUALITY ISSUES for "${title}": ${qualityIssues.join('; ')} — keeping as draft`);
+    }
+    console.log(`[Content Gen] "${title}" finished: ${wordCount} words (genre min: ${effectiveMinWords}), complete: ${isComplete}, status: ${newStatus}`);
+    
+    await db.update(draftEbooks).set({ content, status: newStatus }).where(eq(draftEbooks.id, draftId));
+
+    const pdfUrl = await createPdfFromContent(title, content);
+    await db.update(draftEbooks).set({ pdfUrl }).where(eq(draftEbooks.id, draftId));
+
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Generation complete for "${title}". Active: ${activeGenerationCount}`);
+    return content;
+  } catch (error) {
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Generation failed for draft ${draftId}. Active: ${activeGenerationCount}`);
+    await db.update(draftEbooks).set({ status: "failed" }).where(eq(draftEbooks.id, draftId));
+    throw error;
+  }
+}
+
+export async function appendConcludingChapter(draftId: number): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  
+  const topic = draft.topic || draft.title || "Untitled";
+  const genre = draft.genre || "General";
+  const title = draft.title || topic;
+  const existingContent = draft.content || "";
+  const outline = draft.outline || "";
+  const fiction = isFictionGenre(genre);
+  const chapterSpec = getGenreChapterSpec(genre);
+  const genreTechniques = getGenreWritingTechniques(genre);
+  const coverContext = getCoverImageryDescription(title, genre);
+
+  const existingChapters = (existingContent.match(/##\s*Chapter\s+\d+/gi) || []);
+  const nextChapterNum = existingChapters.length + 1;
+
+  const lastChars = existingContent.slice(-6000);
+  const lastChapterStart = lastChars.lastIndexOf("## Chapter");
+  const recentContext = lastChapterStart >= 0 ? lastChars.slice(lastChapterStart) : lastChars.slice(-4000);
+
+  const outlineSummary = outline.length > 3000 ? outline.slice(0, 3000) + "\n...[outline truncated]" : outline;
+
+  const totalWords = existingContent.split(/\s+/).length;
+  console.log(`[Append Chapter] Generating Chapter ${nextChapterNum} for "${title}" (${existingChapters.length} existing chapters, ${totalWords} words, outline: ${outline.length} chars -> ${outlineSummary.length} chars)`);
+
+  activeGenerationCount++;
+  console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
+  await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draftId));
+
+  try {
+    const systemPrompt = `You are a bestselling ${genre} author. Write the concluding chapter of a book. Output ONLY the chapter text starting with the markdown heading. Do not include any preamble or commentary.`;
+
+    const chapterPrompt = `Write Chapter ${nextChapterNum} (the FINAL chapter) for the ${genre} book "${title}".
+
+OUTLINE SUMMARY:
+${outlineSummary}
+
+RECENT CONTEXT (end of the previous chapter):
+${recentContext}
+
+REQUIREMENTS:
+- Write 2000-4000 words of prose
+- This is the FINAL chapter — bring the story to a satisfying conclusion
+- Resolve the central conflict
+- Do NOT write "to be continued"
+
+Format: Start with "## Chapter ${nextChapterNum}: [Chapter Title]" then write the full chapter.`;
+
+    const maxTokens = 16000;
+    
+    let chapterContent = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      console.log(`[Append Chapter] Attempt ${attempt + 1}...`);
+      const response = await getContentClient().chat.completions.create({
+        model: "gpt-5.2",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: chapterPrompt }
+        ],
+        max_completion_tokens: maxTokens,
+      });
+
+      const finishReason = response.choices[0]?.finish_reason || "unknown";
+      chapterContent = response.choices[0]?.message?.content || "";
+      console.log(`[Append Chapter] Attempt ${attempt + 1}: finish_reason=${finishReason}, content length=${chapterContent.length} chars`);
+      if (chapterContent.trim().length >= 100) break;
+      console.log(`[Append Chapter] Attempt ${attempt + 1} produced only ${chapterContent.trim().length} chars, retrying...`);
+    }
+    
+    const chapterWords = chapterContent.split(/\s+/).length;
+
+    if (chapterContent.trim().length < 100) {
+      throw new Error("Generated chapter was too short after 3 attempts");
+    }
+
+    const updatedContent = existingContent.trimEnd() + "\n\n---\n\n" + chapterContent.trim();
+    const totalWords = updatedContent.split(/\s+/).length;
+
+    console.log(`[Append Chapter] Chapter ${nextChapterNum} generated: ${chapterWords} words. Total: ${totalWords} words.`);
+
+    await db.update(draftEbooks).set({ content: updatedContent, status: "ready" }).where(eq(draftEbooks.id, draftId));
+
+    const pdfUrl = await createPdfFromContent(title, updatedContent);
+    await db.update(draftEbooks).set({ pdfUrl }).where(eq(draftEbooks.id, draftId));
+
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Append chapter complete. Active: ${activeGenerationCount}`);
+    return updatedContent;
+  } catch (error) {
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Append chapter failed for draft ${draftId}. Active: ${activeGenerationCount}`);
+    await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
+    throw error;
+  }
+}
+
+export async function repairIncompleteChapters(draftId: number): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+
+  const genre = draft.genre || "General";
+  const title = draft.title || draft.topic || "Untitled";
+  let currentContent = draft.content || "";
+  const outline = draft.outline || "";
+  const chapterSpec = getGenreChapterSpec(genre);
+  const fiction = isFictionGenre(genre);
+  const outlineSummary = outline.length > 3000 ? outline.slice(0, 3000) + "\n...[truncated]" : outline;
+
+  const outlineChapterMatches = [...outline.matchAll(/chapter\s+(\d+)/gi)];
+  const totalPlannedChapters = outlineChapterMatches.length > 0
+    ? Math.max(...outlineChapterMatches.map(m => parseInt(m[1])))
+    : chapterSpec.targetChapters.min;
+
+  const placeholderPattern = /\[Content generation incomplete[^\]]*\]|Please regenerate this ebook[^\]]*\]/gi;
+
+  const findIncompleteChapters = (content: string): number[] => {
+    const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    const incomplete: number[] = [];
+    for (let i = 0; i < chapterMatches.length; i++) {
+      const chapterNum = parseInt(chapterMatches[i][1]);
+      const chapterStart = chapterMatches[i].index!;
+      const chapterEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
+      const chapterText = content.substring(chapterStart, chapterEnd);
+      if (placeholderPattern.test(chapterText)) {
+        placeholderPattern.lastIndex = 0;
+        incomplete.push(chapterNum);
+      }
+    }
+    return incomplete;
+  };
+
+  const findTruncatedChapters = (content: string): number[] => {
+    const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    const truncated: number[] = [];
+    for (let i = 0; i < chapterMatches.length; i++) {
+      const chapterNum = parseInt(chapterMatches[i][1]);
+      const chapterStart = chapterMatches[i].index!;
+      const chapterEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
+      const chapterText = content.substring(chapterStart, chapterEnd).trimEnd();
+
+      const lastLine = chapterText.split('\n').filter(l => l.trim().length > 0).pop() || "";
+      const cleanLine = lastLine.replace(/\s*---\s*$/, '').trim();
+
+      if (cleanLine.length < 5) continue;
+
+      if (cleanLine.startsWith('##')) continue;
+
+      const endsWithPunctuation = /[.!?…"'\u201D\u2019)\]—]$/.test(cleanLine);
+      const endsWithQuoteAttribution = /[,]\s*(?:he|she|they|I|we)\s+said\.?$/i.test(cleanLine);
+      const isSceneDivider = /^[-*_\s]{3,}$/.test(cleanLine) || /^#{1,3}\s/.test(cleanLine);
+
+      if (!endsWithPunctuation && !endsWithQuoteAttribution && !isSceneDivider) {
+        const words = chapterText.split(/\s+/).length;
+        const minExpected = chapterSpec.minWordsPerChapter * 0.5;
+        if (words < minExpected || !endsWithPunctuation) {
+          console.log(`[Truncation Check] Chapter ${chapterNum} appears truncated — last text: "${cleanLine.slice(-60)}"`);
+          truncated.push(chapterNum);
+        }
+      }
+    }
+    return truncated;
+  };
+
+  const findMissingChapters = (content: string): number[] => {
+    const existingNums = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)].map(m => parseInt(m[1]));
+    const maxExisting = existingNums.length > 0 ? Math.max(...existingNums) : 0;
+    const target = Math.max(totalPlannedChapters, maxExisting);
+    const missing: number[] = [];
+    for (let i = 1; i <= target; i++) {
+      if (!existingNums.includes(i)) missing.push(i);
+    }
+    return missing;
+  };
+
+  const findTooShortChapters = (content: string): number[] => {
+    const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    const tooShort: number[] = [];
+    for (let i = 0; i < chapterMatches.length; i++) {
+      const chapterNum = parseInt(chapterMatches[i][1]);
+      const chapterStart = chapterMatches[i].index!;
+      const chapterEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
+      const chapterText = content.substring(chapterStart, chapterEnd);
+      const words = chapterText.split(/\s+/).filter(w => w.length > 0).length;
+      if (words < chapterSpec.minWordsPerChapter * 0.3) {
+        console.log(`[Short Check] Chapter ${chapterNum} is too short: ${words} words (min ~${chapterSpec.minWordsPerChapter})`);
+        tooShort.push(chapterNum);
+      }
+    }
+    return tooShort;
+  };
+
+  const findTBCChapters = (content: string): number[] => {
+    const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    const tbcChapters: number[] = [];
+    for (let i = 0; i < chapterMatches.length; i++) {
+      const chapterNum = parseInt(chapterMatches[i][1]);
+      const chapterStart = chapterMatches[i].index!;
+      const chapterEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
+      const chapterText = content.substring(chapterStart, chapterEnd);
+      if (/to be continued|tbc|the story continues/i.test(chapterText)) {
+        console.log(`[TBC Check] Chapter ${chapterNum} contains TBC marker`);
+        tbcChapters.push(chapterNum);
+      }
+    }
+    return tbcChapters;
+  };
+
+  let incompleteChapters = findIncompleteChapters(currentContent);
+  let truncatedChapters = findTruncatedChapters(currentContent);
+  let missingChapters = findMissingChapters(currentContent);
+  let tooShortChapters = findTooShortChapters(currentContent);
+  let tbcChapters = findTBCChapters(currentContent);
+  const allToFix = [...new Set([...incompleteChapters, ...truncatedChapters, ...missingChapters, ...tooShortChapters, ...tbcChapters])].sort((a, b) => a - b);
+
+  if (allToFix.length === 0) {
+    console.log(`[Chapter Repair] "${title}" — no incomplete, truncated, or missing chapters found`);
+    return currentContent;
+  }
+
+  console.log(`[Chapter Repair] "${title}" — ${incompleteChapters.length} placeholder [${incompleteChapters.join(', ')}], ${truncatedChapters.length} truncated [${truncatedChapters.join(', ')}], ${missingChapters.length} missing [${missingChapters.join(', ')}], ${tooShortChapters.length} too-short [${tooShortChapters.join(', ')}], ${tbcChapters.length} TBC [${tbcChapters.join(', ')}]. Planned: ${totalPlannedChapters} chapters.`);
+
+  activeGenerationCount++;
+  console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
+  await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draftId));
+
+  try {
+    for (const chapterNum of allToFix) {
+      const freshDraft = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+      currentContent = freshDraft[0]?.content || currentContent;
+
+      const isPlaceholder = incompleteChapters.includes(chapterNum) || tooShortChapters.includes(chapterNum) || tbcChapters.includes(chapterNum) || truncatedChapters.includes(chapterNum);
+      const isFinalChapter = chapterNum >= totalPlannedChapters;
+
+      const chapterMatches = [...currentContent.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+      let contextText = "";
+
+      if (isPlaceholder) {
+        const matchIdx = chapterMatches.findIndex(m => parseInt(m[1]) === chapterNum);
+        if (matchIdx > 0) {
+          const prevStart = chapterMatches[matchIdx - 1].index!;
+          const thisStart = chapterMatches[matchIdx].index!;
+          contextText = currentContent.substring(prevStart, thisStart).slice(-4000);
+        } else if (matchIdx === 0 && currentContent.length > 0) {
+          contextText = currentContent.substring(0, chapterMatches[0].index!).slice(-2000);
+        }
+      } else {
+        const prevChapters = chapterMatches.filter(m => parseInt(m[1]) < chapterNum);
+        if (prevChapters.length > 0) {
+          const lastPrev = prevChapters[prevChapters.length - 1];
+          const lastPrevStart = lastPrev.index!;
+          const nextChapter = chapterMatches.find(m => parseInt(m[1]) > chapterNum);
+          const endPos = nextChapter ? nextChapter.index! : currentContent.length;
+          contextText = currentContent.substring(lastPrevStart, endPos).slice(-4000);
+        }
+      }
+
+      const chapterRole = isFinalChapter
+        ? "This is the FINAL chapter — bring the story to a powerful, satisfying conclusion. Resolve all central conflicts and character arcs."
+        : `This is Chapter ${chapterNum} of ${totalPlannedChapters}. Continue the story naturally, advancing the plot according to the outline.`;
+
+      const systemPrompt = fiction
+        ? `You are a bestselling ${genre} author. Write a complete chapter. Output ONLY the chapter text starting with the markdown heading. No preamble or commentary.`
+        : `You are an expert ${genre} author. Write a complete chapter. Output ONLY the chapter text starting with the markdown heading. No preamble or commentary.`;
+
+      const chapterPrompt = `Write Chapter ${chapterNum} for the ${genre} book "${title}".
+
+OUTLINE SUMMARY:
+${outlineSummary}
+
+PREVIOUS CONTEXT:
+${contextText || "(This is early in the book — set the scene according to the outline.)"}
+
+ROLE OF THIS CHAPTER:
+${chapterRole}
+
+REQUIREMENTS:
+- Write at least ${chapterSpec.minWordsPerChapter} words of rich, full prose — let the story breathe naturally
+- Do NOT write "to be continued" or any placeholder text
+- Match the writing style, tone, and voice of the existing chapters exactly
+- Follow the outline for this chapter's plot points
+- Your chapter MUST end with a complete sentence and proper punctuation
+- The last paragraph must feel like a natural, satisfying chapter ending — not cut off mid-thought
+- Write with the depth and artistry of a bestselling author — rich dialogue, vivid descriptions, meaningful character moments
+
+Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the full chapter.`;
+
+      let chapterContent = "";
+      const repairMaxTokens = Math.min(16384, Math.max(8000, Math.round(chapterSpec.maxWordsPerChapter * 3)));
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        console.log(`[Chapter Repair] Chapter ${chapterNum}/${totalPlannedChapters} attempt ${attempt} (max_tokens: ${repairMaxTokens})...`);
+
+        let streamedContent = "";
+        try {
+          const stream = await getContentClient().chat.completions.create({
+            model: "gpt-5.2",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: chapterPrompt + (attempt > 1 ? "\n\nCRITICAL: Your previous output was cut off mid-sentence. You MUST complete your chapter with a proper ending. End on a complete sentence with punctuation." : "") }
+            ],
+            max_completion_tokens: repairMaxTokens,
+            stream: true,
+          });
+
+          for await (const chunk of stream) {
+            const delta = chunk.choices?.[0]?.delta?.content || "";
+            streamedContent += delta;
+          }
+          chapterContent = streamedContent;
+        } catch (streamErr: any) {
+          if (streamedContent.length > 500) {
+            console.log(`[Chapter Repair] Stream interrupted but captured ${streamedContent.split(/\s+/).length} words — saving partial for next restart`);
+            chapterContent = streamedContent;
+          } else {
+            throw streamErr;
+          }
+        }
+
+        const words = chapterContent.split(/\s+/).length;
+        const { truncated, reason } = detectChapterTruncation(chapterContent);
+        console.log(`[Chapter Repair] Chapter ${chapterNum} attempt ${attempt}: ${words} words, truncated=${truncated}${truncated ? ` (${reason})` : ''}`);
+
+        if (truncated && attempt < 3 && chapterContent.split(/\s+/).length < chapterSpec.minWordsPerChapter * 0.5) {
+          console.log(`[Chapter Repair] Chapter ${chapterNum} is truncated and short — retrying`);
+          continue;
+        }
+        if (chapterContent.trim().length >= 200 && words >= Math.round(chapterSpec.minWordsPerChapter * 0.3)) break;
+      }
+
+      if (chapterContent.trim().length < 100) {
+        console.error(`[Chapter Repair] Chapter ${chapterNum} failed after 3 attempts — skipping`);
+        continue;
+      }
+
+      if (isPlaceholder) {
+        const matchingIndices = chapterMatches
+          .map((m, i) => ({ idx: i, num: parseInt(m[1]) }))
+          .filter(x => x.num === chapterNum);
+        
+        if (matchingIndices.length > 0) {
+          const firstMatch = matchingIndices[0].idx;
+          const lastMatch = matchingIndices[matchingIndices.length - 1].idx;
+          const chapterStart = chapterMatches[firstMatch].index!;
+          const chapterEnd = lastMatch + 1 < chapterMatches.length ? chapterMatches[lastMatch + 1].index! : currentContent.length;
+          const beforeChapter = currentContent.substring(0, chapterStart).replace(/\n*---\s*$/, '').trimEnd();
+          const afterChapter = currentContent.substring(chapterEnd).replace(/^\s*---\s*\n*/, '').trimStart();
+          currentContent = beforeChapter + "\n\n---\n\n" + chapterContent.trim() + (afterChapter ? "\n\n---\n\n" + afterChapter : "");
+        }
+      } else {
+        const insertBefore = chapterMatches.find(m => parseInt(m[1]) > chapterNum);
+        if (insertBefore) {
+          const insertPos = insertBefore.index!;
+          const before = currentContent.substring(0, insertPos).replace(/\n*---\s*$/, '').trimEnd();
+          const after = currentContent.substring(insertPos);
+          currentContent = before + "\n\n---\n\n" + chapterContent.trim() + "\n\n---\n\n" + after;
+        } else {
+          currentContent = currentContent.trimEnd() + "\n\n---\n\n" + chapterContent.trim();
+        }
+      }
+
+      await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draftId));
+      const chapterWords = chapterContent.split(/\s+/).length;
+      const totalWords = currentContent.split(/\s+/).length;
+      console.log(`[Chapter Repair] Chapter ${chapterNum} saved: ${chapterWords} words. Total: ${totalWords} words. Progress: ${allToFix.indexOf(chapterNum) + 1}/${allToFix.length}`);
+    }
+
+    const wordCount = currentContent.split(/\s+/).length;
+    const hasTBC = /to be continued|tbc|the story continues/i.test(currentContent);
+    const hasPlaceholder = placeholderPattern.test(currentContent);
+    placeholderPattern.lastIndex = 0;
+    const genreMinWords = chapterSpec.minWordsPerChapter * chapterSpec.targetChapters.min;
+    const effectiveMinWords = Math.max(MIN_WORD_COUNT, Math.round(genreMinWords * 0.6));
+    const remainingMissing = findMissingChapters(currentContent);
+    const remainingTruncated = findTruncatedChapters(currentContent);
+    const remainingShort = findTooShortChapters(currentContent);
+    const remainingTBC = findTBCChapters(currentContent);
+
+    const chapterMatchesForDedup = [...currentContent.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    const chapterNumDedupCounts = new Map<number, number>();
+    for (const m of chapterMatchesForDedup) {
+      const num = parseInt(m[1]);
+      chapterNumDedupCounts.set(num, (chapterNumDedupCounts.get(num) || 0) + 1);
+    }
+    const hasDuplicateChapters = [...chapterNumDedupCounts.values()].some(count => count > 1);
+
+    const chapterNums = chapterMatchesForDedup.map(m => parseInt(m[1]));
+    const isOutOfOrder = chapterNums.some((num, i) => i > 0 && num < chapterNums[i - 1]);
+
+    const aiMetaPattern = /\bas an ai\b|\bin this chapter we will\b|\bnote to the reader\b|\blet me explain\b.*\bchapter\b/i;
+    const hasAIMeta = aiMetaPattern.test(currentContent);
+
+    let hasRepairIllustrationIssues = false;
+    if (isVisualEnhancedGenre(genre)) {
+      const repairChMatches = [...currentContent.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+      const repairIllQuality = checkIllustrationQuality(currentContent, repairChMatches);
+      if (repairIllQuality.issues.length > 0) {
+        hasRepairIllustrationIssues = repairIllQuality.hasBlockingIssues;
+        for (const issue of repairIllQuality.issues) {
+          console.log(`[Chapter Repair] Illustration issue: ${issue}`);
+        }
+      }
+      const repairOutlineCov = checkOutlineIllustrationCoverage(currentContent, outline, repairChMatches);
+      if (repairOutlineCov.length > 0) {
+        hasRepairIllustrationIssues = true;
+        for (const issue of repairOutlineCov) {
+          console.log(`[Chapter Repair] Outline coverage issue: ${issue}`);
+        }
+      }
+    }
+
+    const structurallyComplete = wordCount >= effectiveMinWords && !hasTBC && !hasPlaceholder 
+      && remainingMissing.length === 0 && remainingTruncated.length === 0 
+      && remainingShort.length === 0 && remainingTBC.length === 0
+      && !hasDuplicateChapters && !isOutOfOrder && !hasAIMeta && !hasRepairIllustrationIssues;
+
+    let dialoguePass = true;
+    if (structurallyComplete) {
+      console.log(`[Chapter Repair] "${title}" passed structural checks — running full dialogue quality review...`);
+      const dialogueResult = await checkDialogueQuality(currentContent, title, genre, outline);
+      dialoguePass = dialogueResult.pass;
+      if (!dialoguePass) {
+        console.log(`[Chapter Repair] Dialogue quality failed: ${dialogueResult.summary}`);
+        for (const issue of dialogueResult.issues) {
+          console.log(`[Chapter Repair] Dialogue issue: ${issue}`);
+        }
+      }
+    }
+
+    const isComplete = structurallyComplete && dialoguePass;
+    const newStatus = isComplete ? "ready" : "draft";
+
+    if (remainingTruncated.length > 0) {
+      console.log(`[Chapter Repair] Warning: chapters still truncated after repair: [${remainingTruncated.join(', ')}]`);
+    }
+    if (hasDuplicateChapters) {
+      const dups = [...chapterNumDedupCounts.entries()].filter(([_, c]) => c > 1).map(([n, c]) => `Ch${n}x${c}`);
+      console.log(`[Chapter Repair] Warning: duplicate chapters detected: [${dups.join(', ')}]`);
+    }
+    if (isOutOfOrder) {
+      console.log(`[Chapter Repair] Warning: chapters are out of order: [${chapterNums.join(', ')}]`);
+    }
+    if (hasAIMeta) {
+      console.log(`[Chapter Repair] Warning: AI meta-commentary detected in content`);
+    }
+
+    console.log(`[Chapter Repair] "${title}" finished: ${wordCount} words, complete: ${isComplete}, status: ${newStatus}`);
+
+    await db.update(draftEbooks).set({ content: currentContent, status: newStatus }).where(eq(draftEbooks.id, draftId));
+
+    const pdfUrl = await createPdfFromContent(title, currentContent);
+    await db.update(draftEbooks).set({ pdfUrl }).where(eq(draftEbooks.id, draftId));
+
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Chapter repair complete. Active: ${activeGenerationCount}`);
+    return currentContent;
+  } catch (error) {
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Chapter repair failed for draft ${draftId}. Active: ${activeGenerationCount}`);
+    await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
+    throw error;
+  }
+}
+
+function detectChapterTruncation(chapterText: string): { truncated: boolean; reason: string } {
+  const lines = chapterText.split('\n').filter(l => l.trim().length > 0);
+  if (lines.length === 0) return { truncated: true, reason: "empty chapter" };
+
+  const lastLine = lines[lines.length - 1].replace(/\s*---\s*$/, '').trim();
+
+  if (lastLine.length < 5 || lastLine.startsWith('##')) {
+    return { truncated: false, reason: "header or divider" };
+  }
+
+  const endsComplete = /[.!?…"'\u201D\u2019)\]—*]$/.test(lastLine);
+  if (!endsComplete) {
+    return { truncated: true, reason: `ends mid-text: "${lastLine.slice(-50)}"` };
+  }
+
+  const unclosedQuote = (lastLine.match(/"/g) || []).length % 2 !== 0 ||
+    (lastLine.match(/\u201C/g) || []).length !== (lastLine.match(/\u201D/g) || []).length;
+  if (unclosedQuote) {
+    return { truncated: true, reason: `unclosed dialogue: "${lastLine.slice(-50)}"` };
+  }
+
+  return { truncated: false, reason: "complete" };
+}
+
+export function checkIllustrationQuality(content: string, chapterMatches: RegExpMatchArray[]): { issues: string[]; hasBlockingIssues: boolean } {
+  const issues: string[] = [];
+  let hasBlockingIssues = false;
+  const illMarkers = [...content.matchAll(/\[ILLUSTRATION:[^\]]+\]/g)];
+  if (illMarkers.length === 0) return { issues, hasBlockingIssues };
+
+  let backToBackCount = 0;
+  let sparseSegmentCount = 0;
+  for (let i = 0; i < illMarkers.length - 1; i++) {
+    const endOfCurrent = illMarkers[i].index! + illMarkers[i][0].length;
+    const startOfNext = illMarkers[i + 1].index!;
+    const textBetween = content.substring(endOfCurrent, startOfNext).trim();
+    const wordsBetween = textBetween.split(/\s+/).filter(w => w.length > 0).length;
+    if (wordsBetween <= 5) backToBackCount++;
+    else if (wordsBetween < 30) sparseSegmentCount++;
+  }
+  if (backToBackCount > 0) {
+    hasBlockingIssues = true;
+    issues.push(`${backToBackCount} back-to-back illustrations with no meaningful text between them`);
+  }
+  if (sparseSegmentCount > 3) {
+    issues.push(`${sparseSegmentCount} illustration segments with very sparse text (<30 words between images)`);
+  }
+
+  const unprocessedMarkers = (content.match(/\[ILLUSTRATION:[^\]]*\]/g) || []).filter(m => !m.includes('/uploads/illustrations/') && !m.includes('/objstore/illustrations/'));
+  if (unprocessedMarkers.length > 0) {
+    hasBlockingIssues = true;
+    issues.push(`${unprocessedMarkers.length} unprocessed illustration marker(s) — text descriptions not yet converted to images`);
+  }
+
+  for (let i = 0; i < chapterMatches.length; i++) {
+    const chapterNum = parseInt(chapterMatches[i][1]);
+    const chapterStart = chapterMatches[i].index!;
+    const chapterEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
+    const chapterText = content.substring(chapterStart, chapterEnd);
+    const chIllustrations = (chapterText.match(/\[ILLUSTRATION:/g) || []).length;
+    if (chIllustrations > 8) {
+      issues.push(`Ch${chapterNum} has ${chIllustrations} illustrations — excessive density`);
+    }
+  }
+
+  return { issues, hasBlockingIssues };
+}
+
+export function checkOutlineIllustrationCoverage(content: string, outline: string | null, chapterMatches: RegExpMatchArray[]): string[] {
+  const issues: string[] = [];
+  if (!outline) return issues;
+  const outlineStr = typeof outline === 'string' ? outline : JSON.stringify(outline);
+  if (!outlineStr.includes('[ILLUSTRATION:')) return issues;
+
+  for (let i = 0; i < chapterMatches.length; i++) {
+    const chNum = parseInt(chapterMatches[i][1]);
+    const chStart = chapterMatches[i].index!;
+    const chEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
+    const chText = content.substring(chStart, chEnd);
+    const contentImgs = (chText.match(/\[ILLUSTRATION:\s*\/(?:uploads|objstore)\/illustrations\//g) || []).length;
+
+    const outlineChPattern = new RegExp(
+      `(?:chapter\\s*${chNum}\\b)([\\s\\S]*?)(?=chapter\\s*${chNum + 1}\\b|$)`, 'i'
+    );
+    const outlineMatch = outlineStr.match(outlineChPattern);
+    if (!outlineMatch) continue;
+    const outlineMarkers = (outlineMatch[1].match(/\[ILLUSTRATION:/gi) || []).length;
+
+    if (outlineMarkers > 0 && contentImgs === 0) {
+      issues.push(`Ch${chNum}: outline specifies ${outlineMarkers} illustration(s) but chapter has none — text may reference missing images`);
+    }
+  }
+
+  const danglingRefPattern = /(?:as\s+(?:shown|illustrated|depicted|seen)\s+(?:in|by)\s+the\s+(?:illustration|image|diagram|figure|chart)|see\s+the\s+(?:illustration|image|diagram|figure|chart)\s+(?:below|above)|(?:the\s+)?(?:illustration|image|diagram|figure|chart)\s+(?:below|above)\s+(?:shows|demonstrates|illustrates|depicts))/gi;
+  const refs = [...content.matchAll(danglingRefPattern)];
+  for (const ref of refs) {
+    const refPos = ref.index!;
+    const nearbyStart = Math.max(0, refPos - 500);
+    const nearbyEnd = Math.min(content.length, refPos + 500);
+    const nearbyText = content.substring(nearbyStart, nearbyEnd);
+    if (!nearbyText.includes('[ILLUSTRATION: /uploads/illustrations/') && !nearbyText.includes('[ILLUSTRATION: /objstore/illustrations/')) {
+      const contextLine = content.substring(refPos, refPos + 80).split('\n')[0];
+      issues.push(`Text references an image that may not exist: "${contextLine.trim().substring(0, 60)}..."`);
+    }
+  }
+
+  return issues;
+}
+
+export async function scanContentCompleteness(draftIds?: number[]): Promise<Array<{
+  id: number;
+  title: string;
+  status: string;
+  words: number;
+  chapters: number;
+  issues: string[];
+}>> {
+  let drafts;
+  if (draftIds && draftIds.length > 0) {
+    drafts = await db.select().from(draftEbooks).where(
+      sql`${draftEbooks.id} IN (${sql.join(draftIds.map(id => sql`${id}`), sql`, `)})`
+    );
+  } else {
+    drafts = await db.select().from(draftEbooks);
+  }
+
+  const results: Array<{
+    id: number;
+    title: string;
+    status: string;
+    words: number;
+    chapters: number;
+    issues: string[];
+  }> = [];
+
+  for (const draft of drafts) {
+    const content = draft.content || "";
+    if (!content.trim()) continue;
+
+    const title = draft.title || draft.topic || "Untitled";
+    const genre = draft.genre || "General";
+
+    if (genre.startsWith("Classic")) continue;
+
+    const chapterSpec = getGenreChapterSpec(genre);
+    const outline = draft.outline || "";
+    const words = content.split(/\s+/).length;
+
+    const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    const chapterCount = chapterMatches.length;
+    const issues: string[] = [];
+
+    const placeholderPattern = /\[Content generation incomplete[^\]]*\]|Please regenerate this ebook[^\]]*\]/gi;
+    if (placeholderPattern.test(content)) {
+      const placeholderCount = (content.match(placeholderPattern) || []).length;
+      issues.push(`${placeholderCount} placeholder(s)`);
+    }
+
+    for (let i = 0; i < chapterMatches.length; i++) {
+      const chapterNum = parseInt(chapterMatches[i][1]);
+      const chapterStart = chapterMatches[i].index!;
+      const chapterEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
+      const chapterText = content.substring(chapterStart, chapterEnd);
+      const chapterWords = chapterText.split(/\s+/).length;
+
+      const { truncated, reason } = detectChapterTruncation(chapterText);
+      if (truncated) {
+        issues.push(`Ch${chapterNum} truncated: ${reason}`);
+      }
+
+      if (chapterWords < chapterSpec.minWordsPerChapter * 0.3 && chapterWords < 500) {
+        issues.push(`Ch${chapterNum} too short: ${chapterWords} words (min ~${chapterSpec.minWordsPerChapter})`);
+      }
+    }
+
+    const outlineChapterNums = [...outline.matchAll(/chapter\s+(\d+)/gi)].map(m => parseInt(m[1]));
+    const plannedCount = outlineChapterNums.length > 0 ? Math.max(...outlineChapterNums) : 0;
+    if (plannedCount > 0 && chapterCount < plannedCount) {
+      const existingNums = chapterMatches.map(m => parseInt(m[1]));
+      const missing = [];
+      for (let i = 1; i <= plannedCount; i++) {
+        if (!existingNums.includes(i)) missing.push(i);
+      }
+      if (missing.length > 0) {
+        issues.push(`Missing chapters: ${missing.join(', ')} (planned ${plannedCount})`);
+      }
+    }
+
+    if (/to be continued|tbc|the story continues/i.test(content)) {
+      issues.push(`Contains "to be continued" marker`);
+    }
+
+    const chapterNumCounts = new Map<number, number>();
+    for (const m of chapterMatches) {
+      const num = parseInt(m[1]);
+      chapterNumCounts.set(num, (chapterNumCounts.get(num) || 0) + 1);
+    }
+    const duplicates = [...chapterNumCounts.entries()].filter(([_, count]) => count > 1);
+    if (duplicates.length > 0) {
+      issues.push(`Duplicate chapters: ${duplicates.map(([num, count]) => `Ch${num} x${count}`).join(', ')}`);
+    }
+
+    const chapterNumsForOrder = chapterMatches.map(m => parseInt(m[1]));
+    const outOfOrder = chapterNumsForOrder.some((num, i) => i > 0 && num < chapterNumsForOrder[i - 1]);
+    if (outOfOrder) {
+      issues.push(`Chapters out of order: [${chapterNumsForOrder.join(', ')}]`);
+    }
+
+    const aiMetaScanPattern = /\bas a language model\b|\bi cannot (generate|create|write)\b|\bi don't have personal (experience|opinions|feelings)\b|\bas an ai (assistant|model|language)\b|\blet me summarize what we('ve| have) covered\b|\bas mentioned earlier in chapter\b|\bnote to the reader\b/i;
+    if (aiMetaScanPattern.test(content)) {
+      issues.push(`AI meta-commentary detected in content`);
+    }
+
+    const lastChapterStart = chapterMatches.length > 0 ? chapterMatches[chapterMatches.length - 1].index! : 0;
+    const lastChapterText = content.substring(lastChapterStart);
+    const lastChapterDetection = detectChapterTruncation(lastChapterText);
+
+    if (!lastChapterDetection.truncated && chapterMatches.length > 0) {
+      const lastChapterWords = lastChapterText.split(/\s+/).length;
+      if (lastChapterWords < chapterSpec.minWordsPerChapter * 0.25) {
+        issues.push(`Final chapter suspiciously short: ${lastChapterWords} words`);
+      }
+    }
+
+    const illQualityResult = checkIllustrationQuality(content, chapterMatches);
+    issues.push(...illQualityResult.issues);
+
+    const outlineCoverageIssues = checkOutlineIllustrationCoverage(content, draft.outline, chapterMatches);
+    issues.push(...outlineCoverageIssues);
+
+    if (issues.length > 0) {
+      results.push({
+        id: draft.id,
+        title,
+        status: draft.status || "unknown",
+        words,
+        chapters: chapterCount,
+        issues,
+      });
+    }
+  }
+
+  return results;
+}
+
+export async function sweepReadyBooks(): Promise<{
+  total: number;
+  passed: number;
+  failed: number;
+  results: Array<{ id: number; title: string; status: string; structuralIssues: string[]; dialoguePass: boolean; dialogueSummary: string; dialogueIssues: string[] }>;
+}> {
+  const readyDrafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+  console.log(`[Final Sweep] Scanning ${readyDrafts.length} "ready" ebooks for structural + dialogue quality...`);
+
+  const results: Array<{ id: number; title: string; status: string; structuralIssues: string[]; dialoguePass: boolean; dialogueSummary: string; dialogueIssues: string[] }> = [];
+  let passed = 0;
+  let failed = 0;
+
+  for (const draft of readyDrafts) {
+    const content = draft.content || "";
+    const title = draft.title || draft.topic || "Untitled";
+    const genre = draft.genre || "General";
+
+    if (genre.startsWith("Classic")) {
+      console.log(`[Final Sweep] "${title}" (ID ${draft.id}) — Classic genre, skipping quality checks`);
+      results.push({ id: draft.id, title, status: "ready", structuralIssues: [], dialoguePass: true, dialogueSummary: "Classic — skipped", dialogueIssues: [] });
+      passed++;
+      continue;
+    }
+
+    const structScan = await scanContentCompleteness([draft.id]);
+    const structuralIssues = structScan.length > 0 ? structScan[0].issues : [];
+
+    if (structuralIssues.length > 0) {
+      console.log(`[Final Sweep] "${title}" (ID ${draft.id}) — STRUCTURAL ISSUES: ${structuralIssues.join('; ')} — keeping as ready`);
+
+      results.push({ id: draft.id, title, status: "demoted", structuralIssues, dialoguePass: false, dialogueSummary: "Skipped — structural issues found", dialogueIssues: [] });
+      failed++;
+      continue;
+    }
+
+    console.log(`[Final Sweep] "${title}" (ID ${draft.id}) — structural OK, running full dialogue review...`);
+    const dialogueResult = await checkDialogueQuality(content, title, genre, draft.outline || undefined);
+
+    if (!dialogueResult.pass) {
+      console.log(`[Final Sweep] "${title}" (ID ${draft.id}) — DIALOGUE FAILED: ${dialogueResult.summary} — keeping as ready`);
+      results.push({ id: draft.id, title, status: "demoted", structuralIssues: [], dialoguePass: false, dialogueSummary: dialogueResult.summary, dialogueIssues: dialogueResult.issues });
+      failed++;
+    } else {
+      console.log(`[Final Sweep] "${title}" (ID ${draft.id}) — PASSED (${dialogueResult.summary})`);
+      results.push({ id: draft.id, title, status: "ready", structuralIssues: [], dialoguePass: true, dialogueSummary: dialogueResult.summary, dialogueIssues: [] });
+      passed++;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  console.log(`[Final Sweep] Complete: ${passed} passed, ${failed} failed out of ${readyDrafts.length} ready books`);
+  return { total: readyDrafts.length, passed, failed, results };
+}
+
+export async function verifyGenreContent(content: string, title: string, claimedGenre: string, outline?: string): Promise<{ pass: boolean; issues: string[]; suggestedGenre?: string }> {
+  const contentSample = content.length > 8000
+    ? content.slice(0, 4000) + "\n\n[...middle section omitted...]\n\n" + content.slice(-4000)
+    : content;
+
+  const outlineSection = outline && outline.trim().length > 50
+    ? `\n\nBOOK OUTLINE (the author's planned structure and intent):\n${outline.length > 3000 ? outline.slice(0, 3000) + '\n...[outline truncated]' : outline}\n`
+    : '';
+
+  try {
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a publishing quality analyst. Your job is to verify that a book's content delivers what its TITLE and OUTLINE promise.
+
+IMPORTANT CONTEXT:
+- The "genre" label is a SHELF CATEGORY — it tells you who the audience is, NOT necessarily the format of the book.
+- A book categorized under "Comics" could be an actual comic OR a guide about making comics — both are valid if the content matches the title/outline.
+- A book under "Graphic Novels" could be an actual graphic novel OR a how-to guide for graphic novel creators — both are valid.
+- The same applies to all genres: "Journals" could be a guided journal OR a book about journaling practices.
+
+YOUR TASK:
+1. Read the title and outline to understand what the book PROMISES to deliver.
+2. Read the content to verify it ACTUALLY delivers on that promise.
+3. Check for these REAL problems (things that should fail):
+   - Content is mostly placeholder text, lorem ipsum, or stub chapters
+   - Content is completely off-topic from what the title/outline promises
+   - Content is incoherent, garbled, or machine-generated gibberish
+   - Content is an entirely different book that was accidentally assigned this title
+   - Content is extremely thin/empty — just a table of contents with no substance
+4. These are NOT problems (do NOT fail for these):
+   - A guide/how-to book categorized under the topic it teaches about
+   - A book that's shorter or longer than typical for its genre
+   - A nonfiction book in a genre that's usually fiction (or vice versa) — if the title makes the intent clear
+
+Return ONLY valid JSON:
+{
+  "contentMatchesPromise": true/false,
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation of whether the content delivers what the title/outline promise",
+  "problemsFound": ["list of actual problems, if any — empty array if none"],
+  "suggestedGenre": "only if the content is clearly miscategorized AND the title doesn't explain it"
+}`
+        },
+        {
+          role: "user",
+          content: `BOOK TITLE: "${title}"\nCLAIMED GENRE/CATEGORY: "${claimedGenre}"\n${outlineSection}\nCONTENT:\n${contentSample}`
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 600,
+    });
+
+    const raw = response.choices[0]?.message?.content || "";
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.log(`[Genre Verify] Could not parse AI response for "${title}" — passing by default`);
+      return { pass: true, issues: [] };
+    }
+
+    const result = JSON.parse(jsonMatch[0]);
+    const issues: string[] = [];
+
+    if (!result.contentMatchesPromise) {
+      if (result.problemsFound?.length > 0) {
+        issues.push(...result.problemsFound);
+      }
+      issues.push(`Verification: ${result.reasoning}`);
+      if (result.suggestedGenre) {
+        issues.push(`Suggested genre: ${result.suggestedGenre}`);
+      }
+    }
+
+    return {
+      pass: result.contentMatchesPromise === true && (result.confidence ?? 1) >= 0.5,
+      issues,
+      suggestedGenre: result.suggestedGenre || undefined,
+    };
+  } catch (err: any) {
+    console.error(`[Genre Verify] Error verifying "${title}": ${err.message}`);
+    return { pass: true, issues: [] };
+  }
+}
+
+export async function bulkPublishReady(options?: { subscriberExclusive?: boolean }): Promise<{
+  published: number;
+  failed: number;
+  skipped: number;
+  details: Array<{ id: number; title: string; action: string; issues?: string[] }>;
+}> {
+  const readyDrafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+  console.log(`[Bulk Publish] Found ${readyDrafts.length} "ready" ebooks — running full quality sweep before publishing...`);
+
+  const details: Array<{ id: number; title: string; action: string; issues?: string[] }> = [];
+  let published = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  const LIGHTWEIGHT_GENRE_KEYWORDS = [
+    "coloring book", "activity book", "quote book", "journal",
+  ];
+  const VISUAL_GENRE_KEYWORDS = [
+    "comic", "graphic novel", "photography book", "art book",
+  ];
+
+  const TEXT_WITH_VISUALS_GENRES = new Set([
+    "Workbooks", "Tutorials", "Textbooks", "Reference Books",
+    "Education / Learning", "Technical Manuals",
+  ]);
+
+  function isLightweightGenre(genre: string): boolean {
+    const g = genre.toLowerCase().trim();
+    return LIGHTWEIGHT_GENRE_KEYWORDS.some(kw => g === kw || g === kw + "s" || g.startsWith(kw));
+  }
+  function isVisualGenre(genre: string): boolean {
+    const g = genre.toLowerCase().trim();
+    return VISUAL_GENRE_KEYWORDS.some(kw => g === kw || g === kw + "s" || g.startsWith(kw));
+  }
+  function isTextWithVisualsGenre(genre: string): boolean {
+    return TEXT_WITH_VISUALS_GENRES.has(genre) || isVisualEnhancedGenre(genre) && !isVisualGenre(genre);
+  }
+
+  for (const draft of readyDrafts) {
+    const title = draft.title || draft.topic || "Untitled";
+    const content = draft.content || "";
+    const words = content.split(/\s+/).length;
+    const genre = draft.genre || "General";
+    const genreLower = genre.toLowerCase();
+
+    const isColoring = isColoringBookGenre(genre);
+    const isLightweight = isLightweightGenre(genre);
+    const isTextVisual = isTextWithVisualsGenre(genre);
+    const isVisual = !isTextVisual && (isVisualGenre(genre) || isVisualEnhancedGenre(genre));
+
+    console.log(`[Bulk Publish] "${title}" (ID ${draft.id}) — "${genre}" — running content verification...`);
+    const genreCheck = await verifyGenreContent(content, title, genre, draft.outline || undefined);
+
+    if (!genreCheck.pass) {
+      const failIssues = genreCheck.issues;
+      if (genreCheck.suggestedGenre) {
+        failIssues.push(`AI suggests reclassifying as: "${genreCheck.suggestedGenre}"`);
+      }
+      console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — CONTENT MISMATCH: ${failIssues.join('; ')} — keeping as ready`);
+
+      details.push({ id: draft.id, title, action: "failed_content_mismatch", issues: failIssues });
+      failed++;
+      await new Promise(resolve => setTimeout(resolve, 500));
+      continue;
+    }
+    console.log(`[Bulk Publish] "${title}" (ID ${draft.id}) — content verified ✓`);
+
+    const isSpecialGenre = isColoring || isLightweight || isVisual;
+    if (isTextVisual) {
+      console.log(`[Bulk Publish] "${title}" (ID ${draft.id}) — text-with-visuals genre, using standard text pipeline`);
+    }
+
+    if (isColoring) {
+      const pageDir = `uploads/coloring-pages/${draft.id}`;
+      const hasPages = fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter(f => f.endsWith('.png')).length >= 10;
+      const hasPdf = !!draft.pdfUrl;
+      if (!hasPages && !hasPdf) {
+        console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — coloring book missing pages/PDF — keeping as ready`);
+
+        details.push({ id: draft.id, title, action: "failed_coloring_incomplete", issues: ["Missing coloring pages or PDF"] });
+        failed++;
+        continue;
+      }
+      try {
+        await publishDraft(draft.id, options);
+        console.log(`[Bulk Publish] PUBLISHED "${title}" (ID ${draft.id}) — coloring book (${hasPages ? 'has pages' : 'has PDF'}) — passed`);
+        details.push({ id: draft.id, title, action: "published" });
+        published++;
+      } catch (pubErr: any) {
+        console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — PUBLISH ERROR: ${pubErr.message} — keeping as ready`);
+        details.push({ id: draft.id, title, action: "failed_publish_error", issues: [pubErr.message] });
+        failed++;
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+      continue;
+    }
+
+    if (isLightweight) {
+      try {
+        await publishDraft(draft.id, options);
+        console.log(`[Bulk Publish] PUBLISHED "${title}" (ID ${draft.id}) — ${genreLower} (${words} words) — genre verified — passed`);
+        details.push({ id: draft.id, title, action: "published" });
+        published++;
+      } catch (pubErr: any) {
+        console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — PUBLISH ERROR: ${pubErr.message} — keeping as ready`);
+        details.push({ id: draft.id, title, action: "failed_publish_error", issues: [pubErr.message] });
+        failed++;
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+      continue;
+    }
+
+    if (isVisual) {
+      const hasIllustrations = content.includes('/uploads/illustrations/') || content.includes('/objstore/illustrations/');
+      const allMarkers = [...content.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)];
+      const pendingMarkers = allMarkers.filter(m => {
+        const payload = m[1].trim();
+        return !payload.startsWith('/') && !payload.startsWith('http');
+      }).length;
+      const issues: string[] = [];
+
+      if (!hasIllustrations && isVisualEnhancedGenre(genre)) {
+        issues.push("No illustrations found — visual genre requires images");
+      }
+      if (pendingMarkers > 0) {
+        issues.push(`${pendingMarkers} pending illustration marker(s) not yet generated`);
+      }
+
+      if (issues.length > 0) {
+        console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — VISUAL: ${issues.join('; ')} — keeping as ready`);
+
+        details.push({ id: draft.id, title, action: "failed_visual_incomplete", issues });
+        failed++;
+        await new Promise(resolve => setTimeout(resolve, 500));
+        continue;
+      }
+      try {
+        await publishDraft(draft.id, options);
+        console.log(`[Bulk Publish] PUBLISHED "${title}" (ID ${draft.id}) — visual genre (${words} words, ${allMarkers.length} illustrations) — genre verified — passed`);
+        details.push({ id: draft.id, title, action: "published" });
+        published++;
+      } catch (pubErr: any) {
+        console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — PUBLISH ERROR: ${pubErr.message} — keeping as ready`);
+        details.push({ id: draft.id, title, action: "failed_publish_error", issues: [pubErr.message] });
+        failed++;
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+      continue;
+    }
+
+    const structScan = await scanContentCompleteness([draft.id]);
+    const structuralIssues = structScan.length > 0 ? structScan[0].issues : [];
+
+    if (structuralIssues.length > 0) {
+      console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — STRUCTURAL: ${structuralIssues.join('; ')} — keeping as ready`);
+
+      details.push({ id: draft.id, title, action: "failed_structural", issues: structuralIssues });
+      failed++;
+      continue;
+    }
+
+    const dialogueResult = await checkDialogueQuality(content, title, genre, draft.outline || undefined);
+
+    if (!dialogueResult.pass) {
+      console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — DIALOGUE: ${dialogueResult.summary} — keeping as ready`);
+
+      details.push({ id: draft.id, title, action: "failed_dialogue", issues: dialogueResult.issues });
+      failed++;
+    } else {
+      try {
+        await publishDraft(draft.id, options);
+        console.log(`[Bulk Publish] PUBLISHED "${title}" (ID ${draft.id}) — ${words} words — passed all checks`);
+        details.push({ id: draft.id, title, action: "published" });
+        published++;
+      } catch (pubErr: any) {
+        console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — PUBLISH ERROR: ${pubErr.message} — keeping as ready`);
+        details.push({ id: draft.id, title, action: "failed_publish_error", issues: [pubErr.message] });
+        failed++;
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  console.log(`[Bulk Publish] Complete: ${published} published, ${failed} failed quality gate, ${skipped} skipped`);
+  return { published, failed, skipped, details };
+}
+
+export async function auditPublishedBooks(): Promise<{
+  total: number;
+  passed: number;
+  issues: number;
+  results: Array<{ id: number; title: string; wordCount: number; structuralIssues: string[]; dialoguePass: boolean; dialogueSummary: string; dialogueIssues: string[] }>;
+}> {
+  const publishedDrafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "published"));
+  console.log(`[Audit Published] Scanning ${publishedDrafts.length} published ebooks for quality issues...`);
+
+  const results: Array<{ id: number; title: string; wordCount: number; structuralIssues: string[]; dialoguePass: boolean; dialogueSummary: string; dialogueIssues: string[] }> = [];
+  let passed = 0;
+  let issues = 0;
+
+  for (const draft of publishedDrafts) {
+    const content = draft.content || "";
+    const title = draft.title || draft.topic || "Untitled";
+    const genre = draft.genre || "General";
+    const words = content.split(/\s+/).length;
+
+    if (genre.startsWith("Classic")) {
+      console.log(`[Audit Published] "${title}" (ID ${draft.id}) — Classic genre, skipping quality checks`);
+      results.push({ id: draft.id, title, wordCount: words, structuralIssues: [], dialoguePass: true, dialogueSummary: "Classic — skipped", dialogueIssues: [] });
+      passed++;
+      continue;
+    }
+
+    const structScan = await scanContentCompleteness([draft.id]);
+    const structuralIssues = structScan.length > 0 ? structScan[0].issues : [];
+
+    if (structuralIssues.length > 0) {
+      console.log(`[Audit Published] "${title}" (ID ${draft.id}) — STRUCTURAL ISSUES: ${structuralIssues.join('; ')}`);
+      results.push({ id: draft.id, title, wordCount: words, structuralIssues, dialoguePass: false, dialogueSummary: "Skipped — structural issues found", dialogueIssues: [] });
+      issues++;
+      continue;
+    }
+
+    const dialogueResult = await checkDialogueQuality(content, title, genre, draft.outline || undefined);
+
+    if (!dialogueResult.pass) {
+      console.log(`[Audit Published] "${title}" (ID ${draft.id}) — DIALOGUE ISSUES: ${dialogueResult.summary}`);
+      results.push({ id: draft.id, title, wordCount: words, structuralIssues: [], dialoguePass: false, dialogueSummary: dialogueResult.summary, dialogueIssues: dialogueResult.issues });
+      issues++;
+    } else {
+      console.log(`[Audit Published] "${title}" (ID ${draft.id}) — PASSED (${dialogueResult.summary})`);
+      results.push({ id: draft.id, title, wordCount: words, structuralIssues: [], dialoguePass: true, dialogueSummary: dialogueResult.summary, dialogueIssues: [] });
+      passed++;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  console.log(`[Audit Published] Complete: ${passed} clean, ${issues} with issues out of ${publishedDrafts.length} published books`);
+  return { total: publishedDrafts.length, passed, issues, results };
+}
+
+export async function deduplicateChapters(draftIds: number[]): Promise<Array<{id: number, title: string, removed: number, before: string, after: string}>> {
+  const results: Array<{id: number, title: string, removed: number, before: string, after: string}> = [];
+  
+  for (const draftId of draftIds) {
+    const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+    if (!draft || !draft.content) continue;
+    
+    let content = draft.content;
+    const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    
+    const chaptersByNum = new Map<number, Array<{index: number, matchIndex: number, words: number}>>();
+    for (let i = 0; i < chapterMatches.length; i++) {
+      const num = parseInt(chapterMatches[i][1]);
+      const start = chapterMatches[i].index!;
+      const end = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
+      const text = content.substring(start, end);
+      const words = text.split(/\s+/).filter(w => w.length > 0).length;
+      
+      if (!chaptersByNum.has(num)) chaptersByNum.set(num, []);
+      chaptersByNum.get(num)!.push({ index: start, matchIndex: i, words });
+    }
+    
+    const duplicateNums = [...chaptersByNum.entries()].filter(([_, entries]) => entries.length > 1);
+    if (duplicateNums.length === 0) continue;
+    
+    const beforeChapters = chapterMatches.map(m => `Ch${m[1]}`).join(', ');
+    let totalRemoved = 0;
+    
+    const indicesToRemove = new Set<number>();
+    for (const [num, entries] of duplicateNums) {
+      const best = entries.reduce((a, b) => a.words >= b.words ? a : b);
+      for (const entry of entries) {
+        if (entry.matchIndex !== best.matchIndex) {
+          indicesToRemove.add(entry.matchIndex);
+          totalRemoved++;
+          console.log(`[Dedup] Book ${draftId}: Removing duplicate Ch${num} at pos ${entry.index} (${entry.words}w), keeping version with ${best.words}w`);
+        }
+      }
+    }
+    
+    const sortedRemoveIndices = [...indicesToRemove].sort((a, b) => b - a);
+    for (const idx of sortedRemoveIndices) {
+      const start = chapterMatches[idx].index!;
+      const end = idx + 1 < chapterMatches.length ? chapterMatches[idx + 1].index! : content.length;
+      const before = content.substring(0, start).replace(/\n*---\s*$/, '').trimEnd();
+      const after = content.substring(end).replace(/^\s*---\s*\n*/, '').trimStart();
+      content = before + (after ? "\n\n---\n\n" + after : "");
+    }
+    
+    await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+    
+    const afterChapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    const afterChapters = afterChapterMatches.map(m => `Ch${m[1]}`).join(', ');
+    const afterWords = content.split(/\s+/).length;
+    
+    console.log(`[Dedup] Book ${draftId}: Removed ${totalRemoved} duplicates. Now ${afterWords}w, ${afterChapterMatches.length} chapters: ${afterChapters}`);
+    results.push({
+      id: draftId,
+      title: draft.title || draft.topic || "Untitled",
+      removed: totalRemoved,
+      before: beforeChapters,
+      after: afterChapters
+    });
+  }
+  
+  return results;
+}
+
+export async function continueWritingForDraft(draftId: number): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+
+  const topic = draft.topic || draft.title || "Untitled";
+  const genre = draft.genre || "General";
+  const title = draft.title || topic;
+  const existingContent = draft.content || "";
+  const existingChapterCount = (existingContent.match(/##\s*Chapter\s+\d+/gi) || []).length;
+  const existingWords = existingContent.trim() ? existingContent.split(/\s+/).length : 0;
+
+  if (existingChapterCount === 0 || existingWords < 500) {
+    console.log(`[Continue Writing] "${title}" has no substantial content. Falling back to full generation.`);
+    return generateContentForDraft(draftId);
+  }
+
+  const hasPlaceholderChapter = /\[Content generation incomplete|Please regenerate this ebook\]/i.test(existingContent);
+
+  const outline = draft.outline || "";
+  const outlineChapterNums = [...outline.matchAll(/chapter\s+(\d+)/gi)].map(m => parseInt(m[1]));
+  const totalPlannedFromOutline = outlineChapterNums.length > 0 ? Math.max(...outlineChapterNums) : 0;
+  const hasMissingChapters = totalPlannedFromOutline > 0 && existingChapterCount < totalPlannedFromOutline;
+
+  const chapterMatches = [...existingContent.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+  let hasTruncatedChapter = false;
+  for (let i = 0; i < chapterMatches.length; i++) {
+    const chStart = chapterMatches[i].index!;
+    const chEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : existingContent.length;
+    const chText = existingContent.substring(chStart, chEnd);
+    const { truncated } = detectChapterTruncation(chText);
+    if (truncated) {
+      hasTruncatedChapter = true;
+      console.log(`[Continue Writing] "${title}" Chapter ${chapterMatches[i][1]} is truncated`);
+      break;
+    }
+  }
+
+  const hasTBCMarker = /to be continued|tbc|the story continues/i.test(existingContent);
+
+  let hasTooShortChapter = false;
+  const chSpec = getGenreChapterSpec(genre);
+  for (let i = 0; i < chapterMatches.length; i++) {
+    const chStart = chapterMatches[i].index!;
+    const chEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : existingContent.length;
+    const chText = existingContent.substring(chStart, chEnd);
+    const chWords = chText.split(/\s+/).filter(w => w.length > 0).length;
+    if (chWords < chSpec.minWordsPerChapter * 0.3) {
+      hasTooShortChapter = true;
+      console.log(`[Continue Writing] "${title}" Chapter ${chapterMatches[i][1]} is too short (${chWords} words)`);
+      break;
+    }
+  }
+
+  if ((hasPlaceholderChapter || hasMissingChapters || hasTruncatedChapter || hasTBCMarker || hasTooShortChapter) && existingChapterCount >= 2) {
+    const reasons = [];
+    if (hasPlaceholderChapter) reasons.push("placeholder chapters");
+    if (hasTruncatedChapter) reasons.push("truncated chapter(s)");
+    if (hasMissingChapters) reasons.push(`only ${existingChapterCount}/${totalPlannedFromOutline} chapters written`);
+    if (hasTBCMarker) reasons.push("TBC marker found");
+    if (hasTooShortChapter) reasons.push("too-short chapter(s)");
+    console.log(`[Continue Writing] "${title}" has ${reasons.join(', ')} — using chapter repair`);
+    return repairIncompleteChapters(draftId);
+  }
+
+  console.log(`[Continue Writing] "${title}" — resuming from ${existingChapterCount} chapters (${existingWords} words)`);
+
+  activeGenerationCount++;
+  console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
+  await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draftId));
+
+  try {
+    let outline = draft.outline || "";
+    if (!outline || outline.trim().length < 100) {
+      outline = await generateEbookOutline(topic, genre, title);
+      await db.update(draftEbooks).set({ outline }).where(eq(draftEbooks.id, draftId));
+    } else {
+      console.log(`[Continue Writing] Reusing existing outline for "${title}" (${outline.split(/\s+/).length} words)`);
+    }
+
+    const content = await generateEbookContent(outline, topic, genre, title, "", async (contentSoFar) => {
+      await db.update(draftEbooks).set({ content: contentSoFar }).where(eq(draftEbooks.id, draftId));
+    }, existingContent, draft.outlineChapterCount || undefined);
+
+    const wordCount = content.split(/\s+/).length;
+
+    if (wordCount < 50) {
+      console.error(`[Continue Writing] "${title}" produced only ${wordCount} words — content generation failed`);
+      await db.update(draftEbooks).set({ status: "failed" }).where(eq(draftEbooks.id, draftId));
+      throw new Error(`Content generation produced only ${wordCount} words for "${title}"`);
+    }
+
+    const hasTBC = /to be continued|tbc|the story continues/i.test(content);
+    const hasPlaceholder = /\[Content generation incomplete|Please regenerate this ebook|placeholder|TODO|PLACEHOLDER/i.test(content);
+    const chapterSpec = getGenreChapterSpec(genre);
+    const genreMinWords = chapterSpec.minWordsPerChapter * chapterSpec.targetChapters.min;
+    const effectiveMinWords = Math.max(MIN_WORD_COUNT, Math.round(genreMinWords * 0.6));
+    const isComplete = wordCount >= effectiveMinWords && !hasTBC && !hasPlaceholder;
+
+    const newStatus = isComplete ? "ready" : "draft";
+    if (hasPlaceholder) {
+      console.log(`[Continue Writing] WARNING: "${title}" still has placeholder text in content — keeping as draft`);
+    }
+    console.log(`[Continue Writing] "${title}" finished: ${wordCount} words (genre min: ${effectiveMinWords}), complete: ${isComplete}, status: ${newStatus}`);
+
+    await db.update(draftEbooks).set({ content, status: newStatus }).where(eq(draftEbooks.id, draftId));
+
+    const pdfUrl = await createPdfFromContent(title, content);
+    await db.update(draftEbooks).set({ pdfUrl }).where(eq(draftEbooks.id, draftId));
+
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Continue writing complete for "${title}". Active: ${activeGenerationCount}`);
+    return content;
+  } catch (error) {
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Continue writing failed for draft ${draftId}. Active: ${activeGenerationCount}`);
+    await db.update(draftEbooks).set({ status: "failed" }).where(eq(draftEbooks.id, draftId));
+    throw error;
+  }
+}
+
+export async function generateMissingContent(): Promise<void> {
+  if (contentGenProgress.running) {
+    throw new Error("Content generation is already running");
+  }
+
+  const allDrafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    topic: draftEbooks.topic,
+    content: draftEbooks.content,
+    status: draftEbooks.status,
+    outline: draftEbooks.outline,
+  }).from(draftEbooks);
+
+  const hasMultiAuthorOutline = (d: typeof allDrafts[0]) => {
+    const outlineText = d.outline || '';
+    const contentText = d.content || '';
+    const hasMarkers = outlineText.includes('Story Architect') || contentText.includes('Story Architect')
+      || (outlineText.includes('Technique Map') || outlineText.includes('technique map'));
+    if (hasMarkers) return true;
+    const outlineHasStructure = outlineText.trim().length > 200 && 
+      /##\s*(Title|Premise|Hook|Chapter)/i.test(outlineText);
+    const words = contentText ? contentText.split(/\s+/).length : 0;
+    const chapters = contentText ? (contentText.match(/##\s*Chapter\s+\d+/gi) || []).length : 0;
+    return outlineHasStructure && chapters >= 5 && words >= 10000;
+  };
+
+  const detectIssues = (d: typeof allDrafts[0]): string[] => {
+    if (!d.content) return ["no-content"];
+    const content = d.content;
+    const words = content.split(/\s+/).length;
+    const chapterSpec = getGenreChapterSpec(d.genre || "General");
+    const issues: string[] = [];
+    const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+    const chapterNums = chapterMatches.map(m => parseInt(m[1]));
+    const uniqueNums = new Set(chapterNums);
+    if (uniqueNums.size < chapterNums.length) issues.push("duplicates");
+    const maxChapter = chapterNums.length > 0 ? Math.max(...chapterNums) : 0;
+    if (maxChapter > 0 && uniqueNums.size < maxChapter) issues.push("missing");
+    if (chapterNums.length > 0 && chapterNums.length < chapterSpec.targetChapters.min) issues.push("below-genre-min");
+    if (words < MIN_WORD_COUNT) issues.push("low-words");
+    if (/to be continued|tbc|the story continues/i.test(content)) issues.push("tbc");
+    if (/\[Content generation incomplete|Please regenerate this ebook\]/i.test(content)) issues.push("placeholder");
+    const aiMetaPatterns = /\bas a language model\b|\bi cannot (generate|create|write)\b|\bas an ai (assistant|model|language)\b/i;
+    if (aiMetaPatterns.test(content)) issues.push("ai-meta");
+    for (let i = 0; i < chapterMatches.length; i++) {
+      const chStart = chapterMatches[i].index!;
+      const chEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
+      const chText = content.substring(chStart, chEnd);
+      const chWords = chText.split(/\s+/).filter(w => w.length > 0).length;
+      if (chWords < chapterSpec.minWordsPerChapter * 0.3) { issues.push("short-chapter"); break; }
+      const { truncated } = detectChapterTruncation(chText);
+      if (truncated) { issues.push("truncated"); break; }
+    }
+    return issues;
+  };
+
+  const needsWork = allDrafts.filter(d => {
+    if (d.status === "published" || d.status === "ready") return false;
+    if (d.status === "generating") return false;
+    if (d.status === "draft" || d.status === "idea") return true;
+    return false;
+  });
+
+  if (needsWork.length === 0) {
+    throw new Error("All ebooks already have content");
+  }
+
+  const multiAuthorRecheck: typeof needsWork = [];
+  const multiAuthorRepair: typeof needsWork = [];
+  const multiAuthorComplete: typeof needsWork = [];
+  const freshWrites: typeof needsWork = [];
+
+  for (const d of needsWork) {
+    const isMA = hasMultiAuthorOutline(d);
+    const words = d.content ? d.content.split(/\s+/).length : 0;
+    const chapters = d.content ? (d.content.match(/##\s*Chapter\s+\d+/gi) || []).length : 0;
+    const issues = words >= MIN_WORD_COUNT ? detectIssues(d) : [];
+    const genre = d.genre || "";
+    const usesAlternatePipeline = isColoringBookGenre(genre) || isVisualEnhancedGenre(genre);
+    const isPreSystemStub = !isMA && !usesAlternatePipeline && words > 0 && words < MIN_WORD_COUNT;
+
+    if (isPreSystemStub) {
+      multiAuthorComplete.push(d);
+    } else if (isMA && words >= MIN_WORD_COUNT && chapters >= 2 && issues.length > 0) {
+      multiAuthorRepair.push(d);
+    } else if (isMA && words >= MIN_WORD_COUNT && chapters >= 2 && issues.length === 0) {
+      multiAuthorRecheck.push(d);
+    } else if (isMA && words < MIN_WORD_COUNT) {
+      multiAuthorComplete.push(d);
+    } else if (usesAlternatePipeline && words > 0) {
+      console.log(`[Bulk Content] SKIP [ID ${d.id}]: "${d.title}" — ${genre} uses alternate pipeline, already has content (${words}w)`);
+    } else {
+      freshWrites.push(d);
+    }
+  }
+
+  multiAuthorRecheck.sort((a, b) => b.id - a.id);
+  multiAuthorRepair.sort((a, b) => b.id - a.id);
+  multiAuthorComplete.sort((a, b) => b.id - a.id);
+  freshWrites.sort((a, b) => b.id - a.id);
+
+  const prioritized = [...multiAuthorRecheck, ...multiAuthorRepair, ...multiAuthorComplete, ...freshWrites];
+
+  console.log(`[Bulk Content] Starting for ${needsWork.length} ebooks — PRIORITY ORDER:`);
+  console.log(`[Bulk Content]   0) ${multiAuthorRecheck.length} multi-author RECHECK (full content, need quality gate re-run)`);
+  console.log(`[Bulk Content]   1) ${multiAuthorRepair.length} REPAIRS (5000w+, structural issues to fix)`);
+  console.log(`[Bulk Content]   2) ${multiAuthorComplete.length} REWRITES (pre-system stubs — not multi-author, need full rewrite)`);
+  console.log(`[Bulk Content]   3) ${freshWrites.length} fresh writes (no content yet)`);
+
+  contentGenProgress = { total: needsWork.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
+
+  (async () => {
+    for (let pi = 0; pi < prioritized.length; pi++) {
+      const draft = prioritized[pi];
+      if (!contentGenProgress.running) break;
+      try {
+        contentGenProgress.current = draft.title || "Unknown";
+        contentGenProgress.currentId = draft.id;
+        const nextDraft = pi + 1 < prioritized.length ? prioritized[pi + 1] : null;
+        contentGenProgress.nextTitle = nextDraft?.title || "";
+        contentGenProgress.nextId = nextDraft?.id || null;
+        const words = draft.content ? draft.content.split(/\s+/).length : 0;
+        const chapters = draft.content ? (draft.content.match(/##\s*Chapter\s+\d+/gi) || []).length : 0;
+        const isMA = hasMultiAuthorOutline(draft);
+        const issues = detectIssues(draft);
+        const isPreSystemStub = !isMA && !isVisualEnhancedGenre(draft.genre || "") && !isColoringBookGenre(draft.genre || "") && words > 0 && words < MIN_WORD_COUNT;
+
+        if (isMA && words >= MIN_WORD_COUNT && chapters >= 2 && issues.length === 0) {
+          console.log(`[Bulk Content] RECHECK ${contentGenProgress.completed + 1}/${needsWork.length} [ID ${draft.id}]: ${draft.title} (${words}w, ${chapters}ch — running quality gate)`);
+          await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draft.id));
+          activeGenerationCount++;
+          console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
+          try {
+            const recheckIssues = detectIssues(draft);
+            if (recheckIssues.length > 0) {
+              console.log(`[Bulk Content] RECHECK found structural issues for "${draft.title}": ${recheckIssues.join(', ')} — sending to repair`);
+              activeGenerationCount--;
+              await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
+              if (recheckIssues.includes("duplicates")) {
+                console.log(`[Bulk Content] Running deduplication first for ID ${draft.id}...`);
+                await deduplicateChapters([draft.id]);
+              }
+              await repairIncompleteChapters(draft.id);
+            } else {
+              console.log(`[Bulk Content] RECHECK "${draft.title}" passed structural checks — running dialogue quality review...`);
+              const [freshDraft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draft.id));
+              const recheckContent = freshDraft?.content || draft.content || '';
+              const recheckTitle = freshDraft?.title || draft.title || 'Untitled';
+              const recheckGenre = freshDraft?.genre || draft.genre || 'General';
+              const recheckOutline = freshDraft?.outline || draft.outline || undefined;
+              const dialogueResult = await checkDialogueQuality(recheckContent, recheckTitle, recheckGenre, recheckOutline);
+              if (dialogueResult.pass) {
+                console.log(`[Bulk Content] RECHECK "${draft.title}" PASSED quality gate — marking ready. ${dialogueResult.summary}`);
+                await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+                activeGenerationCount--;
+                console.log(`[Generation Guard] Recheck complete. Active: ${activeGenerationCount}`);
+              } else {
+                console.log(`[Bulk Content] RECHECK "${draft.title}" FAILED dialogue check — sending to full rewrite. ${dialogueResult.summary}`);
+                await db.update(draftEbooks).set({ status: "draft", content: null }).where(eq(draftEbooks.id, draft.id));
+                activeGenerationCount--;
+                console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
+                await generateContentForDraft(draft.id);
+              }
+            }
+          } catch (recheckErr) {
+            activeGenerationCount--;
+            console.error(`[Bulk Content] RECHECK error for "${draft.title}":`, recheckErr);
+            await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
+          }
+        } else if (words >= MIN_WORD_COUNT && chapters >= 2 && issues.length > 0) {
+          console.log(`[Bulk Content] REPAIR ${contentGenProgress.completed + 1}/${needsWork.length} [ID ${draft.id}]: ${draft.title} (${words}w, ${chapters}ch, issues: ${issues.join(', ')})`);
+          if (issues.includes("duplicates")) {
+            console.log(`[Bulk Content] Running deduplication first for ID ${draft.id}...`);
+            await deduplicateChapters([draft.id]);
+          }
+          await repairIncompleteChapters(draft.id);
+          const [repairedDraft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draft.id));
+          if (repairedDraft) {
+            const repairedIssues = detectIssues(repairedDraft);
+            if (repairedIssues.length === 0) {
+              console.log(`[Bulk Content] REPAIR "${draft.title}" structural issues fixed — running dialogue quality review...`);
+              const repContent = repairedDraft.content || '';
+              const repTitle = repairedDraft.title || 'Untitled';
+              const repGenre = repairedDraft.genre || 'General';
+              const repOutline = repairedDraft.outline || undefined;
+              activeGenerationCount++;
+              const dialogueResult = await checkDialogueQuality(repContent, repTitle, repGenre, repOutline);
+              if (dialogueResult.pass) {
+                console.log(`[Bulk Content] REPAIR "${draft.title}" PASSED quality gate — marking ready. ${dialogueResult.summary}`);
+                await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+              } else {
+                console.log(`[Bulk Content] REPAIR "${draft.title}" FAILED dialogue check — full rewrite. ${dialogueResult.summary}`);
+                await db.update(draftEbooks).set({ status: "draft", content: null }).where(eq(draftEbooks.id, draft.id));
+                await generateContentForDraft(draft.id);
+              }
+              activeGenerationCount--;
+            } else {
+              console.log(`[Bulk Content] REPAIR "${draft.title}" still has issues after repair: ${repairedIssues.join(', ')} — full rewrite`);
+              await db.update(draftEbooks).set({ content: null }).where(eq(draftEbooks.id, draft.id));
+              await generateContentForDraft(draft.id);
+            }
+          }
+        } else if ((isMA && words < MIN_WORD_COUNT) || isPreSystemStub) {
+          const reason = isPreSystemStub ? `pre-system stub (${words}w — not multi-author, wiping for full rewrite)` : `has outline, need chapters written`;
+          console.log(`[Bulk Content] REWRITE ${contentGenProgress.completed + 1}/${needsWork.length} [ID ${draft.id}]: ${draft.title} (${words}w, ${chapters}ch — ${reason})`);
+          if (isPreSystemStub) {
+            await db.update(draftEbooks).set({ content: null }).where(eq(draftEbooks.id, draft.id));
+          }
+          await generateContentForDraft(draft.id);
+        } else {
+          const label = words === 0 ? "WRITE" : `FULL REWRITE (${words}w old content)`;
+          console.log(`[Bulk Content] ${label} ${contentGenProgress.completed + 1}/${needsWork.length} [ID ${draft.id}]: ${draft.title}`);
+          await generateContentForDraft(draft.id);
+        }
+        contentGenProgress.completed++;
+      } catch (error) {
+        console.error(`Failed to generate content for "${draft.title}":`, error);
+        contentGenProgress.failed.push(draft.title || `ID ${draft.id}`);
+        contentGenProgress.completed++;
+      }
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    contentGenProgress.running = false;
+    contentGenProgress.current = "";
+    console.log(`[Bulk Content] Complete: ${contentGenProgress.completed - contentGenProgress.failed.length} succeeded, ${contentGenProgress.failed.length} failed`);
+    await runPendingIllustrations();
+  })().catch(err => {
+    console.error("Content generation batch failed:", err);
+    contentGenProgress.running = false;
+    runPendingIllustrations();
+  });
+}
+
+export function stopContentGeneration() {
+  contentGenProgress.running = false;
+}
+
+export async function generateContentForSelected(ids: number[]): Promise<void> {
+  if (contentGenProgress.running) {
+    throw new Error("Content generation is already running");
+  }
+
+  if (!ids || ids.length === 0) {
+    throw new Error("No ebooks selected");
+  }
+
+  const allDrafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    topic: draftEbooks.topic,
+    content: draftEbooks.content,
+  }).from(draftEbooks);
+
+  const selected = allDrafts.filter(d => ids.includes(d.id));
+
+  if (selected.length === 0) {
+    throw new Error("No matching ebooks found for selected IDs");
+  }
+
+  console.log(`[Selected Content] Starting generation for ${selected.length} selected ebooks`);
+
+  contentGenProgress = { total: selected.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
+
+  (async () => {
+    for (let si = 0; si < selected.length; si++) {
+      const draft = selected[si];
+      if (!contentGenProgress.running) break;
+      try {
+        contentGenProgress.current = draft.title || "Unknown";
+        contentGenProgress.currentId = draft.id;
+        const nextD = si + 1 < selected.length ? selected[si + 1] : null;
+        contentGenProgress.nextTitle = nextD?.title || "";
+        contentGenProgress.nextId = nextD?.id || null;
+        console.log(`[Selected Content] Writing ${contentGenProgress.completed + 1}/${selected.length}: ${draft.title}`);
+        await generateContentForDraft(draft.id);
+        contentGenProgress.completed++;
+      } catch (error) {
+        console.error(`[Selected Content] Failed: "${draft.title}":`, error);
+        contentGenProgress.failed.push(draft.title || `ID ${draft.id}`);
+        contentGenProgress.completed++;
+      }
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    contentGenProgress.running = false;
+    contentGenProgress.current = "";
+    console.log(`[Selected Content] Complete: ${contentGenProgress.completed - contentGenProgress.failed.length} succeeded, ${contentGenProgress.failed.length} failed`);
+  })().catch(err => {
+    console.error("[Selected Content] Batch failed:", err);
+    contentGenProgress.running = false;
+  });
+}
+
+export async function rewriteIncompleteContent(): Promise<void> {
+  if (contentGenProgress.running) {
+    throw new Error("Content generation is already running");
+  }
+
+  const allDrafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    topic: draftEbooks.topic,
+    content: draftEbooks.content,
+    status: draftEbooks.status,
+  }).from(draftEbooks);
+
+  const incomplete = allDrafts.filter(d => {
+    if (!d.content || d.content.trim().length === 0) return true;
+    const wordCount = d.content.split(/\s+/).length;
+    if (wordCount < MIN_WORD_COUNT) return true;
+    if (/to be continued|tbc|the story continues/i.test(d.content)) return true;
+    return false;
+  }).filter(d => d.status !== "published");
+
+  if (incomplete.length === 0) {
+    throw new Error("All ebooks have complete content");
+  }
+
+  console.log(`[Bulk Rewrite] Found ${incomplete.length} incomplete ebooks to rewrite`);
+  contentGenProgress = { total: incomplete.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
+
+  (async () => {
+    for (let ri = 0; ri < incomplete.length; ri++) {
+      const draft = incomplete[ri];
+      if (!contentGenProgress.running) break;
+      try {
+        contentGenProgress.current = draft.title || "Unknown";
+        contentGenProgress.currentId = draft.id;
+        const nextD = ri + 1 < incomplete.length ? incomplete[ri + 1] : null;
+        contentGenProgress.nextTitle = nextD?.title || "";
+        contentGenProgress.nextId = nextD?.id || null;
+        console.log(`[Bulk Rewrite] Rewriting ${contentGenProgress.completed + 1}/${incomplete.length}: ${draft.title}`);
+        await generateContentForDraft(draft.id);
+        contentGenProgress.completed++;
+      } catch (error) {
+        console.error(`[Bulk Rewrite] Failed: "${draft.title}":`, error);
+        contentGenProgress.failed.push(draft.title || `ID ${draft.id}`);
+        contentGenProgress.completed++;
+      }
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    contentGenProgress.running = false;
+    contentGenProgress.current = "";
+    console.log(`[Bulk Rewrite] Complete: ${contentGenProgress.completed - contentGenProgress.failed.length} succeeded, ${contentGenProgress.failed.length} failed`);
+  })().catch(err => {
+    console.error("[Bulk Rewrite] Batch failed:", err);
+    contentGenProgress.running = false;
+  });
+}
+
+function detectFictionStyleOutline(outline: string | null): boolean {
+  if (!outline) return false;
+
+  const fictionOutlineMarkers = [
+    /premise\s*\/?\s*hook/i,
+    /protagonist|antagonist|love interest|mentor figure/i,
+    /character\s*arc|emotional\s*arc|story\s*arc/i,
+    /\b(act\s+(one|two|three|1|2|3|i|ii|iii))\b/i,
+    /inciting\s*incident|rising\s*action|climax|denouement|resolution/i,
+    /\b(she|he|they)\s+(discovers?|realizes?|confronts?|escapes?|returns?|fights?|falls?|meets?|learns?)\b/i,
+    /in\s+a\s+(studio|room|apartment|city|town|village|world)\s+that/i,
+    /when\s+(celebrated|renowned|young|aging|brilliant|troubled)\s+\w+\s+\w+/i,
+  ];
+
+  let fictionMarkers = 0;
+  for (const pattern of fictionOutlineMarkers) {
+    if (pattern.test(outline)) fictionMarkers++;
+  }
+
+  const instructionalOutlineMarkers = [
+    /comprehensive\s*book\s*outline/i,
+    /definitive|actionable|platform-specific|step-by-step|hands-on/i,
+    /core\s*promise|learning\s*outcomes?|objectives?/i,
+    /\b(exercise|worksheet|checklist|template|case\s*study|tutorial)\b/i,
+    /\b(how\s+to|guide|practical|beginner|advanced|intermediate)\b/i,
+  ];
+
+  let instructionalMarkers = 0;
+  for (const pattern of instructionalOutlineMarkers) {
+    if (pattern.test(outline)) instructionalMarkers++;
+  }
+
+  return fictionMarkers >= 2 && fictionMarkers > instructionalMarkers;
+}
+
+const NARRATIVE_ALLOWED_GENRES = new Set([
+  "Biographies & Memoirs", "Classic Literature", "Classic Epic", "Classic Philosophy",
+  "Humor", "Writing & Creativity", "Poetry",
+]);
+
+function isNarrativeAllowedGenre(genre: string): boolean {
+  if (NARRATIVE_ALLOWED_GENRES.has(genre)) return true;
+  const lower = genre.toLowerCase();
+  return ["memoir", "biography", "classic", "humor", "comedy", "poetry", "writing"].some(kw => lower.includes(kw));
+}
+
+function needsFullRewrite(content: string | null, outline: string | null, genre: string): { needed: boolean; reason: string; introOnly?: boolean } {
+  if (!content || content.trim().length === 0) {
+    return { needed: true, reason: "no content" };
+  }
+
+  const hasMultiAuthorMarkers = content.includes('Story Architect') || content.includes('Technique Map') || content.includes('[Story Architect]');
+  const outlineHasMarkers = outline ? (outline.includes('Story Architect') || outline.includes('Technique Map') || outline.includes('technique')) : false;
+  const wordCount = content.split(/\s+/).length;
+  const hasEnoughContent = wordCount >= 8000;
+
+  if (!hasMultiAuthorMarkers && !outlineHasMarkers && !isColoringBookGenre(genre)) {
+    return { needed: true, reason: `pre-system content — ${wordCount} words, no multi-author markers in content or outline` };
+  }
+
+  if (isFictionGenre(genre) || isNarrativeAllowedGenre(genre)) {
+    return { needed: false, reason: "genre naturally uses narrative style" };
+  }
+
+  if (detectFictionStyleOutline(outline)) {
+    return { needed: true, reason: "outline is fiction-style but genre is nonfiction — outline + content need rewrite" };
+  }
+
+  const introFictionScore = detectFictionStyleContent(content, true);
+  const fullFictionScore = detectFictionStyleContent(content, false);
+
+  if (introFictionScore >= 4 && fullFictionScore < 4 && hasEnoughContent) {
+    return { needed: true, introOnly: true, reason: "intro paragraphs read like a novel but rest of book is correct — intro repair only" };
+  }
+
+  if (fullFictionScore >= 4) {
+    if (hasMultiAuthorMarkers && hasEnoughContent) {
+      return { needed: true, introOnly: true, reason: "has multi-author content but fiction style detected — checking intro repair" };
+    }
+    return { needed: true, reason: "content reads like a novel but genre is nonfiction — needs instructional rewrite" };
+  }
+
+  return { needed: false, reason: "content matches expected genre style" };
+}
+
+function detectFictionStyleContent(content: string, introOnly?: boolean): number {
+  const sample = introOnly ? content.substring(0, 5000) : content.substring(0, 15000);
+
+  let fictionScore = 0;
+
+  const characterActionPattern = /[A-Z][a-z]{2,}\s+(said|whispered|muttered|replied|asked|looked|turned|felt|stared|noticed|watched|walked|sat|stood|reached|grabbed|pulled|nodded|shook|sighed|laughed|smiled|frowned|gasped|screamed|cried)\b/g;
+  const characterActions = (sample.match(characterActionPattern) || []).length;
+  if (characterActions >= 5) fictionScore += 3;
+  else if (characterActions >= 2) fictionScore += 1;
+
+  const dialoguePattern = /[""][^""]{5,}[""].*?(said|asked|replied|whispered|muttered)/gi;
+  const dialogueCount = (sample.match(dialoguePattern) || []).length;
+  if (dialogueCount >= 3) fictionScore += 3;
+  else if (dialogueCount >= 1) fictionScore += 1;
+
+  const narrativeOpeners = /(The (morning|afternoon|evening|night|day|rain|sun|light|room|air|silence) (was|had|felt|seemed|came|fell))|((She|He|They|I) (could|couldn't|didn't|hadn't|felt|saw|heard|knew|remembered|watched|noticed))/g;
+  const narrativeCount = (sample.match(narrativeOpeners) || []).length;
+  if (narrativeCount >= 4) fictionScore += 2;
+  else if (narrativeCount >= 2) fictionScore += 1;
+
+  const sensoryDescriptions = /\b(the (smell|scent|taste|sound|warmth|cold|glow|hum|whisper) of)\b/gi;
+  const sensoryCount = (sample.match(sensoryDescriptions) || []).length;
+  if (sensoryCount >= 3) fictionScore += 2;
+
+  const storyStructure = /\b(once upon|years ago|that (morning|night|day|evening)|when (she|he|they|I) (first|finally|arrived|woke|opened))\b/gi;
+  const storyCount = (sample.match(storyStructure) || []).length;
+  if (storyCount >= 2) fictionScore += 2;
+
+  const firstPersonNarrative = /\b(my (career|life|heart|hands?|wrist|eyes?|throat|stomach|body) |I (had|felt|knew|saw|heard|could|couldn't|didn't|remembered|watched|looked|turned|walked|sat|stood|reached)|me (like|as|with|into|through)\b)/gi;
+  const firstPersonCount = (sample.match(firstPersonNarrative) || []).length;
+  if (firstPersonCount >= 6) fictionScore += 2;
+  else if (firstPersonCount >= 3) fictionScore += 1;
+
+  const sceneSetting = /\b(the (studio|room|office|desk|lamp|window|door|table|chair|wall|floor|ceiling|hallway|corridor|street|rain|light|glow|shadow|darkness|warmth|cold) (was|had|sat|stood|lay|hung|threw|cast|felt|smelled|glowed))\b/gi;
+  const sceneCount = (sample.match(sceneSetting) || []).length;
+  if (sceneCount >= 4) fictionScore += 2;
+  else if (sceneCount >= 2) fictionScore += 1;
+
+  const chapterTitlesFictional = /##\s*Chapter\s+\d+[:\s]+(The |A |When |My |Before |After |In |At |Under |Behind |Beyond )/gi;
+  const fictionalChapterTitles = (sample.match(chapterTitlesFictional) || []).length;
+  if (fictionalChapterTitles >= 2) fictionScore += 2;
+
+  const instructionalPattern = /\b(how to|step \d|technique|method|approach|strategy|exercise|practice|guide|tutorial|tip|workflow|tool|software|process|principle|framework|overview|introduction|summary|key (takeaway|concept|point)s?|best practice|common mistake|pro tip|note:|important:)\b/gi;
+  const instructionalCount = (sample.match(instructionalPattern) || []).length;
+  if (instructionalCount >= 10) fictionScore -= 3;
+  else if (instructionalCount >= 5) fictionScore -= 2;
+  else if (instructionalCount >= 2) fictionScore -= 1;
+
+  return fictionScore;
+}
+
+export async function rewriteVisualEnhancedBooks(): Promise<void> {
+  if (contentGenProgress.running) {
+    throw new Error("Content generation is already running");
+  }
+
+  const visualGenres = Object.keys(VISUAL_ENHANCED_GENRES);
+
+  const allDrafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    topic: draftEbooks.topic,
+    content: draftEbooks.content,
+    outline: draftEbooks.outline,
+    status: draftEbooks.status,
+  }).from(draftEbooks).where(
+    inArray(draftEbooks.genre, visualGenres)
+  );
+
+  const needsWork: { draft: typeof allDrafts[0]; action: "full-rewrite" | "illustrations-only" | "coloring-pages"; reason: string }[] = [];
+
+  for (const d of allDrafts) {
+    if (d.status !== "published" && d.status !== "ready" && d.status !== "draft") continue;
+
+    if (isColoringBookGenre(d.genre || "")) {
+      // Check local disk first; fall back to GCS check so production (where local files
+      // are wiped on restart) doesn't incorrectly flag every coloring book as missing.
+      const pageDir = `uploads/coloring-pages/${d.id}`;
+      const hasLocalImages = fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter(f => f.endsWith('.png')).length >= 20;
+      if (!hasLocalImages) {
+        // Check GCS for the first page as a proxy for the full set
+        let hasGcsImages = false;
+        try {
+          const { objStoreExists } = await import("./objectStorage");
+          hasGcsImages = await objStoreExists(`public/coloring-pages/${d.id}/page-001.png`);
+        } catch (_) { /* treat as missing if check fails */ }
+        if (!hasGcsImages) {
+          needsWork.push({ draft: d, action: "coloring-pages", reason: "missing coloring pages" });
+        }
+      }
+      continue;
+    }
+
+    const rewriteCheck = needsFullRewrite(d.content, d.outline, d.genre || "");
+    if (rewriteCheck.needed) {
+      console.log(`[Visual Rewrite] "${d.title}" (ID ${d.id}) — ${rewriteCheck.reason}`);
+      needsWork.push({ draft: d, action: "full-rewrite", reason: rewriteCheck.reason });
+      continue;
+    }
+
+    const hasMarkers = d.content!.includes('[ILLUSTRATION:');
+    const hasActualImages = d.content!.includes('/uploads/illustrations/') || d.content!.includes('/objstore/illustrations/');
+
+    if (hasActualImages) {
+      // Already has real images — skip
+    } else if (hasMarkers) {
+      needsWork.push({ draft: d, action: "illustrations-only", reason: "has markers but no images" });
+    } else {
+      needsWork.push({ draft: d, action: "full-rewrite", reason: "missing illustration markers" });
+    }
+  }
+
+  if (needsWork.length === 0) {
+    throw new Error("All visual-enhanced genre books already have illustrations");
+  }
+
+  const fullRewrites = needsWork.filter(w => w.action === "full-rewrite");
+  const illustrationsOnly = needsWork.filter(w => w.action === "illustrations-only");
+  const coloringPages = needsWork.filter(w => w.action === "coloring-pages");
+
+  console.log(`[Visual Rewrite] Found ${needsWork.length} books needing work:`);
+  console.log(`  Full rewrites: ${fullRewrites.length}`);
+  console.log(`  Illustrations only: ${illustrationsOnly.length}`);
+  console.log(`  Coloring pages: ${coloringPages.length}`);
+  for (const w of needsWork) {
+    console.log(`  - [${w.action}] [${w.draft.status}] ${w.draft.genre}: "${w.draft.title}" (ID ${w.draft.id}) — ${w.reason}`);
+  }
+
+  contentGenProgress = { total: needsWork.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
+
+  (async () => {
+    for (let vi = 0; vi < needsWork.length; vi++) {
+      const work = needsWork[vi];
+      if (!contentGenProgress.running) break;
+      const draft = work.draft;
+      try {
+        contentGenProgress.current = draft.title || "Unknown";
+        contentGenProgress.currentId = draft.id;
+        const nextW = vi + 1 < needsWork.length ? needsWork[vi + 1] : null;
+        contentGenProgress.nextTitle = nextW?.draft.title || "";
+        contentGenProgress.nextId = nextW?.draft.id || null;
+        console.log(`[Visual Rewrite] [${work.action}] ${contentGenProgress.completed + 1}/${needsWork.length}: "${draft.title}" (${draft.genre}, ${draft.status}) — ${work.reason}`);
+
+        const previousStatus = draft.status;
+
+        if (work.action === "coloring-pages") {
+          console.log(`[Visual Rewrite] Generating coloring pages for "${draft.title}"...`);
+          await generateColoringBookContent(draft.id);
+        } else if (work.action === "illustrations-only") {
+          console.log(`[Visual Rewrite] Adding illustrations to existing content for "${draft.title}"...`);
+          let updatedContent = await generateIllustrations(draft.content!, draft.genre || "", draft.title || "", draft.id);
+          await db.update(draftEbooks).set({ content: updatedContent }).where(eq(draftEbooks.id, draft.id));
+
+          if (previousStatus === "published") {
+            console.log(`[Visual Rewrite] Updated draft content with illustrations for published book "${draft.title}"`);
+          }
+        } else {
+          await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draft.id));
+          await generateContentForDraft(draft.id);
+
+          if (previousStatus === "published") {
+            await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
+
+            console.log(`[Visual Rewrite] Restored published status for "${draft.title}"`);
+
+          }
+        }
+
+        contentGenProgress.completed++;
+        console.log(`[Visual Rewrite] Completed "${draft.title}"`);
+      } catch (error) {
+        console.error(`[Visual Rewrite] Failed: "${draft.title}":`, error);
+        contentGenProgress.failed.push(draft.title || `ID ${draft.id}`);
+        contentGenProgress.completed++;
+        if (draft.status === "published") {
+          await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+    contentGenProgress.running = false;
+    contentGenProgress.current = "";
+    console.log(`[Visual Rewrite] Complete: ${contentGenProgress.completed - contentGenProgress.failed.length} succeeded, ${contentGenProgress.failed.length} failed`);
+  })().catch(err => {
+    console.error("[Visual Rewrite] Batch failed:", err);
+    contentGenProgress.running = false;
+  });
+}
+
+async function injectIllustrationMarkers(content: string, genre: string, title: string): Promise<string> {
+  const visualConfig = getVisualEnhancedConfig(genre);
+  if (!visualConfig) return content;
+
+  const chapters = content.split(/(?=^## )/m).filter(c => c.trim().length > 200);
+  if (chapters.length === 0) return content;
+
+  const GLOBAL_MAX = 30;
+  const maxTotal = Math.min(chapters.length * 3, GLOBAL_MAX);
+  const basePerChapter = Math.floor(maxTotal / chapters.length);
+  let remainder = maxTotal - (basePerChapter * chapters.length);
+  const chapterBudgets = chapters.map((_, i) => {
+    const extra = i < remainder ? 1 : 0;
+    return Math.max(1, basePerChapter + extra);
+  });
+  let totalInjected = 0;
+  let updatedContent = content;
+
+  console.log(`[Illustration Inject] "${title}" — ${chapters.length} chapters, ${maxTotal} total budget, ~${basePerChapter}-${basePerChapter + 1} per chapter (style: ${visualConfig.illustrationStyle})...`);
+
+  for (let chapterIdx = 0; chapterIdx < chapters.length; chapterIdx++) {
+    const chapter = chapters[chapterIdx];
+    if (totalInjected >= maxTotal) break;
+    const chapterTitle = chapter.split('\n')[0].replace(/^##\s*/, '').trim();
+    if (!chapterTitle || chapterTitle.length < 3) continue;
+
+    const remaining = Math.min(chapterBudgets[chapterIdx], maxTotal - totalInjected);
+
+    try {
+      const response = await openaiReplit.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are an illustration placement specialist for ${genre} books. Your job is to read a chapter and suggest exactly where illustration markers should be placed, and what each illustration should depict.
+
+IMPORTANT: Use as few illustrations as possible while still enhancing the reader's experience. Each illustration costs money to generate, so only place a marker when an image would genuinely help the reader understand something better or when the visual impact is truly worth it. Skip sections where text alone is sufficient. Aim for quality over quantity — most books need 1-2 illustrations per chapter at most. Only place more if this chapter is exceptionally visual (e.g., a step-by-step technique, a key diagram, or a vivid scene that anchors the reader). Return fewer than ${remaining} if the chapter does not warrant that many.
+
+Output ONLY a JSON array of objects with:
+- "after": the exact sentence or phrase after which the illustration should be placed (copy it exactly from the text)
+- "description": a detailed illustration description for AI image generation. Include: subject, composition, art style (${visualConfig.illustrationStyle}), colors, mood, and any details. Be extremely specific and visual.
+
+Return up to ${remaining} illustration placements, but return FEWER if the chapter doesn't warrant that many. Quality over quantity — only place markers where images genuinely add value.`
+          },
+          {
+            role: "user",
+            content: `Book: "${title}" (${genre})\nChapter: "${chapterTitle}"\n\n${chapter.substring(0, 8000)}`
+          }
+        ],
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+      });
+
+      const raw = response.choices[0]?.message?.content || "{}";
+      const parsed = JSON.parse(raw);
+      const placements: { after: string; description: string }[] = Array.isArray(parsed) ? parsed : (parsed.illustrations || parsed.placements || parsed.markers || []);
+
+      for (const p of placements) {
+        if (totalInjected >= maxTotal) break;
+        if (!p.after || !p.description) continue;
+
+        const afterIdx = updatedContent.indexOf(p.after);
+        if (afterIdx === -1) continue;
+
+        const insertPos = afterIdx + p.after.length;
+        const marker = `\n\n[ILLUSTRATION: ${p.description}]\n\n`;
+        updatedContent = updatedContent.substring(0, insertPos) + marker + updatedContent.substring(insertPos);
+        totalInjected++;
+      }
+
+      console.log(`[Illustration Inject] "${chapterTitle}" — injected ${placements.length} markers`);
+    } catch (err: any) {
+      console.error(`[Illustration Inject] Failed for chapter "${chapterTitle}":`, err.message);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  console.log(`[Illustration Inject] "${title}" — total ${totalInjected} markers injected`);
+  return updatedContent;
+}
+
+export async function fillEmptyChaptersWithIllustrations(targetList: { bookId: number; chapters: number[] }[]): Promise<void> {
+  if (contentGenProgress.running) {
+    throw new Error("Content generation is already running");
+  }
+
+  const totalChapters = targetList.reduce((sum, t) => sum + t.chapters.length, 0);
+  console.log(`[Fill Empty Chapters] Starting: ${targetList.length} books, ${totalChapters} chapters to fill with 2 illustrations each`);
+
+  contentGenProgress = { total: targetList.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
+  illustrationProgress = { running: true, bookId: null, bookTitle: "", totalBooks: targetList.length, completedBooks: 0, currentImage: 0, totalImages: totalChapters * 2, lastGeneratedFile: "" };
+
+  (async () => {
+    for (let bi = 0; bi < targetList.length; bi++) {
+      const target = targetList[bi];
+      if (!contentGenProgress.running) break;
+
+      try {
+        const [draft] = await db.select({
+          id: draftEbooks.id,
+          title: draftEbooks.title,
+          genre: draftEbooks.genre,
+          content: draftEbooks.content,
+        }).from(draftEbooks).where(eq(draftEbooks.id, target.bookId));
+
+        if (!draft?.content) {
+          console.log(`[Fill Empty Chapters] Book ${target.bookId} not found or has no content, skipping`);
+          continue;
+        }
+
+        contentGenProgress.current = draft.title || "Unknown";
+        contentGenProgress.currentId = draft.id;
+        illustrationProgress.bookId = draft.id;
+        illustrationProgress.bookTitle = draft.title || "Unknown";
+
+        const visualConfig = getVisualEnhancedConfig(draft.genre || "");
+        if (!visualConfig) {
+          console.log(`[Fill Empty Chapters] Book ${draft.id} "${draft.title}" is not a visual-enhanced genre, skipping`);
+          continue;
+        }
+
+        let currentContent = draft.content;
+        const chapterHeaders = [...currentContent.matchAll(/##\s+Chapter\s+(\d+)[^\n]*/gi)];
+
+        for (const targetChNum of target.chapters) {
+          if (!contentGenProgress.running) break;
+
+          const chIdx = chapterHeaders.findIndex(h => parseInt(h[1]) === targetChNum);
+          if (chIdx === -1) {
+            console.log(`[Fill Empty Chapters] Book ${draft.id}: Chapter ${targetChNum} not found, skipping`);
+            continue;
+          }
+
+          const chStart = chapterHeaders[chIdx].index!;
+          const chEnd = chIdx + 1 < chapterHeaders.length ? chapterHeaders[chIdx + 1].index! : currentContent.length;
+          const chapterText = currentContent.substring(chStart, chEnd);
+          const chapterTitle = chapterHeaders[chIdx][0].replace(/^##\s*/, '').trim();
+
+          const existingImgs = (chapterText.match(/\[ILLUSTRATION:/g) || []).length;
+          if (existingImgs >= 2) {
+            console.log(`[Fill Empty Chapters] Book ${draft.id} Ch${targetChNum} already has ${existingImgs} images, skipping`);
+            continue;
+          }
+
+          const needed = 2 - existingImgs;
+          console.log(`[Fill Empty Chapters] Book ${draft.id} "${draft.title}" Ch${targetChNum}: "${chapterTitle}" — injecting ${needed} markers...`);
+
+          try {
+            const response = await openaiReplit.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: [
+                {
+                  role: "system",
+                  content: `You are an illustration placement specialist for ${draft.genre} books. Read this chapter and suggest exactly ${needed} illustration placement(s) that would genuinely enhance the reader's understanding or experience.
+
+Output ONLY a JSON array of objects with:
+- "after": the exact sentence or phrase after which the illustration should be placed (copy it exactly from the text)
+- "description": a detailed illustration description for AI image generation. Include: subject, composition, art style (${visualConfig.illustrationStyle}), colors, mood, and any details. Be extremely specific and visual.
+
+Return exactly ${needed} illustration placement(s). Choose the most impactful locations in the chapter.`
+                },
+                {
+                  role: "user",
+                  content: `Book: "${draft.title}" (${draft.genre})\nChapter: "${chapterTitle}"\n\n${chapterText.substring(0, 8000)}`
+                }
+              ],
+              temperature: 0.7,
+              response_format: { type: "json_object" },
+            });
+
+            const raw = response.choices[0]?.message?.content || "{}";
+            const parsed = JSON.parse(raw);
+            const placements: { after: string; description: string }[] = Array.isArray(parsed) ? parsed : (parsed.illustrations || parsed.placements || parsed.markers || []);
+
+            let injectedCount = 0;
+            for (const p of placements) {
+              if (injectedCount >= needed) break;
+              if (!p.after || !p.description) continue;
+
+              let afterIdx = currentContent.indexOf(p.after);
+              if (afterIdx === -1) {
+                const shortened = p.after.substring(0, Math.min(60, p.after.length)).trim();
+                if (shortened.length >= 15) {
+                  afterIdx = currentContent.indexOf(shortened);
+                }
+              }
+              if (afterIdx === -1) {
+                const words = p.after.split(/\s+/).filter((w: string) => w.length > 3).slice(0, 8).join('\\s+');
+                if (words.length > 10) {
+                  const fuzzyRegex = new RegExp(words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\s\+/g, '\\s+'), 'i');
+                  const fuzzyMatch = currentContent.match(fuzzyRegex);
+                  if (fuzzyMatch?.index !== undefined) {
+                    afterIdx = fuzzyMatch.index + fuzzyMatch[0].length;
+                  }
+                }
+              }
+              if (afterIdx === -1) {
+                console.log(`[Fill Empty Chapters] Could not find anchor text in Book ${draft.id} Ch${targetChNum}: "${p.after.substring(0, 60)}..."`);
+                continue;
+              }
+
+              const insertPos = afterIdx === currentContent.indexOf(p.after) ? afterIdx + p.after.length : afterIdx;
+              const marker = `\n\n[ILLUSTRATION: ${p.description}]\n\n`;
+              currentContent = currentContent.substring(0, insertPos) + marker + currentContent.substring(insertPos);
+              injectedCount++;
+            }
+
+            console.log(`[Fill Empty Chapters] Book ${draft.id} Ch${targetChNum}: injected ${injectedCount}/${needed} markers`);
+          } catch (err: any) {
+            console.error(`[Fill Empty Chapters] Failed to inject markers for Book ${draft.id} Ch${targetChNum}: ${err.message}`);
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draft.id));
+        console.log(`[Fill Empty Chapters] Book ${draft.id} — markers injected, now generating images...`);
+
+        const updatedContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
+        await db.update(draftEbooks).set({ content: updatedContent }).where(eq(draftEbooks.id, draft.id));
+
+        contentGenProgress.completed++;
+        illustrationProgress.completedBooks++;
+        console.log(`[Fill Empty Chapters] Book ${draft.id} "${draft.title}" complete (${contentGenProgress.completed}/${targetList.length})`);
+      } catch (err: any) {
+        console.error(`[Fill Empty Chapters] Error processing book ${target.bookId}: ${err.message}`);
+        contentGenProgress.failed.push({ id: target.bookId, title: `Book ${target.bookId}`, error: err.message });
+        contentGenProgress.completed++;
+      }
+    }
+
+    contentGenProgress.running = false;
+    illustrationProgress.running = false;
+    console.log(`[Fill Empty Chapters] All done. ${contentGenProgress.completed}/${targetList.length} books processed.`);
+  })();
+}
+
+export async function repairIllustrationDistribution(draftIds: number[]): Promise<void> {
+  if (contentGenProgress.running) {
+    throw new Error("Content generation is already running");
+  }
+
+  contentGenProgress.running = true;
+  contentGenProgress.current = 0;
+  contentGenProgress.total = draftIds.length;
+  contentGenProgress.phase = "Repairing illustration distribution";
+
+  console.log(`[Illust Repair] Starting illustration distribution repair for ${draftIds.length} books...`);
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const draftId of draftIds) {
+    try {
+      const [draft] = await db.select({
+        id: draftEbooks.id,
+        title: draftEbooks.title,
+        genre: draftEbooks.genre,
+        content: draftEbooks.content,
+        status: draftEbooks.status,
+      }).from(draftEbooks).where(eq(draftEbooks.id, draftId));
+
+      if (!draft || !draft.content) {
+        console.log(`[Illust Repair] Draft ${draftId} not found or empty — skipping`);
+        continue;
+      }
+
+      if (ILLUSTRATION_EXEMPT_DRAFT_IDS.has(draftId)) {
+        console.log(`[Illust Repair] Draft ${draftId} "${draft.title}" — illustration-exempt, skipping`);
+        contentGenProgress.current++;
+        continue;
+      }
+
+      const visualConfig = getVisualEnhancedConfig(draft.genre || "");
+      if (!visualConfig) {
+        console.log(`[Illust Repair] "${draft.title}" not a visual genre — skipping`);
+        continue;
+      }
+
+      const lines = draft.content.split('\n');
+      const chapterStarts: number[] = [];
+      for (let li = 0; li < lines.length; li++) {
+        const trimmed = lines[li].trim();
+        if (/^##\s+Chapter\s+\d/i.test(trimmed) || /^##\s+Part\s+\d/i.test(trimmed)) {
+          chapterStarts.push(li);
+        }
+      }
+      if (chapterStarts.length <= 1) {
+        for (let li = 0; li < lines.length; li++) {
+          const trimmed = lines[li].trim();
+          if (/^##\s+\d+[\.\:]/.test(trimmed)) {
+            chapterStarts.push(li);
+          }
+        }
+        chapterStarts.sort((a, b) => a - b);
+      }
+      if (chapterStarts.length <= 1) {
+        console.log(`[Illust Repair] "${draft.title}" — could not detect chapter boundaries, skipping`);
+        contentGenProgress.current++;
+        continue;
+      }
+
+      const chapters: string[] = [];
+      for (let ci = 0; ci < chapterStarts.length; ci++) {
+        const start = chapterStarts[ci];
+        const end = ci + 1 < chapterStarts.length ? chapterStarts[ci + 1] : lines.length;
+        chapters.push(lines.slice(start, end).join('\n'));
+      }
+
+      const emptyChapters: { index: number; title: string; text: string }[] = [];
+
+      for (let ci = 0; ci < chapters.length; ci++) {
+        const ch = chapters[ci];
+        const imageCount = (ch.match(/\/uploads\/illustrations\//g) || []).length;
+        if (imageCount < 2) {
+          const chTitle = ch.split('\n')[0].replace(/^\s*##\s*/, '').trim();
+          if (chTitle && chTitle.length >= 3) {
+            emptyChapters.push({ index: ci, title: chTitle, text: ch });
+          }
+        }
+      }
+
+      if (emptyChapters.length === 0) {
+        console.log(`[Illust Repair] "${draft.title}" — all chapters have illustrations already`);
+        contentGenProgress.current++;
+        continue;
+      }
+
+      const MAX_EMPTY_TO_FIX = 100;
+      if (emptyChapters.length > MAX_EMPTY_TO_FIX) {
+        console.log(`[Illust Repair] "${draft.title}" — ${emptyChapters.length} empty chapters found, capping to ${MAX_EMPTY_TO_FIX}`);
+        emptyChapters.length = MAX_EMPTY_TO_FIX;
+      }
+
+      console.log(`[Illust Repair] "${draft.title}" — ${emptyChapters.length} chapters without illustrations, injecting 2 per chapter...`);
+      let updatedContent = draft.content;
+      let totalInjected = 0;
+
+      for (const emptyCh of emptyChapters) {
+        try {
+          const response = await openaiReplit.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: `You are an illustration placement specialist for ${draft.genre} books. Read this chapter and suggest exactly 2 places where illustrations should be placed to enhance the reader experience.
+
+Output ONLY a JSON array of 2 objects with:
+- "after": the exact sentence or phrase after which the illustration should be placed (copy it exactly from the text)
+- "description": a detailed illustration description for AI image generation. Include: subject, composition, art style (${visualConfig.illustrationStyle}), colors, mood. Be extremely specific and visual.`
+              },
+              {
+                role: "user",
+                content: `Book: "${draft.title}" (${draft.genre})\nChapter: "${emptyCh.title}"\n\n${emptyCh.text.substring(0, 8000)}`
+              }
+            ],
+            temperature: 0.7,
+            response_format: { type: "json_object" },
+          });
+
+          const raw = response.choices[0]?.message?.content || "{}";
+          const parsed = JSON.parse(raw);
+          const placements: { after: string; description: string }[] = Array.isArray(parsed) ? parsed : (parsed.illustrations || parsed.placements || parsed.markers || []);
+
+          let chapterInjected = 0;
+          for (const p of placements) {
+            if (chapterInjected >= 2) break;
+            if (!p.after || !p.description) continue;
+
+            const afterIdx = updatedContent.indexOf(p.after);
+            if (afterIdx === -1) continue;
+
+            const insertPos = afterIdx + p.after.length;
+            const marker = `\n\n[ILLUSTRATION: ${p.description}]\n\n`;
+            updatedContent = updatedContent.substring(0, insertPos) + marker + updatedContent.substring(insertPos);
+            chapterInjected++;
+            totalInjected++;
+          }
+
+          console.log(`[Illust Repair] "${emptyCh.title}" — injected ${chapterInjected} markers`);
+        } catch (err: any) {
+          console.error(`[Illust Repair] Failed for chapter "${emptyCh.title}":`, err.message);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      console.log(`[Illust Repair] "${draft.title}" — injected ${totalInjected} new markers, now generating images...`);
+
+      await db.update(draftEbooks).set({ content: updatedContent }).where(eq(draftEbooks.id, draftId));
+
+      const updatedDraft = await db.select({ content: draftEbooks.content }).from(draftEbooks).where(eq(draftEbooks.id, draftId));
+      if (updatedDraft[0]?.content) {
+        const finalContent = await generateIllustrations(updatedDraft[0].content, draft.genre || "", draft.title || "", draftId);
+        await db.update(draftEbooks).set({ content: finalContent }).where(eq(draftEbooks.id, draftId));
+      }
+
+      console.log(`[Illust Repair] Completed "${draft.title}"`);
+      successCount++;
+      contentGenProgress.current++;
+    } catch (err: any) {
+      console.error(`[Illust Repair] Failed for draft ${draftId}:`, err.message);
+      failCount++;
+      contentGenProgress.current++;
+    }
+  }
+
+  contentGenProgress.running = false;
+  console.log(`[Illust Repair] Complete: ${successCount} succeeded, ${failCount} failed`);
+}
+
+export async function generateIllustrationsOnly(draftIds: number[]): Promise<void> {
+  if (contentGenProgress.running) {
+    throw new Error("Content generation is already running");
+  }
+
+  const drafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    content: draftEbooks.content,
+    status: draftEbooks.status,
+  }).from(draftEbooks).where(inArray(draftEbooks.id, draftIds));
+
+  const eligible = drafts.filter(d => {
+    if (!d.content) return false;
+    if (ILLUSTRATION_EXEMPT_DRAFT_IDS.has(d.id)) {
+      console.log(`[Illustrations Only] Draft ${d.id} "${d.title}" — illustration-exempt, skipping`);
+      return false;
+    }
+    if (isColoringBookGenre(d.genre || "")) {
+      const pageDir = `uploads/coloring-pages/${d.id}`;
+      const hasImages = fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter(f => f.endsWith('.png')).length >= 20;
+      return !hasImages;
+    }
+    if (isVisualEnhancedGenre(d.genre || "") && !d.content.includes('/uploads/illustrations/') && !d.content.includes('/objstore/illustrations/')) {
+      return true;
+    }
+    const allMarkers = [...d.content.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)];
+    const textMarkers = allMarkers.filter(m => {
+      const src = m[1].trim();
+      return !(src.startsWith("/") || src.startsWith("http"));
+    });
+    return textMarkers.length > 0;
+  });
+
+  if (eligible.length === 0) {
+    throw new Error("No eligible books found — need [ILLUSTRATION:] markers without existing images, or coloring books without pages");
+  }
+
+  console.log(`[Illustrations Only] Found ${eligible.length} books to add illustrations to:`);
+  for (const d of eligible) {
+    console.log(`  - [${d.status}] ${d.genre}: "${d.title}" (ID ${d.id})`);
+  }
+
+  contentGenProgress = { total: eligible.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
+  illustrationProgress = { running: true, bookId: null, bookTitle: "", totalBooks: eligible.length, completedBooks: 0, currentImage: 0, totalImages: 0, lastGeneratedFile: "" };
+
+  (async () => {
+    for (let ii = 0; ii < eligible.length; ii++) {
+      const draft = eligible[ii];
+      if (!contentGenProgress.running) break;
+      try {
+        contentGenProgress.current = draft.title || "Unknown";
+        contentGenProgress.currentId = draft.id;
+        const nextD = ii + 1 < eligible.length ? eligible[ii + 1] : null;
+        contentGenProgress.nextTitle = nextD?.title || "";
+        contentGenProgress.nextId = nextD?.id || null;
+        illustrationProgress.bookId = draft.id;
+        illustrationProgress.bookTitle = draft.title || "Unknown";
+        illustrationProgress.currentImage = 0;
+        illustrationProgress.totalImages = 0;
+        console.log(`[Illustrations Only] Processing ${contentGenProgress.completed + 1}/${eligible.length}: "${draft.title}" (${draft.genre})`);
+
+        if (isColoringBookGenre(draft.genre || "")) {
+          console.log(`[Illustrations Only] "${draft.title}" is a coloring book — generating coloring pages...`);
+          await generateColoringBookContent(draft.id);
+        } else {
+          let currentContent = draft.content!;
+          const existingMarkers = [...currentContent.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)].filter(m => {
+            const src = m[1].trim();
+            return !(src.startsWith("/") || src.startsWith("http"));
+          });
+          if (existingMarkers.length === 0 && isVisualEnhancedGenre(draft.genre || "")) {
+            console.log(`[Illustrations Only] "${draft.title}" has no markers — injecting illustration markers first...`);
+            currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+            await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draft.id));
+          }
+          let updatedContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
+          await db.update(draftEbooks).set({ content: updatedContent }).where(eq(draftEbooks.id, draft.id));
+
+          if (draft.status === "published") {
+            console.log(`[Illustrations Only] Updated draft content with illustrations for published book "${draft.title}"`);
+          }
+        }
+
+        contentGenProgress.completed++;
+        illustrationProgress.completedBooks++;
+        console.log(`[Illustrations Only] Completed "${draft.title}"`);
+      } catch (error) {
+        console.error(`[Illustrations Only] Failed: "${draft.title}":`, error);
+        contentGenProgress.failed.push(draft.title || `ID ${draft.id}`);
+        contentGenProgress.completed++;
+        illustrationProgress.completedBooks++;
+      }
+      // Longer pause between books to let V8 GC reclaim image buffer memory
+      await new Promise(resolve => setTimeout(resolve, 12000));
+      if (typeof (global as any).gc === "function") {
+        (global as any).gc();
+        console.log("[Illustrations Only] GC triggered between books");
+      }
+    }
+    contentGenProgress.running = false;
+    contentGenProgress.current = "";
+    illustrationProgress.running = false;
+    illustrationProgress.bookId = null;
+    illustrationProgress.bookTitle = "";
+    console.log(`[Illustrations Only] Complete: ${contentGenProgress.completed - contentGenProgress.failed.length} succeeded, ${contentGenProgress.failed.length} failed`);
+    await runPendingIllustrations();
+  })().catch(err => {
+    console.error("[Illustrations Only] Batch failed:", err);
+    contentGenProgress.running = false;
+    illustrationProgress.running = false;
+    runPendingIllustrations();
+  });
+}
+
+const TARGETED_REWRITE_FILE = '.targeted-rewrite-ids.json';
+
+function saveTargetedRewriteIds(ids: number[]): void {
+  fs.writeFileSync(TARGETED_REWRITE_FILE, JSON.stringify(ids));
+}
+
+function loadTargetedRewriteIds(): number[] | null {
+  try {
+    if (fs.existsSync(TARGETED_REWRITE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TARGETED_REWRITE_FILE, 'utf8'));
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch {}
+  return null;
+}
+
+function removeCompletedTargetedId(id: number): void {
+  const ids = loadTargetedRewriteIds();
+  if (!ids) return;
+  const remaining = ids.filter(i => i !== id);
+  if (remaining.length === 0) {
+    clearTargetedRewriteFile();
+  } else {
+    saveTargetedRewriteIds(remaining);
+  }
+}
+
+function clearTargetedRewriteFile(): void {
+  try { if (fs.existsSync(TARGETED_REWRITE_FILE)) fs.unlinkSync(TARGETED_REWRITE_FILE); } catch {}
+}
+
+export async function autoResumeTargetedOrBulk(): Promise<void> {
+  const targetedIds = loadTargetedRewriteIds();
+  if (targetedIds && targetedIds.length > 0) {
+    console.log(`[Auto-Resume] Found ${targetedIds.length} targeted rewrite IDs — resuming in 15 seconds...`);
+    setTimeout(async () => {
+      try {
+        if (contentGenProgress.running) {
+          console.log(`[Auto-Resume] Generation already running — skipping targeted resume`);
+          return;
+        }
+        await rewriteSpecificDrafts(targetedIds);
+        console.log(`[Auto-Resume] Targeted rewrite resumed successfully`);
+      } catch (err) {
+        console.error(`[Auto-Resume] Failed to resume targeted rewrite:`, err);
+      }
+    }, 15000);
+  } else {
+    await autoResumeBulkGeneration();
+  }
+}
+
+export async function rewriteSpecificDrafts(draftIds: number[]): Promise<void> {
+  if (contentGenProgress.running) {
+    throw new Error("Content generation is already running");
+  }
+
+  const drafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    topic: draftEbooks.topic,
+    content: draftEbooks.content,
+    outline: draftEbooks.outline,
+    status: draftEbooks.status,
+  }).from(draftEbooks).where(inArray(draftEbooks.id, draftIds));
+
+  if (drafts.length === 0) {
+    throw new Error("No drafts found with the given IDs");
+  }
+
+  const workItems: { draft: typeof drafts[0]; action: "full-rewrite" | "illustrations-only" | "coloring-pages" | "intro-repair" | "continue-content" | "chapter-repair"; reason: string }[] = [];
+
+  for (const d of drafts) {
+    if (isColoringBookGenre(d.genre || "")) {
+      const pageDir = `uploads/coloring-pages/${d.id}`;
+      const hasImages = fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter(f => f.endsWith('.png')).length >= 20;
+      workItems.push({ draft: d, action: hasImages ? "full-rewrite" : "coloring-pages", reason: hasImages ? "forced rewrite" : "missing coloring pages" });
+      continue;
+    }
+
+    const contentText = d.content || "";
+    const contentWords = contentText.split(/\s+/).filter(w => w.length > 0).length;
+    const outlineText = d.outline || "";
+    const outlineHasMarkers = outlineText.includes('Story Architect') || outlineText.includes('Technique Map') || outlineText.includes('technique');
+    const outlineChapterCount = (outlineText.match(/##\s*(Chapter|Part)\s+\d+/gi) || []).length;
+    const contentChapterCount = (contentText.match(/##\s*(Chapter|Part)\s+\d+/gi) || []).length;
+    const contentIncomplete = outlineHasMarkers && outlineChapterCount > 0 && contentChapterCount < outlineChapterCount;
+
+    if (contentIncomplete) {
+      workItems.push({ draft: d, action: "continue-content", reason: `interrupted — has ${contentChapterCount}/${outlineChapterCount} chapters written (${contentWords} words), outline intact — resuming from where it left off` });
+      continue;
+    }
+
+    if (ILLUSTRATION_EXEMPT_DRAFT_IDS.has(d.id)) {
+      console.log(`[Targeted Rewrite] "${d.title}" (ID ${d.id}) — illustration-exempt, skipping`);
+      continue;
+    }
+
+    if (d.content && isVisualEnhancedGenre(d.genre || "")) {
+      const hasMarkers = d.content.includes('[ILLUSTRATION:');
+      const hasActualImages = d.content.includes('/uploads/illustrations/') || d.content.includes('/objstore/illustrations/');
+      const hasUnprocessedMarkers = hasMarkers && !hasActualImages;
+      const hasPartialImages = hasMarkers && hasActualImages && (d.content.match(/\[ILLUSTRATION:\s*(?!\/uploads|\/objstore)[^\]]+\]/gi) || []).length > 0;
+
+      if (hasUnprocessedMarkers || hasPartialImages) {
+        workItems.push({ draft: d, action: "illustrations-only", reason: hasPartialImages ? "has partially generated images — continuing" : "has markers but no images" });
+      } else if (hasActualImages) {
+        console.log(`[Targeted Rewrite] "${d.title}" already has illustrations — skipping (no work needed)`);
+        continue;
+      } else {
+        const rewriteCheck = needsFullRewrite(d.content, d.outline, d.genre || "");
+        if (rewriteCheck.needed && !rewriteCheck.introOnly) {
+          if (contentWords >= 15000 && contentChapterCount >= 5) {
+            workItems.push({ draft: d, action: "chapter-repair", reason: `${rewriteCheck.reason} — but has ${contentWords} words/${contentChapterCount} chapters, analyzing chapter-by-chapter then adding illustrations` });
+          } else {
+            workItems.push({ draft: d, action: "full-rewrite", reason: rewriteCheck.reason });
+          }
+        } else if (rewriteCheck.needed && rewriteCheck.introOnly) {
+          workItems.push({ draft: d, action: "intro-repair", reason: rewriteCheck.reason + " — then inject illustrations" });
+        } else {
+          workItems.push({ draft: d, action: "illustrations-only", reason: "good content but missing illustration markers — will inject and generate (no rewrite needed)" });
+        }
+      }
+    } else {
+      const rewriteCheck = needsFullRewrite(d.content, d.outline, d.genre || "");
+      if (rewriteCheck.needed && !rewriteCheck.introOnly) {
+        if (contentWords >= 15000 && contentChapterCount >= 5) {
+          workItems.push({ draft: d, action: "chapter-repair", reason: `${rewriteCheck.reason} — but has ${contentWords} words/${contentChapterCount} chapters, analyzing chapter-by-chapter to salvage good content` });
+        } else {
+          workItems.push({ draft: d, action: "full-rewrite", reason: rewriteCheck.reason });
+        }
+      } else if (rewriteCheck.needed && rewriteCheck.introOnly) {
+        workItems.push({ draft: d, action: "intro-repair", reason: rewriteCheck.reason });
+      } else {
+        console.log(`[Targeted Rewrite] "${d.title}" already has good multi-author content — skipping (no work needed)`);
+        continue;
+      }
+    }
+  }
+
+  const fullRewrites = workItems.filter(w => w.action === "full-rewrite");
+  const introRepairs = workItems.filter(w => w.action === "intro-repair");
+  const illustrationsOnly = workItems.filter(w => w.action === "illustrations-only");
+  const coloringPages = workItems.filter(w => w.action === "coloring-pages");
+  const continueContent = workItems.filter(w => w.action === "continue-content");
+  const chapterRepairs = workItems.filter(w => w.action === "chapter-repair");
+
+  console.log(`[Targeted Rewrite] Found ${workItems.length} books:`);
+  console.log(`  Continue content: ${continueContent.length} (interrupted — resuming from outline)`);
+  console.log(`  Chapter repairs: ${chapterRepairs.length} (analyze each chapter, only fix broken ones — saves API cost)`);
+  console.log(`  Full rewrites: ${fullRewrites.length}`);
+  console.log(`  Intro repairs: ${introRepairs.length} (cheap — fixes opening paragraphs only)`);
+  console.log(`  Illustrations only: ${illustrationsOnly.length}`);
+  console.log(`  Coloring pages: ${coloringPages.length}`);
+  for (const w of workItems) {
+    console.log(`  - [${w.action}] [${w.draft.status}] ${w.draft.genre}: "${w.draft.title}" (ID ${w.draft.id}) — ${w.reason}`);
+  }
+
+  saveTargetedRewriteIds(workItems.map(w => w.draft.id));
+
+  contentGenProgress = { total: workItems.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
+
+  (async () => {
+    for (let ti = 0; ti < workItems.length; ti++) {
+      const work = workItems[ti];
+      if (!contentGenProgress.running) break;
+      const draft = work.draft;
+      try {
+        contentGenProgress.current = draft.title || "Unknown";
+        contentGenProgress.currentId = draft.id;
+        const nextW = ti + 1 < workItems.length ? workItems[ti + 1] : null;
+        contentGenProgress.nextTitle = nextW?.draft.title || "";
+        contentGenProgress.nextId = nextW?.draft.id || null;
+        console.log(`[Targeted Rewrite] [${work.action}] ${contentGenProgress.completed + 1}/${workItems.length}: "${draft.title}" (${draft.genre}, ${draft.status})`);
+
+        const previousStatus = draft.status;
+
+        if (work.action === "coloring-pages") {
+          console.log(`[Targeted Rewrite] Generating coloring pages for "${draft.title}"...`);
+          await generateColoringBookContent(draft.id);
+        } else if (work.action === "intro-repair") {
+          console.log(`[Targeted Rewrite] Scanning all chapters for fiction-style openings in "${draft.title}" (${draft.genre})...`);
+          await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draft.id));
+
+          let currentContent = draft.content!;
+          const chapterSplitPattern = /^(## Chapter \d+[^\n]*)/gm;
+          const chapterParts: { heading: string; body: string; startIdx: number }[] = [];
+          let match;
+
+          const allMatches: { heading: string; idx: number }[] = [];
+          while ((match = chapterSplitPattern.exec(currentContent)) !== null) {
+            allMatches.push({ heading: match[1], idx: match.index });
+          }
+
+          let preface = "";
+          if (allMatches.length > 0 && allMatches[0].idx > 0) {
+            preface = currentContent.substring(0, allMatches[0].idx);
+          }
+
+          for (let ci = 0; ci < allMatches.length; ci++) {
+            const start = allMatches[ci].idx;
+            const end = ci + 1 < allMatches.length ? allMatches[ci + 1].idx : currentContent.length;
+            const fullChapter = currentContent.substring(start, end);
+            const headingEnd = fullChapter.indexOf('\n');
+            chapterParts.push({
+              heading: fullChapter.substring(0, headingEnd > 0 ? headingEnd : fullChapter.length),
+              body: fullChapter.substring(headingEnd > 0 ? headingEnd : fullChapter.length),
+              startIdx: start
+            });
+          }
+
+          let chaptersFixed = 0;
+          for (let ci = 0; ci < chapterParts.length; ci++) {
+            const ch = chapterParts[ci];
+            const openingText = ch.body.substring(0, 3000);
+            const openingScore = detectFictionStyleContent(openingText, true);
+
+            if (openingScore >= 4) {
+              console.log(`[Intro Repair] Chapter ${ci + 1} "${ch.heading}" has fiction-style opening (score: ${openingScore}) — repairing...`);
+
+              const nextChapterContext = ci + 1 < chapterParts.length
+                ? chapterParts[ci + 1].body.substring(0, 1500)
+                : "";
+
+              const repairPrompt = `You are rewriting ONLY the opening paragraphs of a chapter in a ${draft.genre} book titled "${draft.title}".
+
+The chapter's opening reads like a novel with fictional narrative, scene-setting, and character actions. This is WRONG for a ${draft.genre} book.
+
+Rewrite the chapter opening to match how a real published ${draft.genre} book chapter would begin:
+- Use the appropriate tone and structure for ${draft.genre}
+- Start with what the reader will learn in this chapter, a compelling insight, or a direct entry into the subject matter
+- Keep the chapter heading exactly as-is: ${ch.heading}
+- Preserve all instructional/educational content that comes after the problematic opening
+- Match the quality and depth of the correctly-written portions
+- Only rewrite the fiction-style opening paragraphs — once the content transitions to proper ${draft.genre} style, keep everything from that point onward unchanged
+
+FULL CHAPTER TO FIX:
+${ch.heading}
+${ch.body}
+
+${nextChapterContext ? `NEXT CHAPTER OPENING (for tone reference only — do NOT include):
+${nextChapterContext}` : ""}
+
+Return the COMPLETE fixed chapter starting with the heading "${ch.heading}". Keep all correctly-written content intact.`;
+
+              const repaired = await callAIProvider(repairPrompt, 0.7, 16000);
+
+              if (repaired && repaired.length > ch.body.length * 0.5) {
+                const cleanRepaired = repaired.trim();
+                chapterParts[ci] = {
+                  heading: ch.heading,
+                  body: cleanRepaired.startsWith(ch.heading)
+                    ? cleanRepaired.substring(ch.heading.length)
+                    : '\n' + cleanRepaired,
+                  startIdx: ch.startIdx
+                };
+                chaptersFixed++;
+                console.log(`[Intro Repair] Chapter ${ci + 1} fixed (${repaired.split(/\s+/).length} words)`);
+              } else {
+                console.log(`[Intro Repair] Chapter ${ci + 1} — AI response too short, keeping original`);
+              }
+            }
+          }
+
+          if (chaptersFixed > 0) {
+            currentContent = preface;
+            for (const ch of chapterParts) {
+              currentContent += ch.heading + ch.body;
+            }
+            console.log(`[Intro Repair] "${draft.title}" — fixed ${chaptersFixed}/${chapterParts.length} chapters, total ${currentContent.split(/\s+/).length} words`);
+          } else {
+            console.log(`[Intro Repair] "${draft.title}" — no chapters needed fixing after detailed scan`);
+          }
+
+          if (isVisualEnhancedGenre(draft.genre || "")) {
+            const markerCount = (currentContent.match(/\[ILLUSTRATION:/g) || []).length;
+            if (markerCount === 0) {
+              console.log(`[Intro Repair] "${draft.title}" — injecting illustration markers...`);
+              currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+            }
+            currentContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
+          }
+
+          await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draft.id));
+
+          if (previousStatus === "published") {
+            await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
+            console.log(`[Intro Repair] Restored published status for "${draft.title}"`);
+          } else {
+            await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+          }
+        } else if (work.action === "chapter-repair") {
+          console.log(`[Chapter Repair] Analyzing "${draft.title}" chapter-by-chapter to find what needs fixing...`);
+          await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draft.id));
+
+          let currentContent = draft.content!;
+          const chapterSplitPattern = /^(#{1,2}\s+(?:Chapter|Part)\s+\d+[^\n]*)/gm;
+          const allMatches: { heading: string; idx: number }[] = [];
+          let match;
+          while ((match = chapterSplitPattern.exec(currentContent)) !== null) {
+            allMatches.push({ heading: match[1], idx: match.index });
+          }
+
+          let preface = allMatches.length > 0 && allMatches[0].idx > 0 ? currentContent.substring(0, allMatches[0].idx) : "";
+          const chapterParts: { heading: string; body: string }[] = [];
+          for (let ci = 0; ci < allMatches.length; ci++) {
+            const start = allMatches[ci].idx;
+            const end = ci + 1 < allMatches.length ? allMatches[ci + 1].idx : currentContent.length;
+            const fullChapter = currentContent.substring(start, end);
+            const headingEnd = fullChapter.indexOf('\n');
+            chapterParts.push({
+              heading: fullChapter.substring(0, headingEnd > 0 ? headingEnd : fullChapter.length),
+              body: fullChapter.substring(headingEnd > 0 ? headingEnd : fullChapter.length),
+            });
+          }
+
+          console.log(`[Chapter Repair] Found ${chapterParts.length} chapters — analyzing each one...`);
+          let chaptersFixed = 0;
+          let chaptersKept = 0;
+
+          for (let ci = 0; ci < chapterParts.length; ci++) {
+            const ch = chapterParts[ci];
+            const chapterWords = ch.body.split(/\s+/).filter(w => w.length > 0).length;
+
+            if (chapterWords < 800) {
+              console.log(`[Chapter Repair] Chapter ${ci + 1} "${ch.heading}" — only ${chapterWords} words, too thin — rewriting...`);
+            } else {
+              const qualityPrompt = `Analyze this chapter from a "${draft.genre}" book titled "${draft.title}". Rate its quality 1-10 based on: depth of content, usefulness, professional tone, and whether it reads like a published book. Reply with ONLY a number 1-10 and a one-line reason. Example: "7 - Good depth but could use more examples"\n\n${ch.heading}\n${ch.body.substring(0, 6000)}`;
+              
+              let qualityScore = 7;
+              try {
+                const analysis = await callAIProvider(qualityPrompt, 0.3, 200);
+                const scoreMatch = analysis?.match(/^(\d+)/);
+                qualityScore = scoreMatch ? parseInt(scoreMatch[1]) : 7;
+                console.log(`[Chapter Repair] Chapter ${ci + 1} "${ch.heading}" — score: ${qualityScore}/10 (${chapterWords} words) — ${analysis?.substring(0, 80)}`);
+              } catch {
+                console.log(`[Chapter Repair] Chapter ${ci + 1} — analysis failed, keeping as-is`);
+                chaptersKept++;
+                continue;
+              }
+
+              if (qualityScore >= 6) {
+                chaptersKept++;
+                continue;
+              }
+              console.log(`[Chapter Repair] Chapter ${ci + 1} scored ${qualityScore}/10 — rewriting...`);
+            }
+
+            const repairPrompt = `You are rewriting a chapter for a "${draft.genre}" book titled "${draft.title}".
+
+The existing chapter is below but needs improvement. Rewrite it to match published book quality:
+- Keep the same topic and chapter heading
+- Write with the depth, detail, and authority of a bestselling ${draft.genre} book
+- Use industry-standard chapter length for ${draft.genre} (typically 2000-4000 words)
+- Include practical examples, actionable advice, and expert-level insight
+- Match the tone appropriate for ${draft.genre}
+
+EXISTING CHAPTER:
+${ch.heading}
+${ch.body.substring(0, 8000)}
+
+Return the COMPLETE rewritten chapter starting with the heading "${ch.heading}".`;
+
+            try {
+              const repaired = await callAIProvider(repairPrompt, 0.7, 16000);
+              if (repaired && repaired.split(/\s+/).length >= 800) {
+                const cleanRepaired = repaired.trim();
+                chapterParts[ci] = {
+                  heading: ch.heading,
+                  body: cleanRepaired.startsWith(ch.heading)
+                    ? cleanRepaired.substring(ch.heading.length)
+                    : '\n' + cleanRepaired,
+                };
+                chaptersFixed++;
+                console.log(`[Chapter Repair] Chapter ${ci + 1} rewritten (${repaired.split(/\s+/).length} words)`);
+              } else {
+                console.log(`[Chapter Repair] Chapter ${ci + 1} — AI response too short, keeping original`);
+                chaptersKept++;
+              }
+            } catch (err: any) {
+              console.log(`[Chapter Repair] Chapter ${ci + 1} — rewrite failed: ${err.message}, keeping original`);
+              chaptersKept++;
+            }
+          }
+
+          currentContent = preface;
+          for (const ch of chapterParts) {
+            currentContent += ch.heading + ch.body;
+          }
+
+          const outlineMarker = `\n\n<!-- Story Architect Multi-Author Pipeline -->`;
+          if (!currentContent.includes('Story Architect')) {
+            currentContent += outlineMarker;
+          }
+
+          console.log(`[Chapter Repair] "${draft.title}" — ${chaptersFixed} chapters rewritten, ${chaptersKept} kept as-is (${currentContent.split(/\s+/).length} total words)`);
+
+          if (isVisualEnhancedGenre(draft.genre || "")) {
+            const markerCount = (currentContent.match(/\[ILLUSTRATION:/g) || []).length;
+            if (markerCount === 0) {
+              console.log(`[Chapter Repair] Injecting illustration markers...`);
+              currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+            }
+            currentContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
+          }
+
+          await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draft.id));
+
+          if (previousStatus === "published") {
+            await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
+            console.log(`[Chapter Repair] Restored published status for "${draft.title}"`);
+          } else {
+            await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+          }
+        } else if (work.action === "continue-content") {
+          console.log(`[Targeted Rewrite] Resuming interrupted content generation for "${draft.title}"...`);
+          await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draft.id));
+          await generateContentForDraft(draft.id);
+
+          const [updated] = await db.select({ content: draftEbooks.content }).from(draftEbooks).where(eq(draftEbooks.id, draft.id));
+          if (updated?.content && isVisualEnhancedGenre(draft.genre || "")) {
+            let currentContent = updated.content;
+            const markerCount = (currentContent.match(/\[ILLUSTRATION:/g) || []).length;
+            if (markerCount === 0) {
+              console.log(`[Targeted Rewrite] "${draft.title}" — injecting illustration markers after content resume...`);
+              currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+            }
+            currentContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
+            await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draft.id));
+          }
+
+          if (previousStatus === "published") {
+            await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
+            console.log(`[Targeted Rewrite] Restored published status for "${draft.title}" after content resume`);
+          } else {
+            await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+          }
+        } else if (work.action === "illustrations-only") {
+          console.log(`[Targeted Rewrite] Adding illustrations to existing content for "${draft.title}"...`);
+          let currentContent = draft.content!;
+          const existingMarkers = (currentContent.match(/\[ILLUSTRATION:/g) || []).length;
+          if (existingMarkers === 0) {
+            console.log(`[Targeted Rewrite] "${draft.title}" has no markers — injecting illustration markers first...`);
+            currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+            await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draft.id));
+          }
+          let updatedContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
+          await db.update(draftEbooks).set({ content: updatedContent }).where(eq(draftEbooks.id, draft.id));
+
+          if (previousStatus === "published") {
+            await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
+            console.log(`[Targeted Rewrite] Restored published status for "${draft.title}" after illustrations`);
+          }
+        } else {
+          const illustrationDir = `uploads/illustrations`;
+          if (fs.existsSync(illustrationDir)) {
+            const oldIllustrations = fs.readdirSync(illustrationDir).filter(f => f.startsWith(`draft-${draft.id}-`));
+            for (const file of oldIllustrations) {
+              fs.unlinkSync(`${illustrationDir}/${file}`);
+            }
+            if (oldIllustrations.length > 0) {
+              console.log(`[Targeted Rewrite] Cleared ${oldIllustrations.length} old illustrations for draft ${draft.id}`);
+            }
+          }
+
+          await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draft.id));
+          await generateContentForDraft(draft.id);
+
+          if (previousStatus === "published") {
+            await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
+
+            console.log(`[Targeted Rewrite] Restored published status for "${draft.title}" after rewrite`);
+
+          }
+        }
+
+        contentGenProgress.completed++;
+        removeCompletedTargetedId(draft.id);
+        console.log(`[Targeted Rewrite] Completed "${draft.title}"`);
+      } catch (error) {
+        console.error(`[Targeted Rewrite] Failed: "${draft.title}":`, error);
+        contentGenProgress.failed.push(draft.title || `ID ${draft.id}`);
+        contentGenProgress.completed++;
+        console.log(`[Targeted Rewrite] Keeping "${draft.title}" (ID ${draft.id}) in retry list for next restart`);
+        if (draft.status === "published") {
+          await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+    const remainingIds = loadTargetedRewriteIds();
+    const failedCount = contentGenProgress.failed.length;
+    const succeededCount = contentGenProgress.completed - failedCount;
+    console.log(`[Targeted Rewrite] Batch complete: ${succeededCount} succeeded, ${failedCount} failed`);
+
+    if (remainingIds && remainingIds.length > 0 && failedCount > 0) {
+      console.log(`[Targeted Rewrite] ${remainingIds.length} books failed — auto-retrying in 30 seconds...`);
+      contentGenProgress.running = false;
+      contentGenProgress.current = "";
+      setTimeout(async () => {
+        try {
+          const retryIds = loadTargetedRewriteIds();
+          if (retryIds && retryIds.length > 0 && !contentGenProgress.running) {
+            console.log(`[Targeted Rewrite] Auto-retrying ${retryIds.length} failed books...`);
+            await rewriteSpecificDrafts(retryIds);
+          }
+        } catch (err: any) {
+          console.error(`[Targeted Rewrite] Auto-retry failed:`, err?.message);
+        }
+      }, 30000);
+    } else {
+      clearTargetedRewriteFile();
+      contentGenProgress.running = false;
+      contentGenProgress.current = "";
+    }
+  })().catch(err => {
+    console.error("[Targeted Rewrite] Batch failed:", err);
+    contentGenProgress.running = false;
+  });
+}
+
+export async function generateCoverImage(title: string, genre: string, draftId: number = 0): Promise<{ coverUrl: string; backgroundUrl: string }> {
+  // 30 diverse color schemes for maximum variety
+  const colorSchemes = [
+    "deep burgundy, antique gold, and mahogany brown",
+    "midnight blue, silver, and charcoal gray",
+    "forest green, bronze, and cream",
+    "royal purple, gold leaf, and black",
+    "burnt orange, copper, and dark chocolate",
+    "teal, rose gold, and ivory",
+    "crimson red, black, and gold",
+    "sage green, blush pink, and white",
+    "navy blue, coral, and sand",
+    "emerald green, pearl white, and gold",
+    "dusty rose, champagne, and dove gray",
+    "cobalt blue, amber, and cream",
+    "plum purple, silver, and midnight black",
+    "terracotta, olive green, and tan",
+    "sapphire blue, gold, and burgundy",
+    "ocean teal, sunset orange, and sandy beige",
+    "lavender purple, soft mint, and pearl white",
+    "charcoal black, electric blue, and silver",
+    "warm honey gold, deep brown, and cream",
+    "ice blue, arctic white, and silver frost",
+    "cherry blossom pink, soft gray, and white",
+    "deep forest green, golden amber, and black",
+    "sunset coral, peachy orange, and warm ivory",
+    "stormy gray, lightning white, and deep indigo",
+    "antique bronze, weathered copper, and aged parchment",
+    "midnight violet, starlight silver, and cosmic black",
+    "autumn rust, golden wheat, and deep olive",
+    "Caribbean turquoise, tropical coral, and sandy cream",
+    "Victorian mauve, dusty gold, and aged ivory",
+    "Nordic blue, winter white, and birch gray"
+  ];
+
+  // 25 diverse design styles
+  const designStyles = [
+    "dark academia aesthetic with vintage library feel",
+    "minimalist modern design with bold geometric shapes",
+    "art deco style with elegant patterns and lines",
+    "watercolor artistic style with soft gradients",
+    "vintage botanical illustration style",
+    "gothic romantic aesthetic with ornate details",
+    "contemporary clean design with gradient backgrounds",
+    "classic literary style with embossed texture look",
+    "moody atmospheric with dramatic lighting",
+    "elegant baroque inspired ornamental design",
+    "abstract expressionist with bold brushstrokes",
+    "celestial mystical theme with stars and moons",
+    "nature-inspired with organic flowing elements",
+    "retro vintage 1920s poster style",
+    "sophisticated marble and metallic textures",
+    "Japanese ukiyo-e inspired woodblock print style",
+    "Nordic Scandinavian minimalist with clean lines",
+    "steampunk Victorian with gears and mechanical elements",
+    "impressionist painting style with soft light",
+    "art nouveau with flowing organic curves and borders",
+    "surrealist dreamlike imagery with unexpected elements",
+    "photorealistic cinematic movie poster style",
+    "folk art style with handcrafted rustic charm",
+    "neon cyberpunk with glowing accents and city lights",
+    "renaissance classical painting aesthetic"
+  ];
+
+  // 20 composition styles for layout variety
+  const compositionStyles = [
+    "centered symmetrical composition",
+    "dramatic diagonal composition",
+    "rule of thirds balanced layout",
+    "minimalist negative space focus",
+    "layered depth with foreground and background",
+    "circular vignette framing",
+    "split composition with contrasting halves",
+    "golden ratio spiral composition",
+    "floating elements with dreamlike arrangement",
+    "dramatic close-up focus",
+    "panoramic wide view",
+    "triangular balanced composition",
+    "border frame with central focal point",
+    "asymmetrical dynamic balance",
+    "radial burst from center",
+    "stacked horizontal layers",
+    "vertical tower composition",
+    "scattered organic arrangement",
+    "bold silhouette against gradient",
+    "overlapping transparent layers"
+  ];
+
+  // Expanded genre-specific imagery with realistic features (people, buildings, animals, vehicles)
+  const imageElements: Record<string, string[]> = {
+    "Fantasy": ["majestic castle on misty mountain with a knight on horseback", "magical forest with a young wizard discovering ancient runes", "dragon flying over medieval village with villagers watching", "warrior woman holding enchanted sword in stone temple", "mystical portal with robed sorcerer stepping through", "wizard tower at twilight with owl perched on window", "phoenix rising from flames above ancient ruins", "floating islands with elegant bridges and travelers crossing", "enchanted crystal cave with explorer holding lantern", "unicorn in moonlit meadow with fairy companions"],
+    "Science Fiction": ["futuristic cityscape with flying cars and people on hover platforms", "astronaut looking at sleek spaceship among stars", "alien planet landscape with explorers in space suits", "scientist working with holographic display interface", "cosmic nebula with space station and astronauts", "realistic android with human features in laboratory", "wormhole portal with spacecraft entering", "space station orbiting Earth with astronauts on spacewalk", "bioluminescent alien flora with research team exploring", "cyborg woman with glowing eyes in neon city"],
+    "Romance": ["couple walking through romantic garden at sunset", "lovers on sunset beach with golden light", "elegant couple dancing in ballroom with chandelier", "man giving roses to woman in Parisian cafe", "couple under umbrella in starlit rain", "wedding scene with beautiful bride and groom", "romantic dinner for two with candles", "couple embracing on balcony overlooking city", "vintage love letter being read by woman in period dress", "couple riding horses along beach at dawn"],
+    "Horror": ["haunted Victorian mansion with ghostly figure in window", "person walking through misty graveyard at night", "mysterious shadow figure in doorway of old house", "wolf howling at eerie blood moon on hilltop", "abandoned asylum corridor with nurse ghost", "spectral woman in white floating through dark forest", "terrified person looking at old cursed mirror", "creepy Victorian doll on antique chair", "vampire castle on cliff with bats flying", "zombie hands reaching from grave"],
+    "Mystery / Thriller": ["detective with magnifying glass examining clues in study", "man in trench coat on foggy London street at night", "woman finding old skeleton key in secret drawer", "shadowy figure watching from dark alley", "crime scene with detective taking notes", "spy woman with coded message in elegant dress", "noir detective in rain-soaked city alley", "mysterious letter being opened with trembling hands", "detective duo investigating abandoned warehouse", "woman running through dark streets being chased"],
+    "Self-Help / Personal Development": ["person standing triumphant on mountain summit at sunrise", "woman meditating peacefully at rising sun horizon", "man walking confidently on pathway through forest", "person planting tree sapling with hope", "traveler with compass pointing north on journey", "woman emerging like butterfly from cocoon transformation", "businessman climbing ladder reaching into clouds", "team putting puzzle pieces together successfully", "person doing yoga on beach at sunrise", "confident woman giving presentation to audience"],
+    "Business / Entrepreneurship": ["professional businessman overlooking modern city skyline", "team celebrating around ascending business chart", "executive handshake in glass office building", "woman CEO in boardroom presenting strategy", "startup team brainstorming with whiteboard ideas", "entrepreneur launching product at tech conference", "professional networking event with diverse people", "successful business owner in front of company building", "team meeting in modern office with city view", "investor reviewing portfolio on tablet in luxury car"],
+    "Finance / Investing": ["trader analyzing stock market charts on multiple screens", "wealthy person with golden coins and investment papers", "bull and bear statues on Wall Street with traders", "banker in vault with gold bars and cash", "family celebrating paying off mortgage on house", "investor reviewing real estate properties", "retirement couple enjoying beach vacation from savings", "financial advisor meeting with young couple", "stock exchange floor with traders working", "person unlocking golden vault door to wealth"],
+    "Health & Wellness": ["woman doing yoga by serene mountain lake", "runner jogging on beautiful forest trail at sunrise", "person receiving relaxing spa massage treatment", "healthy family preparing smoothies in bright kitchen", "meditation class group in peaceful zen garden", "doctor and patient having positive consultation", "elderly couple walking hand in hand in park", "athlete stretching before marathon in city", "woman practicing mindfulness in blooming garden", "fitness trainer helping client with exercise"],
+    "Psychology": ["therapist and patient in comfortable counseling session", "person looking at reflection discovering inner self", "brain visualization with neural pathways lighting up", "group therapy session with supportive circle", "child psychologist playing with young patient", "person breaking free from chains representing anxiety", "couple in marriage counseling holding hands", "student studying psychology books in library", "dream analysis with sleeping person and thought bubbles", "emotional breakthrough moment with tears of joy"],
+    "Spirituality": ["monk meditating in ancient temple at dawn", "person in prayer pose with divine light rays", "peaceful temple garden with koi pond and bridge", "northern lights aurora with person watching in awe", "meditation retreat group in mountain monastery", "priest or spiritual leader blessing congregation", "person lighting candles at sacred altar", "cosmic consciousness visualization with meditating figure", "pilgrimage journey to sacred mountain peak", "zen master teaching student in tranquil garden"],
+    "History": ["historian studying ancient scrolls and maps in library", "medieval battle scene with knights on horseback", "explorer discovering ancient castle ruins in jungle", "Victorian era family portrait in elegant home", "ancient Roman columns with toga-clad figures", "World War soldiers in trenches", "archaeological team discovering ancient artifacts", "medieval king and queen in throne room", "ancient Egyptian pharaoh with pyramids", "Renaissance artist painting in studio"],
+    "Cookbooks": ["professional chef presenting gourmet dish in restaurant", "family cooking together in rustic farmhouse kitchen", "fresh ingredients arranged on wooden cutting board", "baker decorating beautiful wedding cake", "wine sommelier in cellar with cheese pairing", "street food vendor cooking delicious meal", "grandmother teaching grandchild family recipe", "farm to table dinner party outdoors", "sushi chef preparing fresh fish artfully", "Italian nonna making fresh pasta by hand"],
+    "Poetry": ["poet writing with quill pen by candlelight", "woman reading poetry book by moonlit window", "couple walking through falling autumn leaves in park", "lonely person on empty bench contemplating life", "writer watching rain on window glass for inspiration", "ballet dancer creating shadow art on stage", "artist under starry night sky like Van Gogh", "solitary figure under ancient tree at sunset", "poet reciting to small audience in cafe", "woman in flowing dress in peaceful garden sanctuary"],
+    "Productivity": ["entrepreneur at organized minimalist desk with laptop", "professional checking calendar and planning day", "team completing project with celebration", "person achieving goal hitting target bullseye", "morning routine with person preparing for success", "focused writer in coffee shop with notebook", "executive managing time with multiple screens", "student studying efficiently in library", "athlete training with discipline and focus", "leader giving motivational speech to team"],
+    "Travel": ["backpacker overlooking breathtaking mountain vista", "couple exploring ancient European city streets", "family on safari watching elephants in Africa", "solo traveler on train through scenic countryside", "adventurer hiking through tropical rainforest", "tourists at famous landmark with cameras", "road trip with friends in vintage car", "scuba diver exploring coral reef with fish", "hot air balloon ride over beautiful landscape", "cruise ship sailing into tropical sunset"],
+    "Parenting": ["mother and child reading bedtime story together", "father teaching child to ride bicycle in park", "family having picnic in beautiful meadow", "parents cheering at child's sports game", "grandmother baking cookies with grandchildren", "new parents with sleeping baby in nursery", "family game night with laughter and fun", "parent helping child with homework at table", "family vacation building sandcastle on beach", "mother and daughter having heart-to-heart talk"],
+    "default": ["elegant scholar with feather quill in grand library", "antique bookshop with person browsing leather-bound books", "writer in cozy study with fireplace and cat", "artist painting at easel in sunlit studio", "professor lecturing in classical university hall", "vintage typewriter with author typing manuscript", "philosopher contemplating in ancient Greek ruins", "candlelit reading room with comfortable armchair", "academic ceremony with graduates in robes", "museum curator examining precious artifact"]
+  };
+
+  const colorScheme = colorSchemes[Math.floor(Math.random() * colorSchemes.length)];
+  const designStyle = designStyles[Math.floor(Math.random() * designStyles.length)];
+  const compositionStyle = compositionStyles[Math.floor(Math.random() * compositionStyles.length)];
+  
+  // Find matching genre elements or use default
+  let genreKey = Object.keys(imageElements).find(key => 
+    genre.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(genre.toLowerCase())
+  ) || "default";
+  const genreElements = imageElements[genreKey] || imageElements["default"];
+  const selectedElement = genreElements[Math.floor(Math.random() * genreElements.length)];
+
+  const response = await openai.images.generate({
+    model: IMAGE_MODEL_PRIMARY,
+    prompt: `Professional ebook cover artwork for "${title}" - a ${genre} book. Style: ${designStyle}. Layout: ${compositionStyle}. Color palette: ${colorScheme}. Feature ${selectedElement} as the main visual element. CRITICAL REQUIREMENTS: 1) Photorealistic, cinematic quality artwork. 2) ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO TYPOGRAPHY, NO WRITING of any kind anywhere in the image. 3) Pure visual imagery only - this is a background image that will have text added separately. 4) Premium book cover quality with sophisticated artistic composition.`,
+    n: 1,
+    size: "1024x1024",
+  });
+
+  const imageData = response.data?.[0]?.b64_json;
+  if (!imageData) throw new Error("Failed to generate cover image");
+
+  const timestamp = Date.now();
+  const backgroundBuffer = Buffer.from(imageData, "base64");
+  
+  // Save original background image (without text) for future text updates
+  const bgFilename = `ai-bg-${timestamp}.png`;
+  const backgroundUrl = await saveCoverFile(backgroundBuffer, bgFilename);
+
+  // Add title and author text overlay to the cover with unique creative styling
+  const finalImageBuffer = await addTextOverlayToCover(
+    backgroundBuffer,
+    title,
+    "EbookGamez",
+    genre,
+    draftId
+  );
+
+  const filename = `ai-cover-${timestamp}.png`;
+  const coverUrl = await saveCoverFile(finalImageBuffer, filename);
+
+  // Return both URLs - the main function should save backgroundUrl to database
+  return { coverUrl, backgroundUrl };
+}
+
+async function addTextOverlayToCover(imageBuffer: Buffer, title: string, author: string, genre: string = "default", draftId: number = 0): Promise<Buffer> {
+  registerCoverFonts();
+  
+  const image = await loadImage(imageBuffer);
+  const canvas = createCanvas(image.width, image.height);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, 0, 0);
+
+  const width = image.width;
+  const height = image.height;
+  const cleanTitle = extractCleanTitle(title);
+  
+  // Generate unique creative style based on draft ID for variety
+  // If no draftId, use a deterministic hash from title + genre for reproducibility
+  const seed = draftId > 0 ? draftId : (cleanTitle + genre).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const style = generateCoverStyle(seed, genre);
+  
+  // Extract colors from the actual background image for harmonized text
+  // This ensures the title color scheme matches the specific cover artwork
+  const colors = extractColorsFromImage(ctx, width, height, seed);
+  
+  // Apply title case transformation - default to proper title case for professional look
+  // "normal" and "titlecase" both get proper capitalization (Each Word Capitalized)
+  const displayTitle = style.titleCase === "uppercase" 
+    ? cleanTitle.toUpperCase() 
+    : cleanTitle.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+
+  const padding = width * 0.06;
+  // Use randomly selected script font for elegant titles
+  const scriptFont = getRandomScriptFont(seed);
+  const titleFont = `"${scriptFont}", "Great Vibes", "Dancing Script", Georgia, serif`;
+  const authorFontFamily = `"${scriptFont}", "Great Vibes", "Dancing Script", Georgia, serif`;
+
+  // Text wrapping helper - uses the provided font family for accurate measurement
+  function wrapText(text: string, fontSize: number, maxW: number, fontFamily: string, isBold: boolean = true): string[] {
+    ctx.font = isBold ? `bold ${fontSize}px ${fontFamily}` : `${fontSize}px ${fontFamily}`;
+    const words = text.split(" ");
+    const lines: string[] = [];
+    let currentLine = "";
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      if (ctx.measureText(testLine).width > maxW && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
+    return lines;
+  }
+
+  // Apply text effect with the specified font family
+  function applyTextEffect(effect: TextEffect, x: number, y: number, text: string, fontSize: number, mainColor: string, fontFamily: string, isBold: boolean = true) {
+    ctx.font = isBold ? `bold ${fontSize}px ${fontFamily}` : `${fontSize}px ${fontFamily}`;
+    
+    switch (effect) {
+      case "glow":
+        ctx.shadowColor = colors.primary;
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.fillStyle = mainColor;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+        break;
+      case "emboss":
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.fillText(text, x - 1, y - 1);
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillText(text, x + 2, y + 2);
+        ctx.fillStyle = mainColor;
+        ctx.fillText(text, x, y);
+        break;
+      case "outline":
+        ctx.strokeStyle = colors.primary;
+        ctx.lineWidth = 3;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = mainColor;
+        ctx.fillText(text, x, y);
+        break;
+      case "neon":
+        for (let i = 4; i > 0; i--) {
+          ctx.shadowColor = colors.primary;
+          ctx.shadowBlur = i * 8;
+          ctx.fillStyle = colors.primary;
+          ctx.fillText(text, x, y);
+        }
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = mainColor;
+        ctx.fillText(text, x, y);
+        break;
+      case "vintage":
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillText(text, x + 3, y + 3);
+        ctx.strokeStyle = colors.accent;
+        ctx.lineWidth = 1;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = mainColor;
+        ctx.fillText(text, x, y);
+        break;
+      case "bold-shadow":
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillText(text, x + 4, y + 4);
+        ctx.fillStyle = mainColor;
+        ctx.fillText(text, x, y);
+        break;
+      case "elegant":
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillText(text, x + 1, y + 1);
+        ctx.strokeStyle = colors.primary;
+        ctx.lineWidth = 0.5;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = mainColor;
+        ctx.fillText(text, x, y);
+        break;
+      default: // shadow
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(text, x + 2, y + 2);
+        ctx.fillStyle = mainColor;
+        ctx.fillText(text, x, y);
+    }
+  }
+
+  // Draw decorative elements
+  function drawDecorative(decorStyle: DecorativeStyle, titleArea: { x: number; y: number; w: number; h: number }) {
+    ctx.strokeStyle = colors.primary;
+    ctx.fillStyle = colors.primary;
+    
+    switch (decorStyle) {
+      case "ornate":
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(titleArea.x, titleArea.y + titleArea.h + 10);
+        ctx.lineTo(titleArea.x + titleArea.w * 0.3, titleArea.y + titleArea.h + 10);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(titleArea.x + titleArea.w * 0.7, titleArea.y + titleArea.h + 10);
+        ctx.lineTo(titleArea.x + titleArea.w, titleArea.y + titleArea.h + 10);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(titleArea.x + titleArea.w * 0.5, titleArea.y + titleArea.h + 10, 4, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      case "geometric":
+        ctx.lineWidth = 2;
+        ctx.strokeRect(titleArea.x - 10, titleArea.y - 10, titleArea.w + 20, titleArea.h + 20);
+        break;
+      case "classic":
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(titleArea.x + titleArea.w * 0.2, titleArea.y + titleArea.h + 15);
+        ctx.lineTo(titleArea.x + titleArea.w * 0.8, titleArea.y + titleArea.h + 15);
+        ctx.stroke();
+        break;
+      case "modern":
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(titleArea.x, titleArea.y - 5);
+        ctx.lineTo(titleArea.x + 40, titleArea.y - 5);
+        ctx.stroke();
+        break;
+      case "artistic":
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i++) {
+          ctx.globalAlpha = 0.3 + i * 0.2;
+          ctx.beginPath();
+          ctx.moveTo(titleArea.x + i * 5, titleArea.y + titleArea.h + 8 + i * 3);
+          ctx.lineTo(titleArea.x + titleArea.w - i * 5, titleArea.y + titleArea.h + 8 + i * 3);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        break;
+      case "minimal":
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(titleArea.x + titleArea.w * 0.4, titleArea.y + titleArea.h + 12);
+        ctx.lineTo(titleArea.x + titleArea.w * 0.6, titleArea.y + titleArea.h + 12);
+        ctx.stroke();
+        break;
+    }
+  }
+
+  // Layout-specific rendering
+  const maxLines = 3;
+  let titleFontSize = Math.min(58, Math.floor(width / (displayTitle.length * 0.38)));
+  titleFontSize = Math.max(26, Math.min(58, titleFontSize));
+  
+  let textAlign: CanvasTextAlign = "center";
+  let titleX = width / 2;
+  let titleY = padding * 2;
+  let maxWidth = width * 0.85;
+  let overlayX = 0, overlayY = 0, overlayW = width, overlayH = height * 0.45;
+  let authorX = width / 2;
+  let authorY = height - padding - 40;
+  let authorAlign: CanvasTextAlign = "center";
+
+  // Configure layout
+  switch (style.layout) {
+    case "bottom-heavy":
+      titleY = height * 0.55;
+      overlayY = height * 0.5;
+      overlayH = height * 0.5;
+      authorY = height - padding - 30;
+      break;
+    case "left-aligned":
+      textAlign = "left";
+      titleX = padding * 2;
+      maxWidth = width * 0.7;
+      authorX = padding * 2;
+      authorAlign = "left";
+      overlayW = width * 0.75;
+      break;
+    case "right-aligned":
+      textAlign = "right";
+      titleX = width - padding * 2;
+      maxWidth = width * 0.7;
+      authorX = width - padding * 2;
+      authorAlign = "right";
+      overlayX = width * 0.25;
+      overlayW = width * 0.75;
+      break;
+    case "framed":
+      overlayX = padding;
+      overlayY = padding;
+      overlayW = width - padding * 2;
+      overlayH = height - padding * 2;
+      titleY = padding * 3;
+      break;
+    case "split":
+      overlayY = height * 0.3;
+      overlayH = height * 0.45;
+      titleY = height * 0.35;
+      authorY = height * 0.68;
+      break;
+    case "minimal":
+      overlayH = height * 0.35;
+      titleFontSize = Math.min(titleFontSize, 48);
+      break;
+    case "diagonal-band":
+      overlayY = height * 0.25;
+      overlayH = height * 0.35;
+      titleY = height * 0.32;
+      authorY = height * 0.52;
+      break;
+    default: // top-centered
+      break;
+  }
+
+  // NO overlays - text directly on cover image with outline for visibility
+
+  // Wrap and render title using the selected script font
+  let lines = wrapText(displayTitle, titleFontSize, maxWidth, titleFont, false);
+  while (lines.length > maxLines && titleFontSize > 22) {
+    titleFontSize -= 2;
+    lines = wrapText(displayTitle, titleFontSize, maxWidth, titleFont, false);
+  }
+  if (lines.length > maxLines) {
+    lines = lines.slice(0, maxLines);
+    if (lines[maxLines - 1].length > 15) {
+      lines[maxLines - 1] = lines[maxLines - 1].substring(0, lines[maxLines - 1].length - 3) + "...";
+    }
+  }
+
+  const lineHeight = titleFontSize * 1.25; // Script fonts need more line spacing
+  ctx.textAlign = textAlign;
+  ctx.textBaseline = "top";
+
+  const titleAreaHeight = lines.length * lineHeight;
+
+  // Draw title with outline - color based on cover brightness
+  // Script fonts look better without bold weight
+  for (let i = 0; i < lines.length; i++) {
+    const lineY = titleY + i * lineHeight;
+    const lineText = lines[i];
+    
+    ctx.font = `${titleFontSize}px ${titleFont}`;
+    
+    // Draw outline first (stroke)
+    ctx.strokeStyle = colors.strokeColor;
+    ctx.lineWidth = 5;
+    ctx.strokeText(lineText, titleX, lineY);
+    
+    // Fill with solid color from cover
+    ctx.fillStyle = colors.titleGradientStart;
+    ctx.fillText(lineText, titleX, lineY);
+  }
+
+  // Draw decorative elements
+  if (style.decorative !== "none") {
+    const titleAreaInfo = {
+      x: textAlign === "center" ? titleX - maxWidth / 2 : textAlign === "left" ? titleX : titleX - maxWidth,
+      y: titleY,
+      w: maxWidth,
+      h: titleAreaHeight
+    };
+    drawDecorative(style.decorative, titleAreaInfo);
+  }
+
+  // Draw author - always at bottom center
+  const authorFontSize = Math.max(28, Math.min(40, width * 0.04));
+  const finalAuthorX = width / 2;
+  const finalAuthorAlign: CanvasTextAlign = "center";
+  const finalAuthorY = height - padding * 2;
+  
+  ctx.font = `${authorFontSize}px ${authorFontFamily}`;
+  const authorText = `by ${author}`;
+  
+  // Author text with outline - same color scheme as title
+  ctx.textAlign = finalAuthorAlign;
+  ctx.strokeStyle = colors.strokeColor;
+  ctx.lineWidth = 4;
+  ctx.strokeText(authorText, finalAuthorX, finalAuthorY);
+  ctx.fillStyle = colors.titleGradientStart;
+  ctx.fillText(authorText, finalAuthorX, finalAuthorY);
+
+  return canvas.toBuffer("image/png");
+}
+
+// Preview options interface for user-selectable styling
+export interface CoverPreviewOptions {
+  titleFont: string;
+  authorFont: string;
+  titleCase: "uppercase" | "titlecase" | "original";
+  effect: "glow" | "emboss" | "outline" | "shadow" | "vintage" | "neon" | "elegant" | "bold-shadow" | "none" | 
+          "elegant-glow" | "gold-emboss" | "sharp-shadow" | "subtle-outline" | "neon-glow" |
+          // Premium effects
+          "metallic-gold" | "metallic-silver" | "metallic-copper" | "3d-layered" | "embossed" | "debossed" |
+          "neon-electric" | "fire-glow" | "ice-crystal" | "cosmic-glow" | "luxury-shadow" | 
+          "duotone-gradient" | "smoke-emerge" | "frosted-glass" | "split-tone";
+  position: "top-center" | "center" | "bottom-center" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
+}
+
+// Generate a text overlay preview without saving - returns base64 image data
+export async function generateCoverPreview(
+  backgroundPath: string,
+  title: string,
+  author: string,
+  options: CoverPreviewOptions
+): Promise<string> {
+  registerCoverFonts();
+  
+  // Load the clean background image
+  let imageBuffer: Buffer;
+  if (backgroundPath.startsWith('/uploads/')) {
+    const localPath = path.join(process.cwd(), backgroundPath.substring(1));
+    imageBuffer = fs.readFileSync(localPath);
+  } else {
+    imageBuffer = fs.readFileSync(backgroundPath);
+  }
+  
+  const image = await loadImage(imageBuffer);
+  const canvas = createCanvas(image.width, image.height);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, 0, 0);
+
+  const width = image.width;
+  const height = image.height;
+  const cleanTitle = extractCleanTitle(title);
+  const padding = width * 0.06;
+  
+  // Extract colors from background
+  const seed = (cleanTitle + author).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const colors = extractColorsFromImage(ctx, width, height, seed);
+  
+  // Apply title case transformation - default to proper title case for professional look
+  const displayTitle = options.titleCase === "uppercase" 
+    ? cleanTitle.toUpperCase() 
+    : cleanTitle.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+
+  // Font families - validate and use fallback if needed
+  const validatedTitleFont = getValidatedFont(options.titleFont, "title");
+  const validatedAuthorFont = getValidatedFont(options.authorFont, "author");
+  const titleFontFamily = `"${validatedTitleFont}", Georgia, serif`;
+  const authorFontFamily = `"${validatedAuthorFont}", Georgia, serif`;
+
+  // Calculate positions based on option
+  let titleY: number;
+  let authorY: number;
+  let textAlign: CanvasTextAlign = "center";
+  let titleX = width / 2;
+  let authorX = width / 2;
+  
+  switch (options.position) {
+    case "center":
+      titleY = height * 0.35;
+      authorY = height * 0.55;
+      break;
+    case "bottom-center":
+      titleY = height * 0.55;
+      authorY = height - padding * 2;
+      break;
+    case "top-left":
+      titleY = padding * 2;
+      authorY = height - padding * 2;
+      textAlign = "left";
+      titleX = padding * 2;
+      authorX = padding * 2;
+      break;
+    case "top-right":
+      titleY = padding * 2;
+      authorY = height - padding * 2;
+      textAlign = "right";
+      titleX = width - padding * 2;
+      authorX = width - padding * 2;
+      break;
+    case "bottom-left":
+      titleY = height * 0.55;
+      authorY = height - padding * 2;
+      textAlign = "left";
+      titleX = padding * 2;
+      authorX = padding * 2;
+      break;
+    case "bottom-right":
+      titleY = height * 0.55;
+      authorY = height - padding * 2;
+      textAlign = "right";
+      titleX = width - padding * 2;
+      authorX = width - padding * 2;
+      break;
+    default: // top-center
+      titleY = padding * 2;
+      authorY = height - padding * 2;
+  }
+
+  // Text wrapping helper
+  function wrapText(text: string, fontSize: number, maxW: number, fontFamily: string): string[] {
+    ctx.font = `${fontSize}px ${fontFamily}`;
+    const words = text.split(" ");
+    const lines: string[] = [];
+    let currentLine = "";
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      if (ctx.measureText(testLine).width > maxW && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
+    return lines;
+  }
+
+  // Apply text effect - professional text rendering with artistic effects
+  function applyEffect(x: number, y: number, text: string, fontSize: number, fontFamily: string) {
+    ctx.font = `${fontSize}px ${fontFamily}`;
+    
+    switch (options.effect) {
+      case "glow":
+        ctx.shadowColor = colors.primary;
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+        break;
+        
+      case "elegant-glow":
+        // Soft elegant glow with multi-layer effect
+        ctx.shadowColor = colors.primary;
+        ctx.shadowBlur = 30;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 2;
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 15;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 1;
+        ctx.strokeText(text, x, y);
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "gold-emboss":
+        // Luxurious embossed gold effect
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(text, x + 3, y + 3);
+        ctx.fillStyle = "rgba(255,255,255,0.4)";
+        ctx.fillText(text, x - 1, y - 1);
+        ctx.strokeStyle = "#8B7355";
+        ctx.lineWidth = 2;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = "#FFD700";
+        ctx.fillText(text, x, y);
+        ctx.fillStyle = "rgba(255,255,255,0.2)";
+        ctx.fillText(text, x, y - 1);
+        break;
+        
+      case "sharp-shadow":
+        // Modern sharp shadow for contemporary look
+        ctx.fillStyle = "rgba(0,0,0,0.8)";
+        ctx.fillText(text, x + 6, y + 6);
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 2;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "subtle-outline":
+        // Clean minimal outline
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 2;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "neon-glow":
+        // Intense neon glow effect
+        for (let i = 5; i > 0; i--) {
+          ctx.shadowColor = colors.primary;
+          ctx.shadowBlur = i * 10;
+          ctx.fillStyle = colors.primary;
+          ctx.fillText(text, x, y);
+        }
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "emboss":
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.fillText(text, x - 1, y - 1);
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillText(text, x + 2, y + 2);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "neon":
+        for (let i = 4; i > 0; i--) {
+          ctx.shadowColor = colors.primary;
+          ctx.shadowBlur = i * 8;
+          ctx.fillStyle = colors.primary;
+          ctx.fillText(text, x, y);
+        }
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "vintage":
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillText(text, x + 3, y + 3);
+        ctx.strokeStyle = colors.accent;
+        ctx.lineWidth = 1;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "bold-shadow":
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillText(text, x + 4, y + 4);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "elegant":
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillText(text, x + 1, y + 1);
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 0.5;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "none":
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "outline":
+        // Classic outline effect
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 5;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      // PREMIUM EFFECTS - Added for intricate, stylish typography
+      case "metallic-gold":
+        // Luxurious gold foil effect with shimmer
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillText(text, x + 3, y + 3);
+        ctx.fillStyle = "rgba(255,255,255,0.3)";
+        ctx.fillText(text, x - 1, y - 1);
+        const goldGrad = ctx.createLinearGradient(x - 100, y - 20, x + 100, y + 20);
+        goldGrad.addColorStop(0, "#BF953F");
+        goldGrad.addColorStop(0.25, "#FCF6BA");
+        goldGrad.addColorStop(0.5, "#B38728");
+        goldGrad.addColorStop(0.75, "#FBF5B7");
+        goldGrad.addColorStop(1, "#AA771C");
+        ctx.fillStyle = goldGrad;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "metallic-silver":
+        // Sleek silver metallic finish
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(text, x + 2, y + 2);
+        const silverGrad = ctx.createLinearGradient(x - 100, y - 20, x + 100, y + 20);
+        silverGrad.addColorStop(0, "#757575");
+        silverGrad.addColorStop(0.25, "#E8E8E8");
+        silverGrad.addColorStop(0.5, "#A9A9A9");
+        silverGrad.addColorStop(0.75, "#F5F5F5");
+        silverGrad.addColorStop(1, "#8E8E8E");
+        ctx.fillStyle = silverGrad;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "metallic-copper":
+        // Warm copper/bronze metallic
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(text, x + 2, y + 2);
+        const copperGrad = ctx.createLinearGradient(x - 100, y - 20, x + 100, y + 20);
+        copperGrad.addColorStop(0, "#B87333");
+        copperGrad.addColorStop(0.3, "#DA9058");
+        copperGrad.addColorStop(0.5, "#CB8E56");
+        copperGrad.addColorStop(0.7, "#E6B17E");
+        copperGrad.addColorStop(1, "#A66829");
+        ctx.fillStyle = copperGrad;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "3d-layered":
+        // Multiple shadow layers creating pop-up depth
+        for (let i = 8; i > 0; i--) {
+          ctx.fillStyle = `rgba(0,0,0,${0.1 + i * 0.03})`;
+          ctx.fillText(text, x + i, y + i);
+        }
+        ctx.fillStyle = "rgba(255,255,255,0.3)";
+        ctx.fillText(text, x - 1, y - 1);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "embossed":
+        // Raised appearance with realistic lighting
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillText(text, x + 2, y + 2);
+        ctx.fillStyle = "rgba(255,255,255,0.7)";
+        ctx.fillText(text, x - 1, y - 1);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        ctx.fillStyle = "rgba(255,255,255,0.15)";
+        ctx.fillText(text, x, y - 1);
+        break;
+        
+      case "debossed":
+        // Pressed-in appearance
+        ctx.fillStyle = "rgba(255,255,255,0.3)";
+        ctx.fillText(text, x + 1, y + 1);
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(text, x - 1, y - 1);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.globalAlpha = 0.85;
+        ctx.fillText(text, x, y);
+        ctx.globalAlpha = 1;
+        break;
+        
+      case "neon-electric":
+        // Vibrant neon with electric color bleed
+        for (let i = 6; i > 0; i--) {
+          ctx.shadowColor = colors.primary;
+          ctx.shadowBlur = i * 12;
+          ctx.fillStyle = colors.primary;
+          ctx.globalAlpha = 0.3;
+          ctx.fillText(text, x, y);
+        }
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillText(text, x, y);
+        ctx.strokeStyle = colors.primary;
+        ctx.lineWidth = 1;
+        ctx.strokeText(text, x, y);
+        break;
+        
+      case "fire-glow":
+        // Warm ember-like glow
+        ctx.shadowColor = "#FF4500";
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = "#FF6B35";
+        ctx.fillText(text, x, y);
+        ctx.shadowColor = "#FFD700";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = "#FFE66D";
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#FFFACD";
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "ice-crystal":
+        // Cool crystalline effect
+        ctx.shadowColor = "#00BFFF";
+        ctx.shadowBlur = 15;
+        ctx.fillStyle = "#87CEEB";
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.fillText(text, x, y);
+        ctx.strokeStyle = "#B0E0E6";
+        ctx.lineWidth = 1;
+        ctx.strokeText(text, x, y);
+        break;
+        
+      case "cosmic-glow":
+        // Ethereal space-like glow
+        ctx.shadowColor = "#9400D3";
+        ctx.shadowBlur = 25;
+        ctx.fillStyle = "#8A2BE2";
+        ctx.fillText(text, x, y);
+        ctx.shadowColor = "#00CED1";
+        ctx.shadowBlur = 15;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#E6E6FA";
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "luxury-shadow":
+        // Deep, rich shadow with color tint
+        for (let i = 5; i > 0; i--) {
+          ctx.fillStyle = `rgba(30,20,10,${0.15 + i * 0.08})`;
+          ctx.fillText(text, x + i * 1.5, y + i * 1.5);
+        }
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 1;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "duotone-gradient":
+        // Title transitions between two colors
+        const duoGrad = ctx.createLinearGradient(x - 150, y, x + 150, y);
+        duoGrad.addColorStop(0, colors.primary || "#FF6B35");
+        duoGrad.addColorStop(1, colors.accent || "#9B59B6");
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(text, x + 2, y + 2);
+        ctx.fillStyle = duoGrad;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "smoke-emerge":
+        // Text appearing to emerge from smoke
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = "rgba(50,50,50,0.5)";
+        ctx.fillText(text, x - 3, y + 5);
+        ctx.fillText(text, x + 3, y + 3);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillText(text, x + 1, y + 2);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "frosted-glass":
+        // Subtle translucent appearance
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = "rgba(255,255,255,0.3)";
+        ctx.fillText(text, x, y);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "rgba(255,255,255,0.8)";
+        ctx.lineWidth = 2;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.globalAlpha = 0.9;
+        ctx.fillText(text, x, y);
+        ctx.globalAlpha = 1;
+        break;
+        
+      case "shadow":
+      default:
+        // Standard drop shadow
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(text, x + 2, y + 2);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+    }
+  }
+
+  // Calculate and render title
+  const maxWidth = width * 0.85;
+  let titleFontSize = Math.min(58, Math.floor(width / (displayTitle.length * 0.38)));
+  titleFontSize = Math.max(26, Math.min(58, titleFontSize));
+  
+  let lines = wrapText(displayTitle, titleFontSize, maxWidth, titleFontFamily);
+  while (lines.length > 3 && titleFontSize > 22) {
+    titleFontSize -= 2;
+    lines = wrapText(displayTitle, titleFontSize, maxWidth, titleFontFamily);
+  }
+  if (lines.length > 3) lines = lines.slice(0, 3);
+
+  const lineHeight = titleFontSize * 1.25;
+  ctx.textAlign = textAlign;
+  ctx.textBaseline = "top";
+
+  // Render title lines
+  for (let i = 0; i < lines.length; i++) {
+    const lineY = titleY + i * lineHeight;
+    applyEffect(titleX, lineY, lines[i], titleFontSize, titleFontFamily);
+  }
+
+  // Render author
+  const authorFontSize = Math.max(28, Math.min(40, width * 0.04));
+  const authorText = `by ${author}`;
+  applyEffect(authorX, authorY, authorText, authorFontSize, authorFontFamily);
+
+  return canvas.toBuffer("image/png").toString("base64");
+}
+
+// Finalize cover with chosen options - saves the final cover
+// If options.useOriginalStyle is true, uses the EXACT styling from covers 239-253
+export async function finalizeCoverWithOptions(
+  draftId: number,
+  options: CoverPreviewOptions & { useOriginalStyle?: boolean }
+): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  
+  if (!draft) throw new Error("Draft not found");
+  if (!draft.backgroundUrl) throw new Error("No background image found - please regenerate the cover first");
+  
+  // If useOriginalStyle is true, use the EXACT 239-253 styling via addTextOverlayToCover
+  if (options.useOriginalStyle) {
+    console.log(`Using ORIGINAL 239-253 styling for draft ${draftId}`);
+    return updateCoverTextOnly(draftId);
+  }
+  
+  // Generate the final cover with chosen options
+  registerCoverFonts();
+  
+  const bgPath = path.join(process.cwd(), draft.backgroundUrl.substring(1));
+  const imageBuffer = fs.readFileSync(bgPath);
+  
+  const image = await loadImage(imageBuffer);
+  const canvas = createCanvas(image.width, image.height);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, 0, 0);
+
+  const width = image.width;
+  const height = image.height;
+  const cleanTitle = extractCleanTitle(draft.title || "");
+  const padding = width * 0.06;
+  const author = "EbookGamez";
+  
+  // Extract colors from background
+  const seed = (cleanTitle + author).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const colors = extractColorsFromImage(ctx, width, height, seed);
+  
+  // Apply title case - default to proper title case for professional look
+  const displayTitle = options.titleCase === "uppercase" 
+    ? cleanTitle.toUpperCase() 
+    : cleanTitle.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+
+  // Font families - validate and use fallback if needed
+  const validatedTitleFont = getValidatedFont(options.titleFont, "title");
+  const validatedAuthorFont = getValidatedFont(options.authorFont, "author");
+  const titleFontFamily = `"${validatedTitleFont}", Georgia, serif`;
+  const authorFontFamily = `"${validatedAuthorFont}", Georgia, serif`;
+
+  // Position with alignment
+  let titleY: number;
+  let authorY: number;
+  let textAlign: CanvasTextAlign = "center";
+  let titleX = width / 2;
+  let authorX = width / 2;
+  
+  switch (options.position) {
+    case "center":
+      titleY = height * 0.35;
+      authorY = height * 0.55;
+      break;
+    case "bottom-center":
+      titleY = height * 0.55;
+      authorY = height - padding * 2;
+      break;
+    case "top-left":
+      titleY = padding * 2;
+      authorY = height - padding * 2;
+      textAlign = "left";
+      titleX = padding * 2;
+      authorX = padding * 2;
+      break;
+    case "top-right":
+      titleY = padding * 2;
+      authorY = height - padding * 2;
+      textAlign = "right";
+      titleX = width - padding * 2;
+      authorX = width - padding * 2;
+      break;
+    case "bottom-left":
+      titleY = height * 0.55;
+      authorY = height - padding * 2;
+      textAlign = "left";
+      titleX = padding * 2;
+      authorX = padding * 2;
+      break;
+    case "bottom-right":
+      titleY = height * 0.55;
+      authorY = height - padding * 2;
+      textAlign = "right";
+      titleX = width - padding * 2;
+      authorX = width - padding * 2;
+      break;
+    default: // top-center
+      titleY = padding * 2;
+      authorY = height - padding * 2;
+  }
+
+  // Text wrapping
+  function wrapText(text: string, fontSize: number, maxW: number, fontFamily: string): string[] {
+    ctx.font = `${fontSize}px ${fontFamily}`;
+    const words = text.split(" ");
+    const lines: string[] = [];
+    let currentLine = "";
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      if (ctx.measureText(testLine).width > maxW && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
+    return lines;
+  }
+
+  // Apply effect - matching preview with all professional effects
+  function applyEffect(x: number, y: number, text: string, fontSize: number, fontFamily: string) {
+    ctx.font = `${fontSize}px ${fontFamily}`;
+    
+    switch (options.effect) {
+      case "glow":
+        ctx.shadowColor = colors.primary;
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+        break;
+        
+      case "elegant-glow":
+        ctx.shadowColor = colors.primary;
+        ctx.shadowBlur = 30;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 2;
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 15;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 1;
+        ctx.strokeText(text, x, y);
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "gold-emboss":
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(text, x + 3, y + 3);
+        ctx.fillStyle = "rgba(255,255,255,0.4)";
+        ctx.fillText(text, x - 1, y - 1);
+        ctx.strokeStyle = "#8B7355";
+        ctx.lineWidth = 2;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = "#FFD700";
+        ctx.fillText(text, x, y);
+        ctx.fillStyle = "rgba(255,255,255,0.2)";
+        ctx.fillText(text, x, y - 1);
+        break;
+        
+      case "sharp-shadow":
+        ctx.fillStyle = "rgba(0,0,0,0.8)";
+        ctx.fillText(text, x + 6, y + 6);
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 2;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "subtle-outline":
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 2;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "neon-glow":
+        for (let i = 5; i > 0; i--) {
+          ctx.shadowColor = colors.primary;
+          ctx.shadowBlur = i * 10;
+          ctx.fillStyle = colors.primary;
+          ctx.fillText(text, x, y);
+        }
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "emboss":
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.fillText(text, x - 1, y - 1);
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillText(text, x + 2, y + 2);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "neon":
+        for (let i = 4; i > 0; i--) {
+          ctx.shadowColor = colors.primary;
+          ctx.shadowBlur = i * 8;
+          ctx.fillStyle = colors.primary;
+          ctx.fillText(text, x, y);
+        }
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "vintage":
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillText(text, x + 3, y + 3);
+        ctx.strokeStyle = colors.accent;
+        ctx.lineWidth = 1;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "bold-shadow":
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillText(text, x + 4, y + 4);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "elegant":
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillText(text, x + 1, y + 1);
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 0.5;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "none":
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "outline":
+        // Classic outline effect
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 5;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+        break;
+        
+      case "shadow":
+      default:
+        // Standard drop shadow
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(text, x + 2, y + 2);
+        ctx.fillStyle = colors.titleGradientStart;
+        ctx.fillText(text, x, y);
+    }
+  }
+
+  // Render title
+  const maxWidth = width * 0.85;
+  let titleFontSize = Math.min(58, Math.floor(width / (displayTitle.length * 0.38)));
+  titleFontSize = Math.max(26, Math.min(58, titleFontSize));
+  
+  let lines = wrapText(displayTitle, titleFontSize, maxWidth, titleFontFamily);
+  while (lines.length > 3 && titleFontSize > 22) {
+    titleFontSize -= 2;
+    lines = wrapText(displayTitle, titleFontSize, maxWidth, titleFontFamily);
+  }
+  if (lines.length > 3) lines = lines.slice(0, 3);
+
+  const lineHeight = titleFontSize * 1.25;
+  ctx.textAlign = textAlign;
+  ctx.textBaseline = "top";
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineY = titleY + i * lineHeight;
+    applyEffect(titleX, lineY, lines[i], titleFontSize, titleFontFamily);
+  }
+
+  // Render author
+  const authorFontSize = Math.max(28, Math.min(40, width * 0.04));
+  const authorText = `by ${author}`;
+  applyEffect(authorX, authorY, authorText, authorFontSize, authorFontFamily);
+
+  // Save final cover
+  const timestamp = Date.now();
+  const finalFilename = `cover-${draftId}-${timestamp}.png`;
+  const finalBuffer = canvas.toBuffer("image/png");
+  const coverUrl = await saveCoverFile(finalBuffer, finalFilename);
+  
+  // Update draft with new cover URL
+  await db
+    .update(draftEbooks)
+    .set({ coverUrl })
+    .where(eq(draftEbooks.id, draftId));
+  
+  // Automatic backup to cloud storage
+  try {
+    await backupService.backupCoverFromFile(draftId, coverUrl);
+    await backupService.backupEbookData(draftId);
+    console.log(`[Auto-Backup] Cover and data backed up for draft ${draftId}`);
+  } catch (backupError) {
+    console.error(`[Auto-Backup] Failed to backup draft ${draftId}:`, backupError);
+  }
+  
+  return coverUrl;
+}
+
+function sanitizeTextForPdf(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/[^\x00-\x7F]/g, "") // Remove non-ASCII characters
+    .replace(/[\u2018\u2019]/g, "'") // Smart quotes to regular
+    .replace(/[\u201C\u201D]/g, '"') // Smart double quotes
+    .replace(/[\u2013\u2014]/g, "-") // Em/en dashes
+    .replace(/\u2026/g, "...") // Ellipsis
+    .replace(/[#*_`~]/g, "") // Remove markdown formatting
+    .replace(/\[.*?\]/g, "") // Remove markdown links
+    .replace(/\(http[^)]*\)/g, "") // Remove URLs in parentheses
+    .trim();
+}
+
+export async function createPdfFromContent(title: string, content: string): Promise<string> {
+  try {
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+
+    const pageWidth = 612;
+    const pageHeight = 792;
+    const margin = 72;
+    const lineHeight = 14;
+    const maxWidth = pageWidth - 2 * margin;
+
+    let currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+    let yPosition = pageHeight - margin;
+
+    const safeTitle = sanitizeTextForPdf(title);
+    currentPage.drawText(safeTitle, {
+      x: margin,
+      y: yPosition,
+      size: 24,
+      font: boldFont,
+      color: rgb(0.1, 0.1, 0.1),
+    });
+    yPosition -= 50;
+
+    const safeContent = sanitizeTextForPdf(content);
+    const paragraphs = safeContent.split("\n\n");
+
+    for (const paragraph of paragraphs) {
+      if (!paragraph.trim()) continue;
+      
+      const words = paragraph.split(" ").filter(w => w.trim());
+      let line = "";
+
+      for (const word of words) {
+        const safeWord = word.substring(0, 100); // Limit word length
+        const testLine = line + (line ? " " : "") + safeWord;
+        
+        try {
+          const width = font.widthOfTextAtSize(testLine, 11);
+
+          if (width > maxWidth) {
+            if (yPosition < margin + lineHeight) {
+              currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+              yPosition = pageHeight - margin;
+            }
+
+            currentPage.drawText(line, {
+              x: margin,
+              y: yPosition,
+              size: 11,
+              font: font,
+              color: rgb(0.1, 0.1, 0.1),
+            });
+            yPosition -= lineHeight;
+            line = safeWord;
+          } else {
+            line = testLine;
+          }
+        } catch {
+          line = safeWord;
+        }
+      }
+
+      if (line) {
+        if (yPosition < margin + lineHeight) {
+          currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+          yPosition = pageHeight - margin;
+        }
+        try {
+          currentPage.drawText(line, {
+            x: margin,
+            y: yPosition,
+            size: 11,
+            font: font,
+            color: rgb(0.1, 0.1, 0.1),
+          });
+        } catch {
+          // Skip problematic lines
+        }
+        yPosition -= lineHeight * 2;
+      }
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    
+    const pdfDir = "uploads/ebooks";
+    if (!fs.existsSync(pdfDir)) {
+      fs.mkdirSync(pdfDir, { recursive: true });
+    }
+
+    const filename = `ebook-${Date.now()}.pdf`;
+    const filepath = path.join(pdfDir, filename);
+    fs.writeFileSync(filepath, pdfBytes);
+
+    return `/uploads/ebooks/${filename}`;
+  } catch (error) {
+    console.error("PDF creation error:", error);
+    throw new Error("Failed to create PDF");
+  }
+}
+
+const COLORING_PAGE_STYLES = [
+  "clean black outlines on pure white background, no shading, no gradients, suitable for coloring",
+  "bold thick outlines on white background, empty interior spaces ready to be colored in, no fill, no shading",
+  "detailed line art with intricate patterns, black lines on white, all areas unfilled for coloring",
+  "elegant fine-line illustration, black ink style on white paper, no color, no gray tones, ready for coloring",
+  "whimsical hand-drawn style line art, thick black outlines, white interior spaces, coloring book page",
+];
+
+const COLORING_THEMES: Record<string, string[]> = {
+  "geometric": [
+    "intricate geometric mandala with concentric circles and repeating symmetrical patterns",
+    "tessellating hexagonal pattern with nested shapes and fine geometric details",
+    "art deco geometric design with fan shapes, zigzags, and angular symmetry",
+    "sacred geometry pattern with flower of life, metatron's cube elements",
+    "kaleidoscope pattern with triangles, diamonds, and radiating lines",
+    "op-art inspired geometric illusion with cubes and impossible shapes",
+    "modernist abstract composition with overlapping circles, squares, and triangles",
+    "Islamic-inspired geometric tile pattern with interlocking stars and polygons",
+    "fractal-inspired spiral pattern with self-similar geometric shapes",
+    "Celtic knot geometric pattern with interwoven bands and symmetry",
+  ],
+  "botanical": [
+    "lush garden scene with roses, peonies, and trailing ivy vines",
+    "tropical leaves arrangement with monstera, palm fronds, and ferns",
+    "wildflower meadow with daisies, poppies, lavender, and butterflies",
+    "succulent garden arrangement with various cacti and succulents in pots",
+    "cherry blossom branch with delicate flowers and falling petals",
+    "sunflower field with large detailed blooms and leaves",
+    "mushroom forest floor with toadstools, moss, and small woodland flowers",
+    "lotus flowers floating on a pond with lily pads and dragonflies",
+    "herb garden with labeled rosemary, basil, mint, thyme, and sage",
+    "autumn leaves arrangement with oak, maple, and birch leaf varieties",
+  ],
+  "animals": [
+    "majestic lion portrait with flowing detailed mane",
+    "owl perched on a branch surrounded by stars and moon",
+    "sea turtle swimming through ocean with coral and fish",
+    "butterfly garden with multiple detailed butterfly species and flowers",
+    "wolf howling at the moon in a forest landscape",
+    "peacock with full spread tail feathers showing eye patterns",
+    "koi fish swimming in a pond with water lilies",
+    "hummingbird hovering near trumpet flowers",
+    "elephant decorated with ornate mandala patterns on its body",
+    "fox curled up in autumn leaves and berries",
+  ],
+  "fantasy": [
+    "fairy sitting on a mushroom in an enchanted forest with fireflies",
+    "dragon curled around a castle tower with clouds",
+    "unicorn in a magical meadow with rainbow and stars",
+    "mermaid sitting on rocks by the sea with shells and waves",
+    "enchanted treehouse with winding staircase and lanterns",
+    "wizard's study with spell books, potions, crystals, and candles",
+    "phoenix rising from ornate flames with spread wings",
+    "fairy tale castle on a hilltop with winding path and gardens",
+    "magical potion bottles arranged with herbs and mystical symbols",
+    "celestial scene with sun, moon, stars, and zodiac symbols",
+  ],
+  "kawaii": [
+    "cute boba tea cups with smiling faces and tapioca pearls",
+    "adorable cupcakes and donuts with kawaii faces and sprinkles",
+    "sweet ice cream sundaes with happy faces and toppings",
+    "cute sushi rolls and onigiri with kawaii expressions",
+    "adorable cats in teacups surrounded by flowers",
+    "sweet macarons and cookies with smiling faces",
+    "cute fruit characters — strawberry, watermelon, pineapple with faces",
+    "kawaii cloud characters with rainbows and stars",
+    "adorable baby animals — kittens, puppies, bunnies with big eyes",
+    "cute cactus plants in decorated pots with happy faces",
+  ],
+  "stained_glass": [
+    "stained glass rose window with radiating geometric petal pattern",
+    "stained glass butterfly with segmented colorful wing panels",
+    "gothic cathedral stained glass window with religious motifs",
+    "art nouveau stained glass with flowing organic lines and flowers",
+    "stained glass peacock with mosaic tail feather segments",
+    "stained glass landscape with hills, trees, and sunset segments",
+    "stained glass angel figure with geometric halo and wings",
+    "stained glass ocean scene with waves, fish, and shells in segments",
+    "stained glass tree of life with roots and branches in panels",
+    "stained glass abstract mosaic with interlocking curved shapes",
+  ],
+  "cozy": [
+    "cozy reading nook with stacked books, candles, tea cup, and blanket",
+    "cottage garden gate with climbing roses and a winding stone path",
+    "rustic kitchen scene with hanging herbs, copper pots, and fresh bread",
+    "cat sleeping by a fireplace with stockings and a warm rug",
+    "cozy cabin in snowy woods with smoke from chimney and pine trees",
+    "window seat with cushions, books, rain on the window, and fairy lights",
+    "garden greenhouse with potted plants, watering can, and garden tools",
+    "cozy coffee shop interior with pastry display and steaming mugs",
+    "autumn porch scene with pumpkins, mums, and a rocking chair",
+    "magical bookshop interior with floor-to-ceiling shelves and a ladder",
+  ],
+  "default": [
+    "detailed mandala with floral and geometric elements",
+    "underwater scene with tropical fish, coral reef, and seashells",
+    "landscape with mountains, river, pine trees, and clouds",
+    "vintage hot air balloons floating above a small village",
+    "ornate picture frame design with flowers and scrollwork",
+    "garden birds on branches with berries and leaves",
+    "intricate paisley pattern with swirls and teardrop shapes",
+    "zen garden with stones, raked sand patterns, and bonsai tree",
+    "steampunk gears, clocks, and mechanical elements arrangement",
+    "music-themed design with instruments, notes, and swirling staff lines",
+  ],
+};
+
+function getColoringThemeForBook(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes("geometric") || t.includes("pattern") || t.includes("mandala")) return "geometric";
+  if (t.includes("garden") || t.includes("botanical") || t.includes("flower") || t.includes("floral")) return "botanical";
+  if (t.includes("animal") || t.includes("creature") || t.includes("wildlife")) return "animals";
+  if (t.includes("fantasy") || t.includes("enchant") || t.includes("magic") || t.includes("fairy")) return "fantasy";
+  if (t.includes("kawaii") || t.includes("cute") || t.includes("food") || t.includes("drink")) return "kawaii";
+  if (t.includes("stained glass") || t.includes("mosaic") || t.includes("gothic")) return "stained_glass";
+  if (t.includes("cozy") || t.includes("cottage") || t.includes("bookish") || t.includes("nook")) return "cozy";
+  return "default";
+}
+
+export async function generateColoringBookContent(draftId: number): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+
+  const title = draft.title || "Coloring Book";
+  const topic = draft.topic || title;
+  const theme = getColoringThemeForBook(title);
+  const fallbackPrompts = COLORING_THEMES[theme] || COLORING_THEMES["default"];
+  const pagesPerBook = 30;
+
+  activeGenerationCount++;
+  console.log(`[Coloring Book] Starting "${title}" — theme: ${theme}, generating ${pagesPerBook} coloring pages`);
+  await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draftId));
+
+  let coverContext = "";
+  const coverSource = draft.backgroundUrl || draft.coverUrl;
+  if (coverSource) {
+    console.log(`[Coloring Book] Analyzing cover artwork for "${title}" to guide page generation...`);
+    try {
+      coverContext = await analyzeCoverForContent(coverSource, title, draft.genre || "Coloring Books");
+    } catch (e: any) {
+      console.log(`[Coloring Book] Cover analysis failed: ${e.message} — continuing without cover context`);
+    }
+  }
+
+  let customPrompts: string[] = [];
+  try {
+    console.log(`[Coloring Book] Generating ${pagesPerBook} custom page prompts tailored to "${title}"...`);
+    const promptGenResponse = await openaiReplit.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a creative director for a professional coloring book publisher. You create unique, detailed page descriptions for coloring books. Each description must be specific, vivid, and directly related to the book's theme and title.`
+        },
+        {
+          role: "user",
+          content: `Generate exactly ${pagesPerBook} unique coloring page descriptions for this coloring book:
+
+Title: "${title}"
+Topic/Description: "${topic}"
+Theme Category: ${theme}
+${coverContext ? `Cover Art Analysis: ${coverContext}` : ""}
+
+RULES:
+- Every page description must directly relate to the book's specific title and theme
+- Each description should be 1-2 sentences describing exactly what the coloring page illustration should show
+- Vary complexity — mix simpler designs with more intricate ones
+- Include a variety of scenes, close-ups, patterns, and compositions
+- No two pages should feel the same
+- Be very specific (e.g., not "a flower" but "a detailed peony bloom with layered petals unfurling, surrounded by smaller rosebuds and trailing ivy")
+
+Return ONLY a JSON array of ${pagesPerBook} strings, each being a page description. No other text.`
+        }
+      ],
+      temperature: 0.9,
+      max_tokens: 4000,
+    });
+
+    const raw = promptGenResponse.choices[0]?.message?.content?.trim() || "";
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      customPrompts = JSON.parse(jsonMatch[0]);
+      console.log(`[Coloring Book] Generated ${customPrompts.length} custom prompts for "${title}"`);
+    }
+  } catch (e: any) {
+    console.log(`[Coloring Book] Custom prompt generation failed: ${e.message} — using theme-based fallbacks`);
+  }
+
+  const prompts = customPrompts.length >= pagesPerBook ? customPrompts : fallbackPrompts;
+
+  const pageDir = `uploads/coloring-pages/${draftId}`;
+  if (!fs.existsSync(pageDir)) {
+    fs.mkdirSync(pageDir, { recursive: true });
+  }
+
+  const existingImages = fs.readdirSync(pageDir).filter(f => f.endsWith('.png'));
+  const isFullRewrite = customPrompts.length >= pagesPerBook;
+  if (isFullRewrite && existingImages.length > 0) {
+    console.log(`[Coloring Book] Full rewrite with custom prompts — clearing ${existingImages.length} old images for "${title}"`);
+    for (const file of existingImages) {
+      fs.unlinkSync(path.join(pageDir, file));
+    }
+  }
+
+  const generatedPages: { pageNum: number; prompt: string; imagePath: string }[] = [];
+  const freshExisting = fs.readdirSync(pageDir).filter(f => f.endsWith('.png')).sort();
+  const startFrom = freshExisting.length;
+
+  if (startFrom > 0) {
+    console.log(`[Coloring Book] Resuming "${title}" — found ${startFrom} existing pages, continuing from page ${startFrom + 1}`);
+    for (const file of freshExisting) {
+      const pageNum = parseInt(file.replace('page-', '').replace('.png', ''));
+      generatedPages.push({ pageNum, prompt: "resumed", imagePath: path.join(pageDir, file) });
+    }
+  }
+
+  try {
+    for (let i = startFrom; i < pagesPerBook; i++) {
+      const pageNum = i + 1;
+      const promptBase = prompts[i % prompts.length];
+      const styleVariant = COLORING_PAGE_STYLES[i % COLORING_PAGE_STYLES.length];
+      const bookContext = `for the coloring book "${title}"`;
+
+      const fullPrompt = `Coloring book page ${bookContext}: ${promptBase}. Style: ${styleVariant}. CRITICAL: This must be a COLORING PAGE — black line art on pure white background. NO color, NO shading, NO gray fills, NO gradients. Only clean black outlines with white empty spaces inside for someone to color in with crayons or colored pencils. Professional coloring book quality with good detail level appropriate for adults.`;
+
+      console.log(`[Coloring Book] Generating page ${pageNum}/${pagesPerBook}: ${promptBase.substring(0, 60)}...`);
+
+      try {
+        const response = await openaiDirectForImages.images.generate({
+          model: IMAGE_MODEL_PRIMARY,
+          prompt: fullPrompt,
+          n: 1,
+          size: "1024x1024",
+        });
+
+        const imageData = response.data?.[0]?.b64_json;
+        if (!imageData) {
+          console.error(`[Coloring Book] No image data for page ${pageNum} — skipping`);
+          continue;
+        }
+
+        const imageBuffer = Buffer.from(imageData, "base64");
+        const filename = `page-${String(pageNum).padStart(3, '0')}.png`;
+        const imagePath = path.join(pageDir, filename);
+        fs.writeFileSync(imagePath, imageBuffer);
+        generatedPages.push({ pageNum, prompt: promptBase, imagePath });
+
+        console.log(`[Coloring Book] Page ${pageNum}/${pagesPerBook} saved locally (${Math.round(imageBuffer.length / 1024)}KB) — uploading to GCS...`);
+        try {
+          const { uploadToObjStore } = await import("./objectStorage");
+          await uploadToObjStore(imageBuffer, `public/coloring-pages/${draftId}/${filename}`, "image/png");
+          console.log(`[Coloring Book] Page ${pageNum} uploaded to GCS`);
+        } catch (gcsErr: any) {
+          console.warn(`[Coloring Book] GCS upload failed for page ${pageNum}: ${gcsErr.message} — local file retained`);
+        }
+
+        const progressContent = `## ${title}\n\n**Coloring Book** — ${generatedPages.length}/${pagesPerBook} pages generated\n\nTheme: ${theme}\n\n` +
+          generatedPages.map(p => `- Page ${p.pageNum}: ${p.prompt}`).join('\n');
+        await db.update(draftEbooks).set({ content: progressContent }).where(eq(draftEbooks.id, draftId));
+
+      } catch (pageError: any) {
+        console.error(`[Coloring Book] Error generating page ${pageNum}: ${pageError.message}`);
+        if (pageError.message?.includes('rate') || pageError.message?.includes('429')) {
+          console.log(`[Coloring Book] Rate limited — waiting 30 seconds...`);
+          await new Promise(r => setTimeout(r, 30000));
+          i--;
+          continue;
+        }
+      }
+    }
+
+    if (generatedPages.length < 10) {
+      throw new Error(`Only generated ${generatedPages.length} pages — minimum 10 required`);
+    }
+
+    console.log(`[Coloring Book] All ${generatedPages.length} pages generated — building PDF...`);
+
+    const pdfDoc = await PDFDocument.create();
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const pageWidth = 612;
+    const pageHeight = 792;
+
+    const titlePage = pdfDoc.addPage([pageWidth, pageHeight]);
+    const safeTitle = sanitizeTextForPdf(title);
+    const titleFontSize = safeTitle.length > 40 ? 22 : 28;
+    const titleWidth = boldFont.widthOfTextAtSize(safeTitle, titleFontSize);
+    titlePage.drawText(safeTitle, {
+      x: Math.max(36, (pageWidth - titleWidth) / 2),
+      y: pageHeight / 2 + 60,
+      size: titleFontSize,
+      font: boldFont,
+      color: rgb(0.1, 0.1, 0.1),
+    });
+
+    const subtitle = `${generatedPages.length} Coloring Pages`;
+    const subWidth = font.widthOfTextAtSize(subtitle, 16);
+    titlePage.drawText(subtitle, {
+      x: (pageWidth - subWidth) / 2,
+      y: pageHeight / 2 + 20,
+      size: 16,
+      font: font,
+      color: rgb(0.3, 0.3, 0.3),
+    });
+
+    const byLine = "EbookGamez";
+    const byWidth = font.widthOfTextAtSize(byLine, 14);
+    titlePage.drawText(byLine, {
+      x: (pageWidth - byWidth) / 2,
+      y: pageHeight / 2 - 20,
+      size: 14,
+      font: font,
+      color: rgb(0.4, 0.4, 0.4),
+    });
+
+    const sortedPages = generatedPages.sort((a, b) => a.pageNum - b.pageNum);
+    for (const page of sortedPages) {
+      try {
+        const imageBytes = fs.readFileSync(page.imagePath);
+        const pngImage = await pdfDoc.embedPng(imageBytes);
+
+        const imgPage = pdfDoc.addPage([pageWidth, pageHeight]);
+        const margin = 36;
+        const maxImgWidth = pageWidth - margin * 2;
+        const maxImgHeight = pageHeight - margin * 2;
+        const scale = Math.min(maxImgWidth / pngImage.width, maxImgHeight / pngImage.height);
+        const imgWidth = pngImage.width * scale;
+        const imgHeight = pngImage.height * scale;
+
+        imgPage.drawImage(pngImage, {
+          x: (pageWidth - imgWidth) / 2,
+          y: (pageHeight - imgHeight) / 2,
+          width: imgWidth,
+          height: imgHeight,
+        });
+      } catch (embedErr: any) {
+        console.error(`[Coloring Book] Failed to embed page ${page.pageNum}: ${embedErr.message}`);
+      }
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    const pdfDir = "uploads/ebooks";
+    if (!fs.existsSync(pdfDir)) {
+      fs.mkdirSync(pdfDir, { recursive: true });
+    }
+    const pdfFilename = `coloring-book-${draftId}-${Date.now()}.pdf`;
+    const pdfPath = path.join(pdfDir, pdfFilename);
+    fs.writeFileSync(pdfPath, pdfBytes);
+    const pdfUrl = `/uploads/ebooks/${pdfFilename}`;
+
+    console.log(`[Coloring Book] PDF created: ${pdfFilename} (${Math.round(pdfBytes.length / 1024 / 1024)}MB, ${sortedPages.length + 1} pages)`);
+
+    const finalContent = `## ${title}\n\n**Coloring Book** — ${generatedPages.length} pages\n\nTheme: ${theme}\nFormat: Printable PDF with full-page coloring illustrations\n\n### Pages\n\n` +
+      generatedPages.map(p => `**Page ${p.pageNum}:** ${p.prompt}`).join('\n\n');
+
+    await db.update(draftEbooks).set({
+      content: finalContent,
+      pdfUrl: pdfUrl,
+      status: "ready",
+    }).where(eq(draftEbooks.id, draftId));
+
+    activeGenerationCount--;
+    console.log(`[Coloring Book] "${title}" COMPLETE — ${generatedPages.length} pages, status: ready`);
+    console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
+    return finalContent;
+
+  } catch (error: any) {
+    activeGenerationCount--;
+    console.error(`[Coloring Book] Failed for "${title}": ${error.message}`);
+    console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
+
+    if (generatedPages.length >= 10) {
+      console.log(`[Coloring Book] "${title}" has ${generatedPages.length} pages despite error — keeping as draft for retry`);
+      await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
+    } else {
+      await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
+    }
+    throw error;
+  }
+}
+
+function isColoringBookGenre(genre: string): boolean {
+  return genre.toLowerCase().includes("coloring");
+}
+
+export async function enrichColoringBookWithPrompts(draftId: number): Promise<{ pagesEnriched: number }> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error(`Draft ${draftId} not found`);
+  if (!draft.content) throw new Error(`Draft ${draftId} has no content`);
+
+  const title = draft.title || "Coloring Book";
+  const genre = draft.genre || "Coloring Books";
+
+  const pageRegex = /\*\*Page\s+(\d+):\*\*\s*([\s\S]*?)(?=\n\n\*\*Page\s+\d+|\n*$)/g;
+  const pages: { num: string; desc: string }[] = [];
+  let match;
+  while ((match = pageRegex.exec(draft.content)) !== null) {
+    pages.push({ num: match[1], desc: match[2].trim() });
+  }
+  if (pages.length === 0) throw new Error(`No page descriptions found in draft ${draftId}`);
+
+  console.log(`[Enrich Prompts] "${title}" — generating guided content for ${pages.length} pages...`);
+
+  const pageList = pages.map(p => `Page ${p.num}: ${p.desc}`).join("\n\n");
+
+  const themeContext = title.toLowerCase().includes("mandala") || title.toLowerCase().includes("mindful") || title.toLowerCase().includes("anxiety") || title.toLowerCase().includes("calm")
+    ? "mindfulness and anxiety relief — each prompt should address nervous system regulation, releasing worry, and finding stillness"
+    : title.toLowerCase().includes("garden") || title.toLowerCase().includes("botanical") || title.toLowerCase().includes("enchanted")
+    ? "nature-based mindfulness for adults — each prompt should connect the reader to botanical beauty, grounded presence, and sensory calm"
+    : "creative stress relief — each prompt should encourage playful imagination, lightness, and a break from daily tension";
+
+  const response = await getContentClient().chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `You are a licensed mindfulness educator creating guided content for a coloring book focused on ${themeContext}.
+
+For each of the ${pages.length} coloring pages provided, write three short guided elements:
+
+1. TODAY'S INTENTION — One warm, present-tense sentence that sets a mindful theme for this page (e.g. "I release what I cannot control and find peace in this moment.")
+2. BREATHING GUIDE — One specific breathing technique in 1-2 sentences (e.g. "Inhale slowly for 4 counts, hold for 2, then exhale for 6. Repeat three times before lifting your pencil.")
+3. DAILY CALM CHALLENGE — 2-3 sentences describing a specific mindful activity to do WHILE coloring this page (tie it to the image on that page — mention the shapes, scene, or subject).
+
+Respond in this exact format — no extra text, no numbering, just this block repeated for each page:
+
+PAGE [N]
+INTENTION: [text]
+BREATHING: [text]
+CHALLENGE: [text]
+
+Be warm, specific to each page's image, and genuinely therapeutic.`
+      },
+      {
+        role: "user",
+        content: `Book: "${title}"\n\nHere are the ${pages.length} pages:\n\n${pageList}\n\nGenerate guided content for all ${pages.length} pages.`
+      }
+    ],
+    max_tokens: 6000,
+    temperature: 0.7,
+  });
+
+  const raw = response.choices[0]?.message?.content || "";
+  console.log(`[Enrich Prompts] GPT response received (${raw.length} chars)`);
+
+  const promptMap = new Map<string, { intention: string; breathing: string; challenge: string }>();
+  const blockRegex = /PAGE\s+(\d+)\s*\nINTENTION:\s*(.+?)\s*\nBREATHING:\s*(.+?)\s*\nCHALLENGE:\s*([\s\S]+?)(?=\nPAGE\s+\d+|$)/g;
+  let blockMatch;
+  while ((blockMatch = blockRegex.exec(raw)) !== null) {
+    promptMap.set(blockMatch[1], {
+      intention: blockMatch[2].trim(),
+      breathing: blockMatch[3].trim(),
+      challenge: blockMatch[4].trim(),
+    });
+  }
+
+  if (promptMap.size === 0) throw new Error("Failed to parse any guided prompts from GPT response");
+  console.log(`[Enrich Prompts] Parsed ${promptMap.size} page prompts`);
+
+  let updatedContent = draft.content;
+  for (const page of pages) {
+    const prompts = promptMap.get(page.num);
+    if (!prompts) continue;
+
+    const guided = `\n\n> *Today's Intention:* ${prompts.intention}\n\n**Breathing Guide:** ${prompts.breathing}\n\n**Daily Calm Challenge:** ${prompts.challenge}`;
+    const pageHeader = `**Page ${page.num}:** ${page.desc}`;
+    const enriched = pageHeader + guided;
+    updatedContent = updatedContent.replace(pageHeader, enriched);
+  }
+
+  await db.update(draftEbooks).set({ content: updatedContent, status: "ready" }).where(eq(draftEbooks.id, draftId));
+  console.log(`[Enrich Prompts] "${title}" — updated ${promptMap.size} pages, status set to ready`);
+  return { pagesEnriched: promptMap.size };
+}
+
+export async function createCustomBook(description: string, genre?: string): Promise<number> {
+  const conceptResponse = await getContentClient().chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: `You are a bestselling book concept developer. The user will give you a seed idea for a book. Your job is to:
+1. Expand this seed into a rich, detailed book concept — flesh out the story/topic with your own creative ideas, research angles, plot elements, character ideas, or expert perspectives as appropriate.
+2. Generate a compelling, bookstore-ready title.
+3. Pick the best genre.
+
+Return ONLY valid JSON with three fields:
+{
+  "genre": "one of: ${GENRES.join(", ")}",
+  "title": "A compelling bookstore-ready title",
+  "expandedConcept": "A detailed 2-3 paragraph expansion of the idea with specific plot points, themes, character details, or topic angles that will guide the full book creation"
+}
+
+${genre ? `The user prefers genre: ${genre}. Use it if it fits.` : "Pick the most fitting genre."}
+Be creative — take the seed idea and develop it into something a reader would be excited to buy.` },
+      { role: "user", content: description }
+    ],
+    temperature: 0.85,
+    max_tokens: 800,
+  });
+
+  let finalGenre = genre || "Self-Help / Personal Development";
+  let finalTitle = "";
+  let expandedConcept = description;
+
+  try {
+    const text = conceptResponse.choices[0]?.message?.content?.trim() || "{}";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+    if (parsed.genre) finalGenre = parsed.genre;
+    if (parsed.title) finalTitle = extractCleanTitle(parsed.title);
+    if (parsed.expandedConcept) expandedConcept = parsed.expandedConcept;
+  } catch {
+    console.log("[Custom Book] Failed to parse concept response, generating title separately");
+  }
+
+  if (!finalTitle || finalTitle.length < 5) {
+    const titleRetry = await getContentClient().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Generate a single compelling, bookstore-ready book title for this idea. Return ONLY the title text, nothing else. No quotes, no explanation." },
+        { role: "user", content: description }
+      ],
+      temperature: 0.9,
+      max_tokens: 100,
+    });
+    finalTitle = extractCleanTitle(titleRetry.choices[0]?.message?.content?.trim() || "Untitled Book");
+  }
+
+  const topic = `${finalTitle}: ${expandedConcept}`;
+
+  const [draft] = await db.insert(draftEbooks).values({
+    title: finalTitle,
+    genre: finalGenre,
+    topic,
+    description: description,
+    suggestedPrice: "12.99",
+    status: "draft",
+  }).returning();
+
+  console.log(`[Custom Book] Draft created: "${finalTitle}" (${finalGenre}), ID: ${draft.id}. Ready for cover and content generation through normal flow.`);
+
+  return draft.id;
+}
+
+export async function regenerateDraftTitle(draftId: number): Promise<{ title: string }> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+
+  const sourceText = draft.description || draft.topic || draft.title;
+
+  const response = await getContentClient().chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: `Generate a single compelling, bookstore-ready book title for this book idea. The title should be catchy, marketable, and something you'd see on a bestseller list. The genre is: ${draft.genre}.\n\nReturn ONLY the title text, nothing else. No quotes, no explanation, no subtitle.` },
+      { role: "user", content: sourceText }
+    ],
+    temperature: 0.95,
+    max_tokens: 100,
+  });
+
+  const newTitle = extractCleanTitle(response.choices[0]?.message?.content?.trim() || draft.title);
+  await db.update(draftEbooks).set({ title: newTitle }).where(eq(draftEbooks.id, draftId));
+  console.log(`[Regenerate Title] Draft ${draftId}: "${draft.title}" → "${newTitle}"`);
+  return { title: newTitle };
+}
+
+export async function generateIllustrations(content: string, genre: string, title: string, saveDraftId?: number): Promise<string> {
+  const visualConfig = getVisualEnhancedConfig(genre);
+  if (!visualConfig) return content;
+
+  const illustrationPattern = /\[ILLUSTRATION:\s*(.+?)\]/gi;
+  const allMatches = [...content.matchAll(illustrationPattern)];
+  
+  if (allMatches.length === 0) {
+    console.log(`[Illustrations] No illustration markers found in "${title}" (${genre})`);
+    return content;
+  }
+
+  let matches = allMatches.filter(m => {
+    const src = m[1].trim();
+    return !(src.startsWith("/") || src.startsWith("http"));
+  });
+
+  const alreadyDone = allMatches.length - matches.length;
+  if (alreadyDone > 0) {
+    console.log(`[Illustrations] Skipping ${alreadyDone} already-generated illustrations in "${title}"`);
+  }
+
+  if (matches.length === 0) {
+    console.log(`[Illustrations] All illustrations already generated for "${title}"`);
+    return content;
+  }
+
+  if (matches.length === 0) {
+    console.log(`[Illustrations] No pending markers to process for "${title}"`);
+    return content;
+  }
+
+  const MAX_IMAGES_PER_CHAPTER = 2;
+  const chapterLines = content.split('\n');
+  const chapterBounds: { start: number; end: number }[] = [];
+  for (let li = 0; li < chapterLines.length; li++) {
+    const trimmed = chapterLines[li].trim();
+    if (/^##\s+/.test(trimmed)) {
+      chapterBounds.push({ start: li, end: chapterLines.length });
+      if (chapterBounds.length > 1) {
+        chapterBounds[chapterBounds.length - 2].end = li;
+      }
+    }
+  }
+  if (chapterBounds.length > 0) {
+    const markersToRemove: string[] = [];
+    for (const bound of chapterBounds) {
+      const chapterText = chapterLines.slice(bound.start, bound.end).join('\n');
+      const allInChapter = [...chapterText.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)];
+      const existingImages = allInChapter.filter(m => {
+        const src = m[1].trim();
+        return src.startsWith("/") || src.startsWith("http");
+      }).length;
+      if (existingImages >= MAX_IMAGES_PER_CHAPTER) {
+        const pendingInChapter = allInChapter.filter(m => {
+          const src = m[1].trim();
+          return !(src.startsWith("/") || src.startsWith("http"));
+        });
+        for (const pm of pendingInChapter) {
+          markersToRemove.push(pm[0]);
+        }
+      }
+    }
+    if (markersToRemove.length > 0) {
+      for (const marker of markersToRemove) {
+        content = content.replace(marker + '\n', '');
+        content = content.replace(marker, '');
+      }
+      matches = matches.filter(m => !markersToRemove.includes(m[0]));
+      console.log(`[Illustrations] Stripped ${markersToRemove.length} pending text markers from chapters already having ${MAX_IMAGES_PER_CHAPTER}+ images in "${title}"`);
+    }
+  }
+
+  if (matches.length === 0) {
+    console.log(`[Illustrations] After cleanup, no pending markers left for "${title}"`);
+    return content;
+  }
+
+  const HARD_MAX = 200;
+  if (matches.length > HARD_MAX) {
+    console.log(`[Illustrations] "${title}" has ${matches.length} markers — trimming to ${HARD_MAX}`);
+    const excessMarkers = matches.slice(HARD_MAX);
+    for (const excess of excessMarkers) {
+      content = content.replace(excess[0], '');
+    }
+    matches = matches.slice(0, HARD_MAX);
+  } else if (matches.length > 30) {
+    console.log(`[Illustrations] "${title}" has ${matches.length} markers (over 30 but within ${HARD_MAX}) — proceeding`);
+  }
+
+  console.log(`[Illustrations] Processing ${matches.length} illustration markers in "${title}"...`);
+
+  illustrationProgress.totalImages = matches.length;
+  illustrationProgress.currentImage = 0;
+
+  const illustrationDir = "uploads/illustrations";
+  if (!fs.existsSync(illustrationDir)) {
+    fs.mkdirSync(illustrationDir, { recursive: true });
+  }
+
+  let updatedContent = content;
+  let generatedCount = 0;
+  let failedCount = 0;
+
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    const description = match[1].trim();
+    const fullMarker = match[0];
+
+    try {
+      illustrationProgress.currentImage = i + 1;
+      console.log(`[Illustrations] Generating ${i + 1}/${matches.length}: ${description.substring(0, 80)}...`);
+
+      const isChart = /chart|diagram|flowchart|comparison|table|layout|template|infographic|timeline|process|step.by.step|labeled/i.test(description);
+      const framingInstruction = "CRITICAL FRAMING RULES — apply these BEFORE composing anything else: Maintain a strict 15% safe-zone margin on the TOP and BOTTOM edges, and 12% on the left and right. NO element — hair, head, sky, ground, foot, tail, leaf tip, or any scene detail — may touch or cross any edge. The complete main subject must be fully visible with clear space around it. For people: always show the full head with at least 15% clear space above it; if showing a full figure, both feet must be fully visible with clear space below. For landscapes and scenes: the top of the sky and the bottom of the ground must both be fully inside the frame with visible margin. Center the composition with generous breathing room on all sides. When in doubt, zoom out — it is always better to show too much than to clip anything.";
+      // Topic guard: ensures the image model stays on-subject even if the description
+      // contains an analogy (e.g. "brushing teeth" in a cybersecurity book). The guard
+      // is prepended so the model establishes subject domain before reading the description.
+      const topicGuard = `SUBJECT DOMAIN: This illustration is for the ${genre} book "${title}". Generate an image that is directly and literally relevant to ${genre} — do NOT depict unrelated metaphors or analogies. If the description below uses an analogy, translate it into imagery that directly represents the actual ${genre} concept instead. `;
+      const imagePrompt = isChart
+        ? `${framingInstruction} ${topicGuard}${description}. Style: clean, professional infographic with clear labels fully inside the frame. Use simple shapes. Professional quality, suitable for a published ${genre} book.`
+        : `${framingInstruction} ${topicGuard}${description}. Style: ${visualConfig.illustrationStyle}. Professional quality, high detail, suitable for a published ${genre} book.`;
+
+      const imageSize = "1024x1536";
+
+      let imageData: string | undefined;
+      try {
+        const response = await openaiDirectForImages.images.generate({
+          model: IMAGE_MODEL_PRIMARY,
+          prompt: imagePrompt,
+          n: 1,
+          size: imageSize as any,
+        });
+        imageData = response.data?.[0]?.b64_json;
+      } catch (primaryErr: any) {
+        console.warn(`[Illustrations] ${IMAGE_MODEL_PRIMARY} failed for ${i + 1}, trying ${IMAGE_MODEL_FALLBACK} via Replit: ${primaryErr.message}`);
+        try {
+          const fallbackResponse = await openaiReplit.images.generate({
+            model: IMAGE_MODEL_FALLBACK,
+            prompt: imagePrompt,
+            n: 1,
+            size: imageSize as any,
+          });
+          imageData = fallbackResponse.data?.[0]?.b64_json;
+        } catch (fallbackErr: any) {
+          console.error(`[Illustrations] Both models failed for illustration ${i + 1}: ${fallbackErr.message}`);
+        }
+      }
+      if (!imageData) {
+        console.log(`[Illustrations] No image data returned for illustration ${i + 1}`);
+        failedCount++;
+        continue;
+      }
+
+      const buffer = Buffer.from(imageData, "base64");
+      const timestamp = Date.now();
+      const filename = `illust-${timestamp}-${i}.png`;
+      const filepath = path.join(illustrationDir, filename);
+      fs.writeFileSync(filepath, buffer);
+
+      // Upload to Replit Object Storage so illustrations are available in production.
+      // Falls back to local path if object storage upload fails.
+      let imageUrl = `/uploads/illustrations/${filename}`;
+      try {
+        const { uploadToObjStore } = await import("./objectStorage");
+        const uploaded = await uploadToObjStore(buffer, `public/illustrations/${filename}`, "image/png");
+        if (uploaded) imageUrl = `/objstore/illustrations/${filename}`;
+      } catch (uploadErr: any) {
+        console.warn(`[Illustrations] ObjStore upload failed for ${filename}, using local path: ${uploadErr.message}`);
+      }
+
+      // Derive a short caption from the first sentence of the original description (≤110 chars).
+      // Stored inline as a pipe-separated value so the illustration and its caption stay atomic:
+      //   [ILLUSTRATION: /path/to/image.png | Caption text here]
+      // The reader splits on ' | ' to extract src and caption.
+      const rawFirstSentence = description.split(/(?<=[.!?])\s/)[0].trim().replace(/[.!?]$/, "");
+      const captionText = rawFirstSentence.length > 110 ? rawFirstSentence.substring(0, 107) + "…" : rawFirstSentence;
+      updatedContent = updatedContent.replace(fullMarker, `[ILLUSTRATION: ${imageUrl} | ${captionText}]`);
+      generatedCount++;
+      illustrationProgress.lastGeneratedFile = filename;
+      console.log(`[Illustrations] Generated illustration ${i + 1}/${matches.length}: ${filename}`);
+
+      if (saveDraftId) {
+        await db.update(draftEbooks).set({ content: updatedContent }).where(eq(draftEbooks.id, saveDraftId));
+        if (generatedCount % 5 === 0 || i === matches.length - 1) {
+          console.log(`[Illustrations] Incremental save for draft ${saveDraftId} after ${generatedCount} images`);
+        }
+      }
+
+      if (i < matches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    } catch (error: any) {
+      console.error(`[Illustrations] Failed to generate illustration ${i + 1}: ${error?.message}`);
+      failedCount++;
+    }
+  }
+
+  console.log(`[Illustrations] Complete for "${title}": ${generatedCount} generated, ${failedCount} failed out of ${matches.length} total`);
+  return updatedContent;
+}
+
+export async function generateSingleEbook(genre: string, topic: string): Promise<number> {
+  activeGenerationCount++;
+  console.log(`[Generation Guard] Single ebook generation started. Active: ${activeGenerationCount}`);
+  const [draft] = await db.insert(draftEbooks).values({
+    title: extractCleanTitle(topic),
+    genre,
+    topic,
+    status: "generating",
+  }).returning();
+
+  try {
+    const cleanTitle = extractCleanTitle(topic);
+    const outline = await generateEbookOutline(topic, genre, cleanTitle);
+    await db.update(draftEbooks).set({ outline }).where(eq(draftEbooks.id, draft.id));
+
+    let content = await generateEbookContent(outline, topic, genre, cleanTitle);
+    
+    if (isVisualEnhancedGenre(genre)) {
+      console.log(`[Visual Enhanced] "${cleanTitle}" is a ${genre} book — running illustration pipeline...`);
+      const markerCount = (content.match(/\[ILLUSTRATION:/g) || []).length;
+      if (markerCount === 0) {
+        console.log(`[Visual Enhanced] "${cleanTitle}" has no illustration markers — injecting them before generating images...`);
+        content = await injectIllustrationMarkers(content, genre, cleanTitle);
+        await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draft.id));
+      }
+      content = await generateIllustrations(content, genre, cleanTitle, draft.id);
+    }
+    
+    const wordCount = content.split(/\s+/).length;
+    await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draft.id));
+
+    const titleMatch = outline.match(/Title[:\s]+["']?([^"\n]+)["']?/i);
+    const rawTitle = titleMatch ? titleMatch[1].trim() : topic;
+    const title = extractCleanTitle(rawTitle);
+
+    const pdfUrl = await createPdfFromContent(title, content);
+    
+    const suggestedPrice = calculateEbookPrice({ content, genre, outline, title });
+
+    const isContentComplete = wordCount >= MIN_WORD_COUNT;
+    const newStatus = isContentComplete ? "draft" : "draft";
+    
+    console.log(`[Single Ebook] "${title}" generated: ${wordCount} words, content complete: ${isContentComplete}, status: ${newStatus} (cover pending — select a style in Cover Review)`);
+
+    await db.update(draftEbooks).set({
+      title,
+      pdfUrl,
+      suggestedPrice,
+      status: newStatus,
+    }).where(eq(draftEbooks.id, draft.id));
+
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Single ebook complete. Active: ${activeGenerationCount}`);
+    return draft.id;
+  } catch (error) {
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Single ebook failed. Active: ${activeGenerationCount}`);
+    await db.update(draftEbooks).set({
+      status: "failed",
+    }).where(eq(draftEbooks.id, draft.id));
+    throw error;
+  }
+}
+
+export async function startBulkGeneration(genre: string, count: number, inspired: boolean = false): Promise<number> {
+  const [job] = await db.insert(generationJobs).values({
+    type: inspired ? "inspired" : "bulk",
+    genre,
+    status: "queued",
+    totalItems: count,
+    completedItems: 0,
+  }).returning();
+
+  activeJobs.add(job.id);
+  processGenerationJob(job.id, false, inspired)
+    .catch(console.error)
+    .finally(() => activeJobs.delete(job.id));
+
+  return job.id;
+}
+
+async function processGenerationJob(jobId: number, isResume: boolean = false, inspired: boolean = false) {
+  const [existingJob] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId));
+  if (!existingJob) return;
+
+  if (!isResume) {
+    await db.update(generationJobs).set({
+      status: "processing",
+      startedAt: new Date(),
+      lastActivityAt: new Date(),
+    }).where(eq(generationJobs.id, jobId));
+  } else {
+    await db.update(generationJobs).set({
+      lastActivityAt: new Date(),
+    }).where(eq(generationJobs.id, jobId));
+  }
+
+  const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId));
+  if (!job) return;
+
+  // Check if this is an inspired job (from job type or parameter)
+  const useInspired = inspired || job.type === "inspired";
+
+  try {
+    let topics: string[];
+    const startIndex = job.completedItems || 0;
+
+    if (job.topics && job.topics.length > 0) {
+      topics = job.topics;
+      console.log(`Resuming job ${jobId} from index ${startIndex} with ${topics.length} saved topics`);
+    } else {
+      console.log(`Generating ${useInspired ? 'inspired' : 'new'} topics for job ${jobId}`);
+      topics = useInspired 
+        ? await generateInspiredTopicIdeas(job.genre, job.totalItems || 20)
+        : await generateTopicIdeas(job.genre, job.totalItems || 20);
+      await db.update(generationJobs).set({
+        topics: topics,
+        lastActivityAt: new Date(),
+      }).where(eq(generationJobs.id, jobId));
+    }
+
+    for (let i = startIndex; i < topics.length; i++) {
+      try {
+        console.log(`Job ${jobId}: Generating ebook ${i + 1}/${topics.length} - ${topics[i]}`);
+        await generateSingleEbook(job.genre, topics[i]);
+        await db.update(generationJobs).set({
+          completedItems: i + 1,
+          lastActivityAt: new Date(),
+        }).where(eq(generationJobs.id, jobId));
+      } catch (error) {
+        console.error(`Failed to generate ebook for topic: ${topics[i]}`, error);
+        await db.update(generationJobs).set({
+          lastActivityAt: new Date(),
+        }).where(eq(generationJobs.id, jobId));
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    await db.update(generationJobs).set({
+      status: "completed",
+      completedAt: new Date(),
+      lastActivityAt: new Date(),
+    }).where(eq(generationJobs.id, jobId));
+  } catch (error) {
+    await db.update(generationJobs).set({
+      status: "failed",
+      error: error instanceof Error ? error.message : "Unknown error",
+      lastActivityAt: new Date(),
+    }).where(eq(generationJobs.id, jobId));
+  }
+}
+
+const STALE_THRESHOLD_MS = 10 * 60 * 1000;
+const activeJobs = new Set<number>();
+
+export async function resumePendingJobs(): Promise<number> {
+  const now = new Date();
+  const staleThreshold = new Date(now.getTime() - STALE_THRESHOLD_MS);
+
+  const stuckJobs = await db.select().from(generationJobs).where(eq(generationJobs.status, "processing"));
+  
+  let resumedCount = 0;
+  
+  for (const job of stuckJobs) {
+    if (activeJobs.has(job.id)) {
+      console.log(`Job ${job.id} is already being processed, skipping`);
+      continue;
+    }
+
+    const lastActivity = job.lastActivityAt || job.startedAt || job.createdAt;
+    
+    if (lastActivity && lastActivity < staleThreshold) {
+      console.log(`Resuming stale job ${job.id} (${job.genre}) - last activity: ${lastActivity.toISOString()}`);
+      activeJobs.add(job.id);
+      
+      processGenerationJob(job.id, true)
+        .catch(err => console.error(`Error resuming job ${job.id}:`, err))
+        .finally(() => activeJobs.delete(job.id));
+      
+      resumedCount++;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+
+  const queuedJobs = await db.select().from(generationJobs).where(eq(generationJobs.status, "queued"));
+  
+  for (const job of queuedJobs) {
+    if (activeJobs.has(job.id)) continue;
+    
+    console.log(`Starting queued job ${job.id} (${job.genre})`);
+    activeJobs.add(job.id);
+    
+    processGenerationJob(job.id, false)
+      .catch(err => console.error(`Error processing queued job ${job.id}:`, err))
+      .finally(() => activeJobs.delete(job.id));
+    
+    resumedCount++;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  console.log(`Resumed ${resumedCount} jobs total`);
+  return resumedCount;
+}
+
+export async function resumeInterruptedDrafts(): Promise<number> {
+  const placeholderPattern = /\[Content generation incomplete[^\]]*\]|Please regenerate this ebook[^\]]*\]/i;
+
+  const stuckDrafts = await db.select({ id: draftEbooks.id, title: draftEbooks.title, content: draftEbooks.content })
+    .from(draftEbooks)
+    .where(eq(draftEbooks.status, "generating"));
+
+  let resumedCount = 0;
+
+  for (const draft of stuckDrafts) {
+    const hasPlaceholder = draft.content ? placeholderPattern.test(draft.content) : false;
+
+    if (hasPlaceholder) {
+      console.log(`[Auto-Resume] "${draft.title}" (ID ${draft.id}) was interrupted with placeholder chapters — auto-resuming repair`);
+      repairIncompleteChapters(draft.id)
+        .then(() => console.log(`[Auto-Resume] "${draft.title}" repair completed successfully`))
+        .catch(err => console.error(`[Auto-Resume] "${draft.title}" repair failed:`, err.message));
+      resumedCount++;
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } else {
+      console.log(`[Auto-Resume] "${draft.title}" (ID ${draft.id}) was stuck in generating — resetting to draft`);
+      await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
+    }
+  }
+
+  return resumedCount;
+}
+
+export async function autoResumeBulkGeneration(): Promise<void> {
+  const allDrafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    content: draftEbooks.content,
+    status: draftEbooks.status,
+  }).from(draftEbooks);
+
+  let recoveredCount = 0;
+
+  const isContentComplete = (d: { content: string | null; genre: string | null }): boolean => {
+    if (!d.content) return false;
+    const genre = d.genre || "General";
+    if (isColoringBookGenre(genre)) {
+      return /Coloring Book.*\d+ pages/i.test(d.content) && d.content.includes("Page ");
+    }
+    const words = d.content.split(/\s+/).length;
+    const chapterSpec = getGenreChapterSpec(genre);
+    const genreMinWords = chapterSpec.minWordsPerChapter * chapterSpec.targetChapters.min;
+    const effectiveMinWords = Math.max(MIN_WORD_COUNT, Math.round(genreMinWords * 0.6));
+    const hasTBC = /to be continued|tbc|the story continues/i.test(d.content);
+    const hasPlaceholder = /\[Content generation incomplete|Please regenerate this ebook/i.test(d.content);
+    return words >= effectiveMinWords && !hasTBC && !hasPlaceholder;
+  };
+
+  const stuckGenerating = allDrafts.filter(d => d.status === "generating");
+  for (const d of stuckGenerating) {
+    if (isContentComplete(d)) {
+      console.log(`[Auto-Resume] "${d.title}" (ID ${d.id}) was stuck in generating — content looks complete, resetting to draft for quality check`);
+      await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, d.id));
+    } else if (d.content && d.content.length > 5000) {
+      console.log(`[Auto-Resume] "${d.title}" (ID ${d.id}) was stuck in generating — has partial content, resetting to draft for repair`);
+      await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, d.id));
+    } else {
+      console.log(`[Auto-Resume] "${d.title}" (ID ${d.id}) was stuck in generating with little/no content — resetting to draft for retry`);
+      await db.update(draftEbooks).set({ status: "draft", content: null }).where(eq(draftEbooks.id, d.id));
+    }
+    recoveredCount++;
+  }
+
+  const completeDrafts = allDrafts.filter(d => d.status === "draft" && isContentComplete(d));
+  if (completeDrafts.length > 0) {
+    console.log(`[Auto-Resume] Found ${completeDrafts.length} draft ebooks with complete content — leaving in draft (may have been demoted by quality gate)`);
+  }
+
+  const failedDrafts = allDrafts.filter(d => d.status === "failed");
+  if (failedDrafts.length > 0) {
+    console.log(`[Auto-Resume] Found ${failedDrafts.length} failed ebooks — resetting to draft for automatic retry`);
+    for (const d of failedDrafts) {
+      console.log(`[Auto-Resume] Resetting failed "${d.title}" (ID ${d.id}) to draft`);
+      await db.update(draftEbooks).set({ status: "draft", content: null }).where(eq(draftEbooks.id, d.id));
+      recoveredCount++;
+    }
+  }
+
+  if (recoveredCount > 0) {
+    console.log(`[Auto-Resume] Recovered ${recoveredCount} ebooks (stuck/failed → draft/ready)`);
+  }
+
+  const refreshedDrafts = await db.select({
+    id: draftEbooks.id,
+    status: draftEbooks.status,
+  }).from(draftEbooks);
+
+  const needsWork = refreshedDrafts.filter(d => d.status === "draft" || d.status === "idea");
+
+  if (needsWork.length === 0) {
+    console.log(`[Auto-Resume Bulk] All ebooks have complete content — nothing to resume`);
+    return;
+  }
+
+  console.log(`[Auto-Resume Bulk] Found ${needsWork.length} ebooks still needing content — auto-starting bulk generation in 10 seconds...`);
+  setTimeout(async () => {
+    try {
+      if (contentGenProgress.running) {
+        console.log(`[Auto-Resume Bulk] Bulk generation already running — skipping`);
+        return;
+      }
+      await generateMissingContent();
+      console.log(`[Auto-Resume Bulk] Bulk generation auto-started successfully`);
+    } catch (err) {
+      console.error(`[Auto-Resume Bulk] Failed to auto-start:`, err);
+    }
+  }, 10000);
+}
+
+let bulkPublishRunning = false;
+
+export async function autoResumeBulkPublish(): Promise<void> {
+  const readyDrafts = await db.select({ id: draftEbooks.id }).from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+
+  if (readyDrafts.length === 0) {
+    console.log(`[Auto-Resume Publish] No "ready" ebooks to publish`);
+    return;
+  }
+
+  console.log(`[Auto-Resume Publish] Found ${readyDrafts.length} "ready" ebooks — auto-starting bulk publish in 15 seconds...`);
+  setTimeout(async () => {
+    try {
+      if (bulkPublishRunning) {
+        console.log(`[Auto-Resume Publish] Bulk publish already running — skipping`);
+        return;
+      }
+      bulkPublishRunning = true;
+      const result = await bulkPublishReady();
+      console.log(`[Auto-Resume Publish] Bulk publish completed: ${result.published} published, ${result.failed} failed, ${result.skipped} skipped`);
+      bulkPublishRunning = false;
+    } catch (err: any) {
+      console.error(`[Auto-Resume Publish] Failed:`, err?.message);
+      bulkPublishRunning = false;
+    }
+  }, 15000);
+}
+
+export function calculateEbookPrice(draft: {
+  content: string | null;
+  genre: string;
+  outline: string | null;
+  title: string;
+}): string {
+  const content = draft.content || "";
+  const wordCount = content.split(/\s+/).filter(w => w.length > 0).length;
+  const genre = (draft.genre || "").toLowerCase();
+  const category = mapGenreToCategory(draft.genre || "");
+  const outline = draft.outline || "";
+
+  const chapterMatches = content.match(/^#{1,3}\s+(?:Chapter|CHAPTER|chapter|\d+[\.\):]|Part|PART|Introduction|Conclusion|Epilogue|Prologue|Appendix)/gm);
+  const chapterCount = chapterMatches ? chapterMatches.length : 1;
+
+  let basePrice: number;
+
+  if (wordCount < 5000) {
+    basePrice = 2.99;
+  } else if (wordCount < 10000) {
+    basePrice = 5.99;
+  } else if (wordCount < 20000) {
+    basePrice = 7.99;
+  } else if (wordCount < 35000) {
+    basePrice = 9.99;
+  } else if (wordCount < 50000) {
+    basePrice = 11.99;
+  } else if (wordCount < 75000) {
+    basePrice = 12.99;
+  } else {
+    basePrice = 13.99;
+  }
+
+  let genreMultiplier = 1.0;
+
+  const premiumFiction = ["fantasy", "epic fantasy", "science fiction", "dystopian", "literary fiction"];
+  const standardFiction = ["romance", "mystery", "thriller", "horror", "historical fiction", "adventure"];
+  const premiumNonfiction = ["finance", "investing", "business", "technology", "science", "philosophy", "psychology", "biography", "reference"];
+  const standardNonfiction = ["self-help", "personal development", "productivity", "health", "wellness", "career", "relationships"];
+  const budgetCategories = ["coloring", "planner", "journal", "prompt", "quote book"];
+  const academicCategories = ["textbook", "technical", "research", "case stud"];
+
+  if (premiumFiction.some(g => genre.includes(g))) {
+    genreMultiplier = 1.15;
+  } else if (standardFiction.some(g => genre.includes(g))) {
+    genreMultiplier = 1.05;
+  } else if (premiumNonfiction.some(g => genre.includes(g))) {
+    genreMultiplier = 1.1;
+  } else if (standardNonfiction.some(g => genre.includes(g))) {
+    genreMultiplier = 1.0;
+  } else if (budgetCategories.some(g => genre.includes(g))) {
+    genreMultiplier = 0.85;
+  } else if (academicCategories.some(g => genre.includes(g))) {
+    genreMultiplier = 0.85;
+  }
+
+  if (category === "Creative & Artistic") genreMultiplier *= 0.95;
+  if (category === "Spiritual & Inspirational") genreMultiplier *= 0.95;
+  if (category === "Entertainment & Lifestyle") genreMultiplier *= 0.9;
+
+  if (chapterCount >= 15) genreMultiplier *= 1.05;
+
+  let finalPrice = Math.round(basePrice * genreMultiplier * 100) / 100;
+
+  const cents = Math.round((finalPrice % 1) * 100);
+  if (cents !== 99 && cents !== 49) {
+    finalPrice = Math.floor(finalPrice) + 0.99;
+  }
+
+  finalPrice = Math.max(2.99, Math.min(finalPrice, 14.99));
+
+  const illustratedStoryFormats = ["comic", "graphic novel", "photography", "activity"];
+  if (illustratedStoryFormats.some(v => genre.includes(v))) {
+    finalPrice = Math.max(12.99, finalPrice);
+  }
+
+  const coloringFormats = ["coloring", "art book"];
+  if (coloringFormats.some(v => genre.includes(v))) {
+    finalPrice = Math.max(7.99, Math.min(finalPrice, 7.99));
+  }
+
+  const workbookFormats = ["workbook", "activity book", "guided journal"];
+  if (workbookFormats.some(v => genre.toLowerCase().includes(v))) {
+    finalPrice = Math.max(12.99, finalPrice);
+  }
+
+  if (genre.includes("classic")) finalPrice = 1.99;
+
+  console.log(`[Smart Pricing] "${draft.title}" → $${finalPrice} (${wordCount} words, ${chapterCount} chapters, genre: ${draft.genre}, multiplier: ${genreMultiplier.toFixed(2)})`);
+  return finalPrice.toFixed(2);
+}
+
+export function mapGenreToCategory(genre: string): string {
+  const g = genre.toLowerCase();
+  const fictionGenres = ["fantasy", "science fiction", "horror", "romance", "mystery", "thriller", "historical fiction", "adventure", "dystopian", "young adult", "children", "literary fiction", "short stories", "epic fantasy"];
+  const practicalGenres = ["cookbook", "cooking", "diy", "crafts", "fitness", "gaming", "guides", "manuals", "workbook", "tutorial", "career guide"];
+  const creativeGenres = ["poetry", "art", "music", "film", "cinema", "writing", "creativity", "photography", "graphic novel", "comics", "short story collection"];
+  const spiritualGenres = ["spirituality", "religion", "faith", "mindfulness", "meditation", "motivational", "manifestation", "law of attraction"];
+  const entertainmentGenres = ["humor", "fashion", "beauty", "pop culture", "sports", "food & drink", "home décor", "home decor"];
+  const hybridGenres = ["journal", "planner", "prompt", "coloring", "activity", "quote book"];
+  const academicGenres = ["textbook", "research", "case stud", "technical manual", "reference"];
+
+  if (fictionGenres.some(f => g.includes(f))) return "Fiction (Story-Driven)";
+  if (practicalGenres.some(f => g.includes(f))) return "Practical & How-To";
+  if (creativeGenres.some(f => g.includes(f))) return "Creative & Artistic";
+  if (spiritualGenres.some(f => g.includes(f))) return "Spiritual & Inspirational";
+  if (entertainmentGenres.some(f => g.includes(f))) return "Entertainment & Lifestyle";
+  if (hybridGenres.some(f => g.includes(f))) return "Hybrid Formats";
+  if (academicGenres.some(f => g.includes(f))) return "Academic & Professional";
+  return "Nonfiction (Information-Driven)";
+}
+
+function extractBaseTitle(title: string): string {
+  const colonIdx = title.indexOf(':');
+  if (colonIdx > 10) {
+    const base = title.substring(0, colonIdx).trim();
+    return normalizeTitleForComparison(base);
+  }
+  const dashIdx = title.indexOf('—');
+  if (dashIdx > 10) {
+    const base = title.substring(0, dashIdx).trim();
+    return normalizeTitleForComparison(base);
+  }
+  return normalizeTitleForComparison(title);
+}
+
+function normalizeTitleForComparison(title: string): string {
+  return title
+    .replace(/[*"":,.!?\-()''""—]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+export function areTitlesSimilar(titleA: string, titleB: string): { similar: boolean; matchType: string } {
+  const normA = normalizeTitleForComparison(titleA);
+  const normB = normalizeTitleForComparison(titleB);
+  if (normA === normB) return { similar: true, matchType: 'EXACT_TITLE' };
+  const baseA = extractBaseTitle(titleA);
+  const baseB = extractBaseTitle(titleB);
+  if (baseA === baseB && baseA.split(' ').length >= 3) return { similar: true, matchType: 'SAME_BASE_TITLE' };
+  const shorter = normA.length <= normB.length ? normA : normB;
+  const longer = normA.length <= normB.length ? normB : normA;
+  if (shorter.length >= 10 && longer.startsWith(shorter) && shorter.split(' ').length >= 3) return { similar: true, matchType: 'PREFIX_MATCH' };
+  return { similar: false, matchType: '' };
+}
+
+export async function publishDraft(draftId: number, options?: { subscriberExclusive?: boolean }): Promise<number> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  if (draft.status === "published") throw new Error("Draft is already published");
+  if (draft.status === "generating") throw new Error("Draft is still generating content");
+  if (draft.status === "failed") throw new Error("Draft has failed status — reset it first");
+  if (!draft.content || draft.content.trim().length < 100) {
+    throw new Error("Draft has no content — write content before publishing");
+  }
+
+  const existingBooks = await db.select({ id: books.id, title: books.title }).from(books).where(eq(books.visible, true));
+  const duplicateBook = existingBooks.find(b => areTitlesSimilar(b.title, draft.title).similar);
+  
+  const smartPrice = calculateEbookPrice({
+    content: draft.content,
+    genre: draft.genre,
+    outline: draft.outline,
+    title: draft.title,
+  });
+
+  if (duplicateBook) {
+    const exactMatch = duplicateBook.title.trim().toLowerCase() === draft.title.trim().toLowerCase();
+    if (exactMatch) {
+      console.log(`[Publish] Exact title match — updating existing Book #${duplicateBook.id} with improved content from Draft #${draftId}`);
+      await db.update(books).set({
+        genre: draft.genre,
+        category: mapGenreToCategory(draft.genre),
+        price: smartPrice,
+        coverUrl: draft.coverUrl || draft.backgroundUrl || undefined,
+        description: draft.description || undefined,
+      }).where(eq(books.id, duplicateBook.id));
+
+      await db.update(draftEbooks).set({
+        status: "published",
+        publishedAt: new Date(),
+        suggestedPrice: smartPrice,
+      }).where(eq(draftEbooks.id, draftId));
+
+      return duplicateBook.id;
+    }
+    throw new Error(`Cannot publish: a book with a similar title already exists (Book #${duplicateBook.id}: "${duplicateBook.title}"). This draft's title is "${draft.title}". Resolve the duplicate before publishing.`);
+  }
+
+  const subscriberExclusiveUntil = options?.subscriberExclusive
+    ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    : undefined;
+
+  const [book] = await db.insert(books).values({
+    title: draft.title,
+    author: "EbookGamez",
+    genre: draft.genre,
+    category: mapGenreToCategory(draft.genre),
+    price: smartPrice,
+    rating: "4.5",
+    coverUrl: draft.coverUrl || draft.backgroundUrl || "",
+    description: draft.description || `An AI-generated ebook about ${draft.topic}`,
+    ...(subscriberExclusiveUntil ? { subscriberExclusiveUntil } : {}),
+  }).returning();
+
+  await db.update(draftEbooks).set({
+    status: "published",
+    publishedAt: new Date(),
+    suggestedPrice: smartPrice,
+  }).where(eq(draftEbooks.id, draftId));
+
+  return book.id;
+}
+
+export function getAvailableGenres(): string[] {
+  return GENRES;
+}
+
+// Regenerate cover for an existing draft with improved title and styling
+export async function regenerateCover(draftId: number): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  
+  // Try to get clean title - prefer topic over problematic title
+  const existingTitle = draft.title || "";
+  const hasProblematicTitle = !existingTitle || 
+    existingTitle.length < 5 || 
+    existingTitle.toLowerCase() === "untitled" ||
+    /^\*{1,2}$/.test(existingTitle.trim()) ||
+    existingTitle.startsWith("**");
+  
+  // Use topic as primary source if title is problematic
+  const sourceText = hasProblematicTitle ? (draft.topic || existingTitle || "Untitled") : existingTitle;
+  const cleanTitle = extractCleanTitle(sourceText);
+  
+  // Generate new cover with proper title and unique creative styling
+  const { coverUrl, backgroundUrl } = await generateCoverImage(cleanTitle, draft.genre || "default", draftId);
+  
+  await db.update(draftEbooks).set({ 
+    coverUrl,
+    backgroundUrl,
+  }).where(eq(draftEbooks.id, draftId));
+  
+  return coverUrl;
+}
+
+// Regenerate cover for an existing draft with a specific style preset
+export async function regenerateCoverWithStyle(draftId: number, styleId: string): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  
+  const style = getCoverStyleById(styleId);
+  if (!style) throw new Error(`Style "${styleId}" not found`);
+  
+  // Get clean title
+  const existingTitle = draft.title || "";
+  const hasProblematicTitle = !existingTitle || 
+    existingTitle.length < 5 || 
+    existingTitle.toLowerCase() === "untitled" ||
+    /^\*{1,2}$/.test(existingTitle.trim()) ||
+    existingTitle.startsWith("**");
+  
+  const sourceText = hasProblematicTitle ? (draft.topic || existingTitle || "Untitled") : existingTitle;
+  const cleanTitle = extractCleanTitle(sourceText);
+  
+  // Generate new cover with the specified style
+  const { coverUrl, backgroundUrl } = await generateCoverImageWithStyle(cleanTitle, draft.genre || "default", draftId, style);
+  
+  await db.update(draftEbooks).set({ 
+    coverUrl,
+    backgroundUrl,
+    coverStyleId: styleId,
+  }).where(eq(draftEbooks.id, draftId));
+  
+  return coverUrl;
+}
+
+// Generate cover image with a specific style preset
+async function generateCoverImageWithStyle(title: string, genre: string, draftId: number, style: CoverStylePreset): Promise<{ coverUrl: string; backgroundUrl: string }> {
+  const colorScheme = style.colorSchemes[Math.floor(Math.random() * style.colorSchemes.length)];
+  const designStyle = style.designStyles[Math.floor(Math.random() * style.designStyles.length)];
+  const compositionStyle = style.compositionStyles[Math.floor(Math.random() * style.compositionStyles.length)];
+  
+  // Get genre-specific image elements (reuse from main function)
+  const imageElements: Record<string, string[]> = {
+    "Fantasy": ["majestic castle on misty mountain with a knight on horseback", "magical forest with a young wizard discovering ancient runes", "dragon flying over medieval village"],
+    "Science Fiction": ["futuristic cityscape with flying cars and people on hover platforms", "astronaut looking at sleek spaceship among stars", "alien planet landscape with explorers"],
+    "Romance": ["couple walking through romantic garden at sunset", "lovers on sunset beach with golden light", "elegant couple dancing in ballroom with chandelier"],
+    "Horror": ["haunted Victorian mansion with ghostly figure in window", "person walking through misty graveyard at night", "mysterious shadow figure in doorway"],
+    "Mystery": ["detective with magnifying glass examining clues in study", "man in trench coat on foggy street at night", "woman finding old skeleton key"],
+    "Self-Help": ["person standing triumphant on mountain summit at sunrise", "woman meditating peacefully at rising sun", "man walking confidently on pathway through forest"],
+    "Business": ["professional businessman overlooking modern city skyline", "team celebrating around ascending business chart", "executive handshake in glass office building"],
+    "default": ["elegant scholar with feather quill in grand library", "antique bookshop with person browsing leather-bound books", "writer in cozy study with fireplace"]
+  };
+  
+  let genreKey = Object.keys(imageElements).find(key => 
+    genre.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(genre.toLowerCase())
+  ) || "default";
+  const genreElements = imageElements[genreKey] || imageElements["default"];
+  const selectedElement = genreElements[Math.floor(Math.random() * genreElements.length)];
+
+  const response = await openai.images.generate({
+    model: IMAGE_MODEL_PRIMARY,
+    prompt: `Professional ebook cover artwork for "${title}" - a ${genre} book. Style: ${designStyle}. Layout: ${compositionStyle}. Color palette: ${colorScheme}. Feature ${selectedElement} as the main visual element. CRITICAL REQUIREMENTS: 1) Photorealistic, cinematic quality artwork. 2) ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO TYPOGRAPHY, NO WRITING of any kind anywhere in the image. 3) Pure visual imagery only - this is a background image that will have text added separately. 4) Premium book cover quality with sophisticated artistic composition.`,
+    n: 1,
+    size: "1024x1024",
+  });
+
+  const imageData = response.data?.[0]?.b64_json;
+  if (!imageData) throw new Error("Failed to generate cover image");
+
+  const timestamp = Date.now();
+  const backgroundBuffer = Buffer.from(imageData, "base64");
+  
+  // Save original background image (without text)
+  const bgFilename = `ai-bg-${timestamp}.png`;
+  const backgroundUrl = await saveCoverFile(backgroundBuffer, bgFilename);
+
+  // Add title and author text overlay with style-specific settings
+  const finalImageBuffer = await addTextOverlayToCoverWithStyle(
+    backgroundBuffer,
+    title,
+    "EbookGamez",
+    genre,
+    draftId,
+    style
+  );
+
+  const filename = `ai-cover-${timestamp}.png`;
+  const coverUrl = await saveCoverFile(finalImageBuffer, filename);
+
+  return { coverUrl, backgroundUrl };
+}
+
+// Add text overlay with specific style settings
+async function addTextOverlayToCoverWithStyle(imageBuffer: Buffer, title: string, author: string, genre: string, draftId: number, style: CoverStylePreset): Promise<Buffer> {
+  registerCoverFonts();
+  
+  const image = await loadImage(imageBuffer);
+  const canvas = createCanvas(image.width, image.height);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, 0, 0);
+
+  const width = image.width;
+  const height = image.height;
+  const cleanTitle = extractCleanTitle(title);
+  
+  // Use style-specific settings
+  const titleFont = getValidatedFont(style.titleFont, "title");
+  const authorFontFamily = getValidatedFont(style.authorFont, "author");
+  
+  // Extract colors from the actual background image
+  const seed = draftId > 0 ? draftId : (cleanTitle + genre).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const colors = extractColorsFromImage(ctx, width, height, seed);
+  
+  // Apply title case transformation based on style - default to proper title case
+  const displayTitle = style.titleCase === "uppercase" 
+    ? cleanTitle.toUpperCase() 
+    : cleanTitle.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+
+  const padding = width * 0.06;
+  const fontFamily = `"${titleFont}", Georgia, serif`;
+  const authorFontFam = `"${authorFontFamily}", Georgia, serif`;
+  
+  // Check if using a script font (shouldn't use bold)
+  const isScriptFont = ["Great Vibes", "Tangerine", "Allura", "Alex Brush", "Pinyon Script", "Pacifico", "Dancing Script"].some(
+    f => titleFont.includes(f)
+  );
+
+  // Text wrapping helper - script fonts don't use bold
+  function wrapText(text: string, fontSize: number, maxW: number, fontFam: string, useBold: boolean = true): string[] {
+    const fontWeight = useBold && !isScriptFont ? "bold " : "";
+    ctx.font = `${fontWeight}${fontSize}px ${fontFam}`;
+    const words = text.split(" ");
+    const lines: string[] = [];
+    let currentLine = "";
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      if (ctx.measureText(testLine).width > maxW && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
+    return lines;
+  }
+
+  const maxLines = 3;
+  // Larger font sizes for more elegant, prominent titles (increased from 58 to 72)
+  let titleFontSize = Math.min(72, Math.floor(width / (displayTitle.length * 0.35)));
+  titleFontSize = Math.max(32, Math.min(72, titleFontSize));
+  // Script fonts look better even larger
+  if (isScriptFont) {
+    titleFontSize = Math.min(85, titleFontSize * 1.15);
+  }
+
+  const maxWidth = width * 0.85;
+  let titleLines = wrapText(displayTitle, titleFontSize, maxWidth, fontFamily, true);
+  while (titleLines.length > maxLines && titleFontSize > 26) {
+    titleFontSize -= 4;
+    titleLines = wrapText(displayTitle, titleFontSize, maxWidth, fontFamily, true);
+  }
+
+  const lineHeight = titleFontSize * 1.25;
+  const totalTitleHeight = titleLines.length * lineHeight;
+  
+  // Position based on style
+  let titleY = padding * 2;
+  if (style.position === "center") {
+    titleY = (height - totalTitleHeight) / 2 - height * 0.1;
+  } else if (style.position === "bottom-center") {
+    titleY = height - totalTitleHeight - padding * 4 - 60;
+  }
+
+  const titleX = width / 2;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+
+  // Draw title with effect - use correct font weight for script fonts
+  const titleFontWeight = isScriptFont ? "" : "bold ";
+  ctx.font = `${titleFontWeight}${titleFontSize}px ${fontFamily}`;
+  
+  for (let i = 0; i < titleLines.length; i++) {
+    const y = titleY + i * lineHeight;
+    
+    // Enhanced effects for more elegant appearance
+    switch (style.effect) {
+      case "outline":
+      case "elegant":
+        // Elegant outline with subtle glow
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = isScriptFont ? 2 : 4;
+        ctx.strokeText(titleLines[i], titleX, y);
+        ctx.shadowColor = "rgba(255,255,255,0.3)";
+        ctx.shadowBlur = 8;
+        break;
+      case "bold-shadow":
+      case "shadow":
+        // Deep dramatic shadow
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillText(titleLines[i], titleX + 4, y + 4);
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillText(titleLines[i], titleX + 2, y + 2);
+        break;
+      case "glow":
+      case "neon":
+        // Luminous glow effect
+        ctx.shadowColor = colors.primary;
+        ctx.shadowBlur = 30;
+        ctx.fillStyle = colors.primary;
+        ctx.fillText(titleLines[i], titleX, y);
+        ctx.shadowBlur = 15;
+        break;
+      case "emboss":
+        // Classic embossed look
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.fillText(titleLines[i], titleX - 1, y - 1);
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillText(titleLines[i], titleX + 2, y + 2);
+        break;
+      case "vintage":
+        // Warm vintage feel
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(titleLines[i], titleX + 3, y + 3);
+        ctx.strokeStyle = colors.accent || colors.strokeColor;
+        ctx.lineWidth = 1;
+        ctx.strokeText(titleLines[i], titleX, y);
+        break;
+      case "cinematic":
+        // Movie poster style with deep shadows and subtle glow
+        ctx.fillStyle = "rgba(0,0,0,0.8)";
+        ctx.fillText(titleLines[i], titleX + 5, y + 5);
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(titleLines[i], titleX + 2, y + 2);
+        ctx.shadowColor = "rgba(255,255,255,0.15)";
+        ctx.shadowBlur = 20;
+        break;
+      case "royal":
+        // Regal gold-like effect
+        ctx.strokeStyle = colors.strokeColor;
+        ctx.lineWidth = 3;
+        ctx.strokeText(titleLines[i], titleX, y);
+        ctx.shadowColor = "rgba(255,215,0,0.4)";
+        ctx.shadowBlur = 15;
+        break;
+      default:
+        // Default elegant shadow
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(titleLines[i], titleX + 2, y + 2);
+    }
+    
+    ctx.fillStyle = colors.primary;
+    ctx.fillText(titleLines[i], titleX, y);
+    ctx.shadowBlur = 0;
+  }
+
+  // Draw author
+  const authorFontSize = Math.floor(titleFontSize * 0.45);
+  ctx.font = `${authorFontSize}px ${authorFontFam}`;
+  const authorY = height - padding * 2 - authorFontSize;
+  const authorText = `by ${author}`;
+  
+  ctx.strokeStyle = colors.strokeColor;
+  ctx.lineWidth = 2;
+  ctx.strokeText(authorText, titleX, authorY);
+  ctx.fillStyle = colors.secondary;
+  ctx.fillText(authorText, titleX, authorY);
+
+  return canvas.toBuffer("image/png");
+}
+
+// Regenerate all covers with new AI backgrounds
+// This is a batch operation that processes all drafts with status "ready"
+export async function regenerateAllCovers(): Promise<{ processed: number; updated: number; errors: number }> {
+  const allDrafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+  
+  let processed = 0;
+  let updated = 0;
+  let errors = 0;
+  
+  console.log(`Starting cover regeneration for ${allDrafts.length} drafts...`);
+  
+  for (const draft of allDrafts) {
+    processed++;
+    try {
+      await regenerateCover(draft.id);
+      updated++;
+      console.log(`[${processed}/${allDrafts.length}] Regenerated cover for draft ${draft.id}: ${draft.title}`);
+      
+      // Small delay between requests to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error) {
+      errors++;
+      console.error(`[${processed}/${allDrafts.length}] Failed to regenerate cover for draft ${draft.id}:`, error);
+    }
+  }
+  
+  console.log(`Cover regeneration complete: ${updated}/${processed} updated, ${errors} errors`);
+  return { processed, updated, errors };
+}
+
+// Apply two-tone title bar to any existing cover image buffer
+// Returns a new buffer with the dark gradient bar + elegant title at the top
+export async function applyTwoToneTitleBar(imageBuffer: Buffer, title: string): Promise<Buffer> {
+  registerCoverFonts();
+
+  const artImage = await loadImage(imageBuffer);
+  const width = artImage.width;
+  const height = artImage.height;
+
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+
+  ctx.drawImage(artImage, 0, 0);
+
+  const barHeight = Math.round(height * 0.14);
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, barHeight + 20);
+  gradient.addColorStop(0, "rgba(15, 10, 8, 0.92)");
+  gradient.addColorStop(0.7, "rgba(15, 10, 8, 0.85)");
+  gradient.addColorStop(1, "rgba(15, 10, 8, 0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, barHeight + 20);
+
+  const accentY = barHeight - 2;
+  const accentGrad = ctx.createLinearGradient(width * 0.15, 0, width * 0.85, 0);
+  accentGrad.addColorStop(0, "rgba(180, 150, 90, 0)");
+  accentGrad.addColorStop(0.3, "rgba(180, 150, 90, 0.6)");
+  accentGrad.addColorStop(0.5, "rgba(210, 180, 120, 0.8)");
+  accentGrad.addColorStop(0.7, "rgba(180, 150, 90, 0.6)");
+  accentGrad.addColorStop(1, "rgba(180, 150, 90, 0)");
+  ctx.fillStyle = accentGrad;
+  ctx.fillRect(width * 0.1, accentY, width * 0.8, 1.5);
+
+  const titleFonts = ["Cinzel", "Playfair Display", "Cormorant Garamond", "Libre Baskerville", "Prata", "Bodoni"];
+  const availableFonts = titleFonts.filter(f => isFontRegistered(f));
+  const chosenFont = availableFonts.length > 0
+    ? availableFonts[Math.floor(Math.random() * availableFonts.length)]
+    : "serif";
+
+  const maxTextWidth = width * 0.85;
+  const centerY = barHeight * 0.52;
+
+  const shortTitle = title.includes(":") && title.length > 35
+    ? title.substring(0, title.indexOf(":")).trim()
+    : title;
+
+  let fontSize = Math.round(barHeight * 0.42);
+  if (shortTitle.length > 30) fontSize = Math.round(barHeight * 0.34);
+  if (shortTitle.length > 45) fontSize = Math.round(barHeight * 0.28);
+
+  ctx.font = `bold ${fontSize}px "${chosenFont}"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  let displayTitle = shortTitle.toUpperCase();
+  let metrics = ctx.measureText(displayTitle);
+
+  while (metrics.width > maxTextWidth && fontSize > 18) {
+    fontSize -= 2;
+    ctx.font = `bold ${fontSize}px "${chosenFont}"`;
+    metrics = ctx.measureText(displayTitle);
+  }
+
+  if (metrics.width > maxTextWidth) {
+    const words = displayTitle.split(" ");
+    const mid = Math.ceil(words.length / 2);
+    const line1 = words.slice(0, mid).join(" ");
+    const line2 = words.slice(mid).join(" ");
+    const lineSpacing = fontSize * 1.3;
+    const topLineY = centerY - lineSpacing * 0.3;
+    const bottomLineY = centerY + lineSpacing * 0.7;
+
+    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.fillText(line1, width / 2 + 1, topLineY + 1);
+    ctx.fillText(line2, width / 2 + 1, bottomLineY + 1);
+
+    ctx.fillStyle = "#f0e6d2";
+    ctx.fillText(line1, width / 2, topLineY);
+    ctx.fillText(line2, width / 2, bottomLineY);
+  } else {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.fillText(displayTitle, width / 2 + 1, centerY + 1);
+
+    ctx.fillStyle = "#f0e6d2";
+    ctx.fillText(displayTitle, width / 2, centerY);
+  }
+
+  console.log(`[TWO-TONE] Applied title bar: font=${chosenFont}, size=${fontSize}, title="${shortTitle}" (full: "${title}")`);
+  return canvas.toBuffer("image/png");
+}
+
+// AI Title Overlay: Takes an existing cover background and sends it to gpt-image-1
+// to artistically add the title on top without altering the original artwork.
+// Uses Classic 239's title embedding approach (artistic fonts, smart placement).
+export async function aiTitleOverlay(draftId: number, mode?: "main-only" | "full-shrink", titleSizePercent?: number, customMainTitle?: string, customSubtitle?: string): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+
+  const bgUrl = draft.backgroundUrl || draft.coverUrl;
+  if (!bgUrl) throw new Error("No background or cover image found for this ebook");
+
+  let imageBuffer: Buffer;
+  if (bgUrl.startsWith("/objstore/")) {
+    const { downloadBufferFromObjStore } = await import("./objectStorage");
+    const downloaded = await downloadBufferFromObjStore(bgUrl);
+    if (!downloaded) throw new Error(`Background image not found in object storage: ${bgUrl}`);
+    imageBuffer = downloaded;
+  } else {
+    const bgPath = path.join(process.cwd(), bgUrl.replace(/^\//, ""));
+    if (!fs.existsSync(bgPath)) throw new Error(`Background image file not found on disk: ${bgPath}`);
+    imageBuffer = fs.readFileSync(bgPath);
+  }
+  const imageBase64 = imageBuffer.toString("base64");
+
+  const existingTitle = draft.title || "";
+  const sourceText = (!existingTitle || existingTitle.length < 5) ? (draft.topic || existingTitle || "Untitled") : existingTitle;
+  const cleanTitle = extractCleanTitle(sourceText);
+
+  let mainTitle = cleanTitle;
+  let subtitle = "";
+
+  if (customMainTitle) {
+    mainTitle = customMainTitle;
+    subtitle = customSubtitle || "";
+  } else if (cleanTitle.includes(":")) {
+    mainTitle = cleanTitle.substring(0, cleanTitle.indexOf(":")).trim();
+    subtitle = cleanTitle.substring(cleanTitle.indexOf(":") + 1).trim();
+  } else if (cleanTitle.includes(" - ")) {
+    mainTitle = cleanTitle.substring(0, cleanTitle.indexOf(" - ")).trim();
+    subtitle = cleanTitle.substring(cleanTitle.indexOf(" - ") + 3).trim();
+  } else {
+    mainTitle = cleanTitle;
+    subtitle = "";
+  }
+
+  if (!customMainTitle && mainTitle.length > 60) {
+    const words = mainTitle.split(/\s+/);
+    let truncated = "";
+    for (const w of words) {
+      const next = truncated ? truncated + " " + w : w;
+      if (next.length > 55) break;
+      truncated = next;
+    }
+    subtitle = words.slice(truncated.split(/\s+/).length).join(" ");
+    mainTitle = truncated || words.slice(0, 4).join(" ");
+  }
+
+  let shortTitle: string;
+  let overlayPrompt: string;
+
+  const titleFonts = [
+    "ornate gold serif lettering with subtle metallic sheen",
+    "weathered carved stone typography with ancient texture",
+    "glowing ethereal script with soft light emanating from letters",
+    "elegant calligraphic brushstroke lettering",
+    "bold art deco geometric typography with gold leaf accents",
+    "delicate silver filigree lettering with intricate detail",
+    "embossed leather-bound typography with rich shadows",
+    "luminous crystal-like lettering refracting prismatic light",
+    "hand-painted watercolor typography blending into the scene",
+    "gothic blackletter with thorny vine embellishments"
+  ];
+  const selectedFont = titleFonts[Math.floor(Math.random() * titleFonts.length)];
+
+  const sizePercent = titleSizePercent && titleSizePercent >= 30 && titleSizePercent <= 150 ? titleSizePercent : 100;
+  const sizeInstruction = sizePercent === 100 ? "" :
+    sizePercent < 100
+      ? `\n\nTITLE SIZE ADJUSTMENT: Scale all title text to ${sizePercent}% of normal size. Make the letters ${Math.round((100 - sizePercent) * 0.6)}% SMALLER than you normally would. ${sizePercent <= 50 ? "The text should be very tiny and delicate — like fine print on a luxury item." : sizePercent <= 70 ? "The text should be noticeably smaller than usual — refined and understated." : "The text should be slightly smaller than usual."}`
+      : `\n\nTITLE SIZE ADJUSTMENT: Scale all title text to ${sizePercent}% of normal size. Make the letters ${Math.round((sizePercent - 100) * 0.6)}% LARGER than you normally would. ${sizePercent >= 140 ? "The title should be bold and prominent — commanding attention." : "The title should be slightly larger than usual."}`;
+
+  if (mode === "full-shrink" && subtitle) {
+    shortTitle = cleanTitle;
+    const mainWords = mainTitle.split(/\s+/);
+    const mainSpelled = mainWords.map(w => `"${w}"`).join(", ");
+    const subWords = subtitle.split(/\s+/);
+    const subSpelled = subWords.map(w => `"${w}"`).join(", ");
+
+    const mainLayout = mainWords.length > 4
+      ? `Main title uses 2 lines of SMALL text in the upper-center area.`
+      : `Main title on 1 line in the upper-center area.`;
+
+    overlayPrompt = `You are given an existing ebook cover artwork. Your ONLY job is to add a title and subtitle to it. DO NOT change, alter, redraw, or modify the artwork in any way. The background artwork must remain EXACTLY as-is, pixel for pixel.
+
+MAIN TITLE: "${mainTitle}" in ${selectedFont}. Spelled: ${mainSpelled}. ${mainLayout}
+SUBTITLE: "${subtitle}" in a MUCH SMALLER, thinner version of the same font style. Spelled: ${subSpelled}. Place it BELOW the main title with some spacing. The subtitle text should be roughly 50-60% the size of the main title text.
+
+LAYOUT: The main title and subtitle together should occupy the CENTER of the image. The main title occupies no more than 8-10% of image height. The subtitle occupies no more than 4-5% of image height. Leave at least 20% blank margin at top and bottom.
+
+CRITICAL SIZE RULE: Make ALL text MUCH SMALLER than your default instinct. The main title letters should be roughly 40-60 pixels tall at most. The subtitle letters should be roughly 20-35 pixels tall. Think of refined lettering on a luxury leather-bound book.
+
+The text must be artistically integrated into the cover - use colors and effects that complement the existing artwork. Use appropriate contrast: light text on dark areas, or add a subtle glow/shadow for readability.
+
+DO NOT add any other text, author names, or decorative elements. ONLY add the main title "${mainTitle}" and subtitle "${subtitle}".${sizeInstruction}`;
+  } else {
+    shortTitle = mainTitle;
+    const titleWords = shortTitle.split(/\s+/);
+    const spelledOut = titleWords.map(w => `"${w}"`).join(", ");
+
+    const titleLayout = titleWords.length > 6
+      ? `This is a long title - use 3-4 lines of VERY SMALL, THIN text, placed in the CENTER of the image. The title must occupy no more than 12-15% of the total image height. Each line should be SHORT. Leave at least 20% blank margin at the top and bottom.`
+      : titleWords.length > 4
+      ? `This is a longer title - use 2-3 lines of SMALL, THIN text, placed in the CENTER of the image. The title must occupy no more than 10-12% of the total image height. Leave at least 25% blank margin at the top and bottom.`
+      : titleWords.length > 2
+      ? `Use 1-2 lines, placed in the CENTER of the image. The title must occupy no more than 8-10% of the total image height. Leave at least 25% blank margin at the top and bottom.`
+      : `Place the title in the CENTER of the image. The title must occupy no more than 7-8% of the total image height. Leave at least 25% blank margin at the top and bottom.`;
+
+    overlayPrompt = `You are given an existing ebook cover artwork. Your ONLY job is to add a beautiful title to it. DO NOT change, alter, redraw, or modify the artwork in any way. The background artwork must remain EXACTLY as-is, pixel for pixel.
+
+TITLE: "${shortTitle}" in ${selectedFont}. Spelled: ${spelledOut}. ${titleLayout}
+
+CRITICAL SIZE RULE: Make the title text MUCH SMALLER than your default instinct. The title should look like subtle, elegant engraving - NOT a large headline. On a 1024x1024 image, the title letters should be roughly 40-60 pixels tall at most. Think of the tiny, refined gold lettering on a luxury leather-bound book. If in doubt, go smaller.
+
+The title must be artistically integrated into the cover - use colors and effects that complement the existing artwork. Use appropriate contrast: light text on dark areas, or add a subtle glow/shadow for readability.
+
+DO NOT add any other text, author names, or decorative elements. ONLY add the title "${shortTitle}".${sizeInstruction}`;
+  }
+
+  console.log(`[AI-Title-Overlay] Mode: ${mode || "default"}, Size: ${sizePercent}%, Adding title "${shortTitle}" to draft ${draftId} using ${selectedFont}`);
+
+  try {
+    const imageFile = await toFile(imageBuffer, "cover.png", { type: "image/png" });
+    let resultBuffer: Buffer;
+
+    const response = await openaiDirectForImages.images.edit({
+      model: IMAGE_MODEL_PRIMARY,
+      image: imageFile,
+      prompt: overlayPrompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const resultData = response.data?.[0]?.b64_json;
+    if (!resultData) throw new Error("No image data returned from gpt-image-1 edit");
+    resultBuffer = Buffer.from(resultData, "base64");
+
+    const filename = `ai-overlay-${draftId}-${Date.now()}.png`;
+    const newCoverUrl = await saveCoverFile(resultBuffer, filename);
+
+    await db.update(draftEbooks).set({
+      coverUrl: newCoverUrl,
+    }).where(eq(draftEbooks.id, draftId));
+
+    console.log(`[AI-Title-Overlay] SUCCESS: Cover title "${shortTitle}" added to draft ${draftId}, DB title unchanged: "${cleanTitle}"`);
+    return newCoverUrl;
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[AI-Title-Overlay Error] Failed for draft ${draftId}: ${errorMessage}`);
+    throw error;
+  }
+}
+
+// Classic 239 Title Embedding Instructions - extracted so any style can use them
+// When titleEmbedSync is ON, these instructions are injected into any style's prompt
+function getClassic239TitleInstructions(title: string): { fontDesc: string; layout: string; spelledOut: string; titleSection: string } {
+  const shortTitle = title.includes(":") && title.length > 35
+    ? title.substring(0, title.indexOf(":")).trim()
+    : title;
+
+  const titleWords = shortTitle.split(/\s+/);
+  const spelledOut = titleWords.map(w => `"${w}"`).join(", ");
+
+  const titleFonts = [
+    "ornate gold serif lettering with subtle metallic sheen",
+    "weathered carved stone typography with ancient texture",
+    "glowing ethereal script with soft light emanating from letters",
+    "elegant calligraphic brushstroke lettering",
+    "bold art deco geometric typography with gold leaf accents",
+    "delicate silver filigree lettering with intricate detail",
+    "embossed leather-bound typography with rich shadows",
+    "luminous crystal-like lettering refracting prismatic light",
+    "hand-painted watercolor typography blending into the scene",
+    "gothic blackletter with thorny vine embellishments"
+  ];
+  const fontDesc = titleFonts[Math.floor(Math.random() * titleFonts.length)];
+
+  const layout = titleWords.length > 4
+    ? `This is a longer title - use 2-3 lines of SMALLER text, placed in the CENTER of the image (not at the top edge). Leave at least 15% blank margin at the top and bottom.`
+    : titleWords.length > 2
+    ? `Use 1-2 lines, placed in the CENTER of the image (not at the top edge). Leave at least 15% blank margin at the top and bottom.`
+    : `Place the title in the CENTER of the image. Leave at least 15% blank margin at the top and bottom.`;
+
+  const titleSection = `\n\nTITLE: "${shortTitle}" in ${fontDesc}. Spelled: ${spelledOut}. ${layout}`;
+
+  return { fontDesc, layout, spelledOut, titleSection };
+}
+
+// Update text overlay on existing cover without regenerating AI background image
+// This allows updating font/color styling without hitting AI rate limits
+export async function updateCoverTextOnly(draftId: number): Promise<string> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  
+  // Use backgroundUrl (clean AI image without text) if available, otherwise skip
+  if (!draft.backgroundUrl) {
+    throw new Error("Draft has no background image saved - text update requires regenerating cover with AI");
+  }
+  
+  const bgFilename = coverFilenameFromUrl(draft.backgroundUrl);
+  if (!bgFilename) {
+    throw new Error("Draft has an invalid background image path");
+  }
+
+  const bgPath = localCoverPath(bgFilename);
+  let backgroundImageBuffer: Buffer;
+  if (fs.existsSync(bgPath)) {
+    backgroundImageBuffer = fs.readFileSync(bgPath);
+  } else {
+    const { downloadBufferFromObjStore } = await import("./objectStorage");
+    const downloaded = await downloadBufferFromObjStore(draft.backgroundUrl);
+    if (!downloaded) {
+      throw new Error("Background image file not found on disk or in object storage");
+    }
+    backgroundImageBuffer = downloaded;
+  }
+  
+  // Get clean title
+  const existingTitle = draft.title || "";
+  const hasProblematicTitle = !existingTitle || existingTitle.length < 5;
+  const sourceText = hasProblematicTitle ? (draft.topic || existingTitle || "Untitled") : existingTitle;
+  const cleanTitle = extractCleanTitle(sourceText);
+  
+  // Apply new text overlay with updated styling on clean background
+  const updatedImageBuffer = await addTextOverlayToCover(
+    backgroundImageBuffer,
+    cleanTitle,
+    "EbookGamez",
+    draft.genre || "default",
+    draftId
+  );
+  
+  const filename = `ai-cover-${Date.now()}.png`;
+  const newCoverUrl = await saveCoverFile(updatedImageBuffer, filename);
+  
+  // Update draft with new cover
+  await db.update(draftEbooks).set({ 
+    coverUrl: newCoverUrl,
+    title: cleanTitle 
+  }).where(eq(draftEbooks.id, draftId));
+  
+  return newCoverUrl;
+}
+
+// Regenerate ONLY the background (no text overlay) for an ebook
+// This is for the review workflow where users preview backgrounds before applying text
+export async function regenerateBackgroundOnly(draftId: number): Promise<{ backgroundUrl: string; title: string }> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  
+  // Get clean title
+  const existingTitle = draft.title || "";
+  const hasProblematicTitle = !existingTitle || 
+    existingTitle.length < 5 || 
+    existingTitle.toLowerCase() === "untitled" ||
+    /^\*{1,2}$/.test(existingTitle.trim()) ||
+    existingTitle.startsWith("**");
+  
+  const sourceText = hasProblematicTitle ? (draft.topic || existingTitle || "Untitled") : existingTitle;
+  const cleanTitle = extractCleanTitle(sourceText);
+  
+  // Generate ONLY the AI background (no text overlay)
+  const backgroundBuffer = await generateAIBackgroundOnly(cleanTitle, draft.genre || "default", draftId);
+  
+  const bgFilename = `bg-${draftId}-${Date.now()}.png`;
+  const backgroundUrl = await saveCoverFile(backgroundBuffer, bgFilename);
+  
+  // Update draft with new background (but keep existing coverUrl until finalized)
+  await db.update(draftEbooks).set({ 
+    backgroundUrl,
+    title: cleanTitle 
+  }).where(eq(draftEbooks.id, draftId));
+  
+  return { backgroundUrl, title: cleanTitle };
+}
+
+// Generate AI background image without text overlay
+async function generateAIBackgroundOnly(title: string, genre: string, draftId: number, description: string = ""): Promise<Buffer> {
+  console.log(`[Classic-239] Using Cinematic via OpenAI + embedded title for: "${title}"`);
+
+  const concept = await generateAIVisualConcept(title, genre, description);
+
+  const titleWords = title.split(/\s+/);
+  const spelledOut = titleWords.map(w => `"${w}"`).join(", ");
+
+  const titleFonts = [
+    "ornate gold serif lettering with subtle metallic sheen",
+    "weathered carved stone typography with ancient texture",
+    "glowing ethereal script with soft light emanating from letters",
+    "elegant calligraphic brushstroke lettering",
+    "bold art deco geometric typography with gold leaf accents",
+    "delicate silver filigree lettering with intricate detail",
+    "embossed leather-bound typography with rich shadows",
+    "luminous crystal-like lettering refracting prismatic light",
+    "hand-painted watercolor typography blending into the scene",
+    "gothic blackletter with thorny vine embellishments"
+  ];
+  const selectedFont = titleFonts[Math.floor(Math.random() * titleFonts.length)];
+
+  const titleLayout = titleWords.length > 4
+    ? `This is a longer title - use 2-3 lines of SMALLER text, placed in the CENTER of the image (not at the top edge). Leave at least 15% blank margin at the top and bottom.`
+    : titleWords.length > 2
+    ? `Use 1-2 lines, placed in the CENTER of the image (not at the top edge). Leave at least 15% blank margin at the top and bottom.`
+    : `Place the title in the CENTER of the image. Leave at least 15% blank margin at the top and bottom.`;
+
+  const fullPrompt = `A framed ebook cover design displayed on a dark background. The cover artwork is INSET with a visible dark border/margin on ALL four sides (top, bottom, left, right). The cover never bleeds to the image edges.
+
+COVER ARTWORK: Photorealistic CGI render, cinematic movie poster quality. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Ultra-detailed, dramatic cinematic lighting, sharp focus, depth of field, volumetric light rays, professional color grading.
+
+TITLE: "${title}" in ${selectedFont}. Spelled: ${spelledOut}. ${titleLayout}
+
+COMPOSITION: The entire cover design including all artwork and title text must float INSIDE the canvas with dark padding around it. Imagine the cover is a rectangle placed on a larger dark surface - we see the complete cover with space around all edges. Nothing is cropped or cut off.`;
+
+  console.log(`[Classic-239] Visual concept: ${concept.focalSubject.substring(0, 80)}`);
+  console.log(`[Classic-239] Font: ${selectedFont}`);
+  console.log(`[Classic-239] Prompt length: ${fullPrompt.length}`);
+
+  try {
+    const response = await openaiDirectForImages.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt: fullPrompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from gpt-image-1");
+    console.log(`[Classic-239] SUCCESS: Generated cover with embedded title!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Classic-239 Error] gpt-image-1 failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+// Generate fallback gradient background
+function generateFallbackBackground(width: number, height: number, title: string, genre: string, seed: number): Buffer {
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  
+  const colors = [
+    ["#1a1a2e", "#16213e", "#0f3460"],
+    ["#2c3e50", "#34495e", "#1abc9c"],
+    ["#4a0e0e", "#6b0f1a", "#8b0000"],
+    ["#1e3c72", "#2a5298", "#7303c0"],
+    ["#0f2027", "#203a43", "#2c5364"]
+  ];
+  
+  const colorSet = colors[seed % colors.length];
+  const gradient = ctx.createLinearGradient(0, 0, width, height);
+  gradient.addColorStop(0, colorSet[0]);
+  gradient.addColorStop(0.5, colorSet[1]);
+  gradient.addColorStop(1, colorSet[2]);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  
+  return canvas.toBuffer("image/png");
+}
+
+// Batch regenerate backgrounds for all ready ebooks (no text)
+export async function regenerateAllBackgroundsOnly(): Promise<{ processed: number; updated: number; errors: number; results: Array<{id: number; title: string; backgroundUrl: string; error?: string}> }> {
+  const allDrafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+  
+  let processed = 0;
+  let updated = 0;
+  let errors = 0;
+  const results: Array<{id: number; title: string; backgroundUrl: string; error?: string}> = [];
+  
+  console.log(`Starting background-only regeneration for ${allDrafts.length} drafts...`);
+  
+  for (const draft of allDrafts) {
+    processed++;
+    try {
+      const { backgroundUrl, title } = await regenerateBackgroundOnly(draft.id);
+      updated++;
+      results.push({ id: draft.id, title, backgroundUrl });
+      console.log(`[${processed}/${allDrafts.length}] Generated background for draft ${draft.id}: ${title}`);
+      
+      // Delay between requests to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error) {
+      errors++;
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
+      results.push({ id: draft.id, title: draft.title || "Unknown", backgroundUrl: "", error: errorMsg });
+      console.error(`[${processed}/${allDrafts.length}] Failed for draft ${draft.id}:`, error);
+    }
+  }
+  
+  console.log(`Background regeneration complete: ${updated}/${processed} updated, ${errors} errors`);
+  return { processed, updated, errors, results };
+}
+
+// Batch finalize covers with custom options for all ebooks that have backgrounds
+export async function batchFinalizeCoverWithOptions(
+  options: CoverPreviewOptions
+): Promise<{ processed: number; updated: number; errors: number }> {
+  // Get all drafts with backgrounds ready for finalization
+  const drafts = await db.select().from(draftEbooks)
+    .where(eq(draftEbooks.status, "ready"));
+  
+  let processed = 0;
+  let updated = 0;
+  let errors = 0;
+  
+  for (const draft of drafts) {
+    if (!draft.backgroundUrl) {
+      console.log(`Skipping draft ${draft.id} - no background`);
+      continue;
+    }
+    
+    processed++;
+    try {
+      await finalizeCoverWithOptions(draft.id, {
+        ...options,
+        // Use "EbookGamez" as author for all app-created ebooks
+      });
+      updated++;
+      console.log(`Finalized cover for draft ${draft.id}: ${draft.title}`);
+    } catch (error) {
+      errors++;
+      console.error(`Failed to finalize draft ${draft.id}:`, error);
+    }
+  }
+  
+  return { processed, updated, errors };
+}
+
+// Update text overlay on all ready covers (no AI regeneration)
+export async function updateAllCoverText(): Promise<{ processed: number; updated: number; errors: number }> {
+  const drafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+  
+  let processed = 0;
+  let updated = 0;
+  let errors = 0;
+  
+  for (const draft of drafts) {
+    try {
+      await updateCoverTextOnly(draft.id);
+      updated++;
+      console.log(`Updated cover text for draft ${draft.id}`);
+    } catch (error) {
+      errors++;
+      console.error(`Failed to update cover for draft ${draft.id}:`, error);
+    }
+    processed++;
+  }
+  
+  return { processed, updated, errors };
+}
+
+// Complete content for a single ebook - regenerates outline, content, cover, and PDF
+export async function completeEbookContent(draftId: number): Promise<{ success: boolean; message: string }> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) {
+    throw new Error("Draft not found");
+  }
+
+  activeGenerationCount++;
+  console.log(`[Generation Guard] Complete ebook started. Active: ${activeGenerationCount}`);
+  await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draftId));
+
+  try {
+    const topic = draft.topic || draft.title || "Untitled";
+    const genre = draft.genre || "Fiction";
+
+    // Generate outline if missing
+    let outline = draft.outline;
+    if (!outline || outline.trim().length < 100) {
+      console.log(`Generating outline for draft ${draftId}...`);
+      outline = await generateEbookOutline(topic, genre);
+      await db.update(draftEbooks).set({ outline }).where(eq(draftEbooks.id, draftId));
+    }
+
+    // Generate content if missing or too short
+    let content = draft.content;
+    if (!content || content.trim().length < 500) {
+      console.log(`Generating content for draft ${draftId}...`);
+      content = await generateEbookContent(outline, topic);
+      await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+    }
+
+    // Extract clean title
+    const titleMatch = outline.match(/Title[:\s]+["']?([^"\n]+)["']?/i);
+    const rawTitle = titleMatch ? titleMatch[1].trim() : topic;
+    const title = extractCleanTitle(rawTitle);
+
+    // Generate cover if missing
+    let coverUrl = draft.coverUrl;
+    let backgroundUrl = draft.backgroundUrl;
+    if (!coverUrl) {
+      console.log(`Generating cover for draft ${draftId}...`);
+      const coverResult = await generateCoverImage(title, genre);
+      coverUrl = coverResult.coverUrl;
+      backgroundUrl = coverResult.backgroundUrl;
+      await db.update(draftEbooks).set({ coverUrl, backgroundUrl, title }).where(eq(draftEbooks.id, draftId));
+    }
+
+    // Create PDF
+    console.log(`Creating PDF for draft ${draftId}...`);
+    const pdfUrl = await createPdfFromContent(title, content);
+
+    // Calculate smart price based on content
+    const suggestedPrice = calculateEbookPrice({
+      content,
+      genre: draft.genre,
+      outline: draft.outline,
+      title,
+    });
+
+    // Update to ready status
+    await db.update(draftEbooks).set({
+      pdfUrl,
+      suggestedPrice,
+      title,
+      status: "ready",
+    }).where(eq(draftEbooks.id, draftId));
+
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Complete ebook done for draft ${draftId}. Active: ${activeGenerationCount}`);
+    console.log(`Draft ${draftId} completed successfully`);
+    return { success: true, message: "Ebook content completed successfully" };
+  } catch (error) {
+    activeGenerationCount--;
+    console.log(`[Generation Guard] Complete ebook failed for draft ${draftId}. Active: ${activeGenerationCount}`);
+    console.error(`Failed to complete draft ${draftId}:`, error);
+    await db.update(draftEbooks).set({ status: "failed" }).where(eq(draftEbooks.id, draftId));
+    throw error;
+  }
+}
+
+// Regenerate covers for all drafts with missing or problematic titles
+export async function regenerateAllBrokenCovers(): Promise<{ processed: number; fixed: number }> {
+  const drafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+  
+  let processed = 0;
+  let fixed = 0;
+  
+  for (const draft of drafts) {
+    const title = draft.title || "";
+    
+    // Check if title has any markdown formatting that needs cleaning
+    const hasMarkdown = /\*{1,2}|#{1,3}|_|`/.test(title);
+    const hasTitlePrefix = /^Topic\s*\d*[:\s]/i.test(title);
+    const tooLong = title.length > 80;
+    const isEmpty = !title || title.trim().length < 3;
+    
+    const needsFix = hasMarkdown || hasTitlePrefix || tooLong || isEmpty;
+    
+    if (needsFix) {
+      try {
+        console.log(`Fixing cover for draft ${draft.id}: "${title.substring(0, 50)}..."`);
+        await regenerateCover(draft.id);
+        fixed++;
+      } catch (error) {
+        console.error(`Failed to fix cover for draft ${draft.id}:`, error);
+      }
+    }
+    processed++;
+  }
+  
+  return { processed, fixed };
+}
+
+// Generate EPUB for a single ebook
+export async function generateEpub(draftId: number): Promise<Buffer> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) {
+    throw new Error("Draft not found");
+  }
+
+  const title = draft.title || "Untitled";
+  const contentText = draft.content || draft.outline || "No content available.";
+  const genre = draft.genre || "General";
+
+  const paragraphs = contentText.split(/\n\n+/).filter(p => p.trim());
+  const chapters: { title: string; content: string }[] = [];
+
+  const hasMarkdownHeadings = paragraphs.some(p => /^#{1,3}\s+/.test(p));
+  const markdownChapterPattern = /^#{1,3}\s+(.*)/;
+  const plainChapterPattern = /^(Chapter\s+[\dIVXLCDM]+|Part\s+[\dIVXLCDM]+|Section\s+[\dIVXLCDM]+)[.:\s]*(.*)/i;
+
+  let currentChapter = { title: "Introduction", body: "" };
+
+  for (const para of paragraphs) {
+    const mdMatch = para.match(markdownChapterPattern);
+    const plainMatch = !hasMarkdownHeadings ? para.match(plainChapterPattern) : null;
+
+    if (mdMatch) {
+      if (currentChapter.body.trim()) {
+        chapters.push({
+          title: currentChapter.title,
+          content: `<div style="font-family: Georgia, serif; line-height: 1.8;">${currentChapter.body}</div>`
+        });
+      }
+      let chTitle = mdMatch[1].trim();
+      const dupPrefix = chTitle.match(/^Chapter\s+\d+[.:]\s*(.*)/i);
+      if (dupPrefix && dupPrefix[1].trim()) {
+        chTitle = dupPrefix[1].trim();
+      }
+      const romanOnlyMatch = chTitle.match(/^CHAPTER\s+([IVXLCDM]+)\.?\s*(.*)/i);
+      if (romanOnlyMatch) {
+        const romanToNum: Record<string, number> = { I:1, II:2, III:3, IV:4, V:5, VI:6, VII:7, VIII:8, IX:9, X:10, XI:11, XII:12, XIII:13, XIV:14, XV:15, XVI:16, XVII:17, XVIII:18, XIX:19, XX:20, XXI:21, XXII:22, XXIII:23, XXIV:24, XXV:25, XXVI:26, XXVII:27, XXVIII:28, XXIX:29, XXX:30, XXXI:31, XXXII:32, XXXIII:33, XXXIV:34, XXXV:35, XXXVI:36, XXXVII:37, XXXVIII:38, XXXIX:39, XL:40, XLI:41, XLII:42, XLIII:43, XLIV:44, XLV:45, XLVI:46, XLVII:47, XLVIII:48, XLIX:49, L:50, LI:51, LII:52, LIII:53, LIV:54, LV:55, LVI:56, LVII:57, LVIII:58, LIX:59, LX:60, LXI:61 };
+        const num = romanToNum[romanOnlyMatch[1].toUpperCase()] || romanOnlyMatch[1];
+        const subtitle = romanOnlyMatch[2]?.trim();
+        chTitle = subtitle ? `Chapter ${num}. ${subtitle}` : `Chapter ${num}`;
+      } else {
+        chTitle = chTitle.replace(/^CHAPTER\s+/i, 'Chapter ');
+      }
+      currentChapter = { title: chTitle, body: "" };
+    } else if (plainMatch) {
+      if (currentChapter.body.trim()) {
+        chapters.push({
+          title: currentChapter.title,
+          content: `<div style="font-family: Georgia, serif; line-height: 1.8;">${currentChapter.body}</div>`
+        });
+      }
+      const chTitle = plainMatch[2]?.trim() ? `${plainMatch[1]} — ${plainMatch[2].trim()}` : plainMatch[1];
+      currentChapter = { title: chTitle, body: "" };
+    } else {
+      const illustrationMatch = para.match(/!\[([^\]]*)\]\(([^)]+)\)/);
+      if (illustrationMatch) {
+        const imgSrc = illustrationMatch[2];
+        currentChapter.body += `<div style="text-align: center; margin: 1.5em 0;"><img src="${imgSrc}" alt="${illustrationMatch[1]}" style="max-width: 100%; height: auto;" /></div>`;
+      } else if (/^(CHAPTER\s+[IVXLCDM]+|CHAPTER\s+\d+)[.:\s]*(.*)/i.test(para) && hasMarkdownHeadings) {
+        currentChapter.body += `<h3 style="margin: 1.5em 0 0.5em; font-family: Georgia, serif; font-size: 1.2em;">${para.replace(/\n/g, "<br/>")}</h3>`;
+      } else {
+        const trimmed = para.trim();
+        const wordCount = trimmed.split(/\s+/).length;
+
+        if (wordCount <= 10 && (/^[_*]/.test(trimmed) || /^[A-Z][A-Z\s'.—\-,]+$/.test(trimmed) || /^\(.*\)$/.test(trimmed))) {
+          currentChapter.body += `<p style="margin: 1em 0 0.3em; font-style: italic; font-weight: bold; font-family: Georgia, serif;">${trimmed.replace(/\n/g, " ")}</p>`;
+        } else if (trimmed.includes('\n') && wordCount > 150) {
+          const subParas = trimmed.split(/\n/).filter(s => s.trim());
+          for (const sp of subParas) {
+            currentChapter.body += `<p style="text-indent: 1.5em; margin-bottom: 1em;">${sp.trim()}</p>`;
+          }
+        } else {
+          currentChapter.body += `<p style="text-indent: 1.5em; margin-bottom: 1em;">${trimmed.replace(/\n/g, "<br/>")}</p>`;
+        }
+      }
+    }
+  }
+
+  if (currentChapter.body.trim()) {
+    chapters.push({
+      title: currentChapter.title,
+      content: `<div style="font-family: Georgia, serif; line-height: 1.8;">${currentChapter.body}</div>`
+    });
+  }
+
+  if (chapters.length === 0) {
+    const htmlContent = paragraphs.map(p =>
+      `<p style="text-indent: 1.5em; margin-bottom: 1em;">${p.replace(/\n/g, "<br/>")}</p>`
+    ).join("");
+    chapters.push({
+      title: title,
+      content: `<div style="font-family: Georgia, serif; line-height: 1.8;">${htmlContent}</div>`
+    });
+  }
+
+  // Load cover image path if available
+  let coverPath: string | undefined;
+  const coverUrl = draft.coverUrl || draft.backgroundUrl;
+  if (coverUrl) {
+    const fullCoverPath = path.join(process.cwd(), coverUrl.replace(/^\//, ""));
+    if (fs.existsSync(fullCoverPath)) {
+      // epub-gen-memory requires file:// URL format for cover images
+      coverPath = "file://" + fullCoverPath;
+    }
+  }
+
+  const epubOptions = {
+    title: title,
+    author: "EbookGamez",
+    publisher: "EbookGamez",
+    cover: coverPath,
+    lang: "en",
+    tocTitle: "Table of Contents",
+  };
+
+  const epubBuffer = await epub(epubOptions, chapters);
+  return epubBuffer;
+}
+
+// Generate AI background with ORIGINAL artistic style (rich cinematic scenes)
+// Uses the PROTECTED Classic Cinematic style from coverStyles.ts
+async function generateAIBackgroundOriginalStyle(title: string, genre: string, draftId: number, description: string = ""): Promise<Buffer> {
+  // CLASSIC LIBRARY 239 (Original): Simple dark academia prompt
+  // This creates the brown leather book style covers
+  
+  const prompt = `Professional ebook cover design for "${title}" - a ${genre} book. Dark academia aesthetic with rich burgundy, gold, and dark brown colors. Elegant typography placeholder, vintage library feel, sophisticated and premium looking. No text on the image.`;
+
+  console.log(`Generating CLASSIC LIBRARY 239 (Original) style AI background for: "${title}" (ID: ${draftId})`);
+  console.log(`Prompt: ${prompt}`);
+
+  try {
+    // Use Replit's AI integration with gpt-image-1
+    const response = await openaiDirectForImages.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from OpenAI");
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    
+    // Check for budget/rate limit errors
+    if (errorMessage.includes("budget") || errorMessage.includes("rate") || errorMessage.includes("quota") || errorMessage.includes("limit") || errorMessage.includes("429") || errorMessage.includes("403")) {
+      console.error(`[Replit AI Budget Exceeded] Cannot generate background for "${title}" - API budget limit reached`);
+      throw new Error(`Replit AI budget exceeded. Try using DALL-E 3 Vivid style instead. Error: ${errorMessage}`);
+    }
+    
+    throw error;
+  }
+}
+
+// Generate AI background with Classic Cinematic style but using USER'S OWN OpenAI API key
+// Uses the EXACT SAME prompt structure that created covers 239-253
+// with the Universal Aesthetic Style Wrapper prepended
+// AI Visual Concept Generator - creates detailed, title-specific imagery
+interface VisualConcept {
+  focalSubject: string;
+  sceneDescription: string;
+  colorPalette: string;
+  atmosphere: string;
+}
+
+async function generateAIVisualConcept(title: string, genre: string, description: string = ""): Promise<VisualConcept> {
+  const prompt = `You are a Hollywood movie poster designer. Create a SPECIFIC visual concept for this ebook cover that LITERALLY represents the book's title and genre.
+
+Title: "${title}"
+Genre: ${genre}
+${description ? `Description/Dialog: ${description.substring(0, 300)}` : ""}
+
+CRITICAL RULES:
+- The imagery must DIRECTLY and LITERALLY represent what the title means
+- Match the visual style to the GENRE - not everything should look futuristic or sci-fi
+- THE ENVIRONMENT AND SETTING should be the STAR of the cover - rich, detailed, immersive
+- DO NOT default to close-ups of people. Instead, build a rich WORLD that tells the story
+- People should be SMALL or SECONDARY to the environment, like a figure in a vast landscape
+- ONLY use people as the main close-up focus for Romance genre or when the title is specifically about a person
+- For all other genres: use environments, objects, creatures, landscapes, architecture as the primary focus
+- Choose colors and mood that match the GENRE, not always neon/vivid
+- If description/dialog is provided, use it to understand the story's themes and characters
+- SAFETY: Do your best to stay within AI image generation safety guidelines while still creating compelling, genre-appropriate cover art.
+
+Examples (notice: the ENVIRONMENT is always the star, people are small/secondary):
+- "Traveling the Multiverse" (Sci-Fi) → massive glowing neon portal with swirling cosmic energy, floating planets and asteroids, tiny astronaut silhouette for scale
+- "AI Love Affair" (Romance) → man embracing female robot in neon-lit cyberpunk city at night, warm pink and cool blue (Romance = people OK)
+- "Mastering AI" (Business) → vast futuristic control room with holographic AI data displays floating everywhere, city skyline visible through windows, cool blue and silver
+- "Locked" (Mystery) → giant ornate keyhole glowing with light, long shadowy corridor stretching behind it, scattered evidence clues on floor, amber and cold blue
+- "Cosmic Dread" (Horror) → massive tentacled shadow creature filling the sky above a small town, eerie red eyes in cosmic void, deep blacks with red accents
+- "The Science of Sleep" (Health) → dreamy moonlit bedroom with translucent glowing brain visualization floating above, aurora borealis through large window, soft blues and greens
+- "The Forgotten Realms" (Fantasy) → floating castle with magical portal windows showing different worlds, dragons circling towers, ancient glowing runes, rich jewel tones
+- "Navigating Magical Realms" (Adventure) → grand magical library with towering bookshelves, glowing astrolabe, candles, stained glass windows, fireplace, warm amber and gold
+- "Atomic Productivity" (Productivity) → glowing atomic structure and DNA helix rising into golden sunrise sky, sparkling energy particles, warm gold and silver
+- "The Dark Side of the Internet" (Horror) → dark server room with cracked glowing screens, digital code raining down walls, shadowy figures in the data streams, cold blue glow
+- "Forbidden Chemistry" (Romance) → two hands almost touching with electric sparks between fingertips, chemistry lab with glowing beakers in background, warm gold and teal
+
+Respond with ONLY this JSON (no markdown):
+{
+  "focalSubject": "The main visual focus - should be an ENVIRONMENT, OBJECT, CREATURE, or LANDSCAPE in most cases. Only use a person as main focus for Romance. Be VERY specific and descriptive.",
+  "sceneDescription": "Build a RICH, DETAILED world - fill it with meaningful objects, textures, depth, and atmosphere. The setting should tell the story.",
+  "colorPalette": "3-4 colors that match the GENRE mood (warm naturals for romance, dark moody for horror, cool tech for business, vivid for fantasy/sci-fi, etc.)",
+  "atmosphere": "Lighting and mood that fits the genre - cinematic but genre-appropriate, not always neon/futuristic"
+}`;
+
+  try {
+    const response = await openaiDalle3.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.8,
+      max_tokens: 400,
+    });
+    
+    const content = response.choices[0]?.message?.content;
+    if (content) {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const concept = JSON.parse(jsonMatch[0]) as VisualConcept;
+        console.log(`[AI Visual Concept] Created for "${title}": ${concept.focalSubject.substring(0, 50)}...`);
+        return concept;
+      }
+    }
+  } catch (error: any) {
+    console.error(`[AI Visual Concept] Error: ${error?.message || error}`);
+  }
+  
+  // Fallback generic concept
+  return {
+    focalSubject: "atmospheric scene representing the book's theme",
+    sceneDescription: "dramatic cinematic composition with depth and mood",
+    colorPalette: "rich burgundy, gold, and dark brown",
+    atmosphere: "soft volumetric lighting with dramatic shadows"
+  };
+}
+
+async function generateAIBackgroundCinematicOpenAI(title: string, genre: string, draftId: number, description: string = ""): Promise<Buffer> {
+  // Step 1: AI generates a visual concept specific to this title
+  console.log(`[Cinematic-OpenAI] Step 1: AI analyzing "${title}" to create visual concept...`);
+  const concept = await generateAIVisualConcept(title, genre, description);
+  
+  // Build prompt with AI-generated visual concept - photorealistic CGI style matching originals 239-253
+  const fullPrompt = `Professional ebook cover, photorealistic CGI render, cinematic movie poster quality. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Ultra-detailed, dramatic cinematic lighting, sharp focus, depth of field, volumetric light rays, professional color grading. No text on the image.`;
+
+  console.log(`[Cinematic-OpenAI] Step 2: Generating cover for "${title}" (ID: ${draftId})`);
+  console.log(`[Cinematic-OpenAI] Visual concept: ${concept.focalSubject}`);
+  console.log(`[Cinematic-OpenAI] Full prompt: ${fullPrompt}`);
+
+  try {
+    console.log(`Using gpt-image-1 via OpenAI API...`);
+    const response = await openaiDalle3.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt: fullPrompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from gpt-image-1");
+    console.log(`SUCCESS: Generated cover with gpt-image-1!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Cinematic-OpenAI Error] gpt-image-1 failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+// EXPERIMENTAL: Reverse-engineered style based on analysis of user's 239-253 covers
+// Key patterns: title-literal imagery, cinematic CGI quality, dramatic rim lighting, symbolic objects
+async function generateAIBackgroundExperimental239(title: string, genre: string, draftId: number, description: string = ""): Promise<Buffer> {
+  // Step 1: Generate a highly specific scene description based on exact title meaning
+  const scenePrompt = `You are a Hollywood movie poster designer. Create a SPECIFIC, LITERAL visual scene for this ebook cover.
+
+Title: "${title}"
+Genre: ${genre}
+${description ? `Description/Dialog: ${description.substring(0, 300)}` : ""}
+
+Analyze the TITLE, GENRE, and DESCRIPTION/DIALOG to create a scene that DIRECTLY visualizes the book's content.
+Use the description to understand the story's mood, characters, and key themes.
+
+IMPORTANT GUIDELINES:
+- USE HUMANS about 30% of the time, NON-HUMAN focal points 70% of the time
+- When using humans: silhouettes, partial figures, or dramatic poses work best
+- When NOT using humans: use animals, mythical creatures, symbolic objects, landscapes, cosmic scenes, abstract energy
+- Always include humans for Romance genre or titles with "Woman", "Man", "Warrior"
+- Choose LIGHTING based on mood: bright/warm for uplifting content, dark/moody for intense content
+- Make the image MEANINGFUL with powerful symbolic elements
+
+FOCAL POINT IDEAS (use VARIETY - pick what fits the title best):
+- Creatures: phoenix, dragon, wolf, eagle, raven, serpent, whale, stag, butterfly, kraken, griffin, mechanical beast
+- Cosmic: galaxy spirals, nebulas, black holes, solar eclipses, meteor showers, wormholes, rings of Saturn, supernova
+- Landscapes: volcanic eruption, frozen tundra, desert dunes, underwater reef, canyon at dawn, floating islands, crystal caves
+- Urban: neon-lit cyberpunk streets, rooftop at sunset, abandoned subway, rain-soaked alley, skyline reflections, marketplace bazaar
+- Objects: clockwork mechanisms, shattered mirror, burning book, chess pieces, ancient map, sword in stone, alchemist's lab, telescope
+- Abstract: fractal geometry, sound waves, ink splatter, liquid metal, prismatic light, magnetic fields, smoke tendrils
+- Architecture: cathedral interior, lighthouse on cliff, spiral staircase, ruined colosseum, Japanese shrine, Art Deco skyscraper, underground vault
+- Technology: holographic interfaces, circuit boards, robotic hands, satellite arrays, VR headset glow, quantum computer, smartphone screens glowing in darkness, AI chatbot interface, drone swarm, self-driving car dashboard, smartwatch notifications, social media feeds cascading, blockchain visualization, 3D printer creating objects, augmented reality glasses overlay, server rack with blinking lights, electric car charging, smart home control panel
+- Water: shipwreck depths, waterfall cave, frozen lake, tsunami wave, rain on window, reflection pool
+- Fire/Light: candle-lit study, bonfire sparks, lava flow, lantern festival, firefly swarm, molten gold pour
+
+Examples (maximum variety across genres):
+- "Atomic Productivity" (Productivity) → glowing atomic model with orbiting electrons above a sunrise skyline, warm gold and white energy
+- "The Rise of Neural Empires" (Sci-Fi) → massive holographic brain merged with a futuristic megacity, neon blue neural pathways
+- "Forbidden Chemistry" (Romance) → two hands almost touching with electric sparks, chemistry lab with glowing beakers behind them
+- "Cosmic Dread" (Horror) → massive tentacled shadow filling the sky above a tiny coastal town, sickly green moonlight
+- "The Forgotten Realms" (Fantasy) → ancient stone gateway covered in glowing runes, leading into a world of floating islands and waterfalls
+- "Locked" (Mystery) → giant ornate skeleton key floating in a spotlight, long shadowy corridor stretching into darkness behind it
+- "The Science of Sleep" (Health) → translucent human brain floating above a moonlit ocean, soft aurora borealis rippling through clouds
+- "Mastering AI" (Business) → vast glass control room with holographic data streams, city skyline through floor-to-ceiling windows
+- "Women Warriors" (Historical) → fierce armored warrior on horseback charging across a sun-drenched battlefield, golden dust clouds
+- "The Dark Side of the Internet" (Horror) → cracked glowing screens in a dark server room, digital code raining like waterfalls
+- "Traveling the Multiverse" (Sci-Fi) → massive swirling portal of cosmic colors with floating asteroids and distant galaxies
+- "AI Love Affair" (Romance) → human and android embracing in a neon-lit rain-soaked cyberpunk street, warm pink and cool blue
+- "Manifestation Mastery" (Spirituality) → golden lotus flower opening beneath a cosmic starfield, energy spirals rising upward
+- "The Art of War" (Strategy) → ancient chess board with dramatic pieces mid-game, smoke and battlefield visible in the reflections
+- "Deep Ocean Secrets" (Thriller) → bioluminescent jellyfish illuminating a sunken temple in the deep ocean, teal and violet
+- "Midnight Bakery" (Cozy Mystery) → warm glowing bakery window at night, snowy street, pastries visible, footprints in fresh snow
+
+Create a scene that is CINEMATIC (like a movie poster), with DRAMATIC LIGHTING and SYMBOLIC ELEMENTS.
+Choose appropriate brightness: bright/warm for uplifting content, dark/moody for intense content.
+
+Respond with a single paragraph describing the EXACT scene - be very specific about the main subject, their pose/action, the environment, lighting, and colors. No JSON, just a vivid scene description.`;
+
+  let sceneDescription = "";
+  try {
+    const response = await openaiDalle3.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: scenePrompt }],
+      temperature: 0.9,
+      max_tokens: 300,
+    });
+    sceneDescription = response.choices[0]?.message?.content?.trim() || "";
+    console.log(`[Experimental-239] Scene for "${title}": ${sceneDescription.substring(0, 100)}...`);
+  } catch (error: any) {
+    console.error(`[Experimental-239] Scene generation failed: ${error?.message}`);
+    sceneDescription = `Cinematic scene representing "${title}" in ${genre} style with dramatic lighting and symbolic elements`;
+  }
+
+  // Step 2: Build the image prompt with cinematic quality descriptors
+  const imagePrompt = `Professional ebook cover, cinematic movie poster quality, CGI digital art style.
+
+${sceneDescription}
+
+Visual style: Ultra-detailed CGI render, dramatic rim lighting with glowing edges, volumetric light rays, semi-realistic digital art (not painted or illustrated), centered composition, deep shadows with vivid highlights, professional color grading, symbolic surreal elements that reinforce the title meaning.
+
+No text, no words, no letters on the image.`;
+
+  console.log(`[Experimental-239] Generating cover for: "${title}" (ID: ${draftId})`);
+  console.log(`[Experimental-239] Full prompt: ${imagePrompt.substring(0, 200)}...`);
+
+  try {
+    const response = await openaiDalle3.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt: imagePrompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned");
+    console.log(`[Experimental-239] SUCCESS: Generated cover!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    console.error(`[Experimental-239] Error: ${error?.message}`);
+    throw error;
+  }
+}
+
+// REPLIT CINEMATIC: The EXACT original code from git commit 5777f15 that created the 15 covers
+// This is the code from January 27, 2026 that regenerated your original covers
+// Model: gpt-image-1, Size: 1024x1024
+async function generateAIBackgroundClassicLibrary239(title: string, genre: string, draftId: number): Promise<Buffer> {
+  console.log(`[Replit-Cinematic] Using EXACT original code from commit 5777f15 for: ${title}`);
+  
+  const colorSchemes = [
+    "deep burgundy, antique gold, and mahogany brown",
+    "midnight blue, silver, and charcoal gray",
+    "forest green, bronze, and cream",
+    "royal purple, gold leaf, and black",
+    "burnt orange, copper, and dark chocolate",
+    "teal, rose gold, and ivory",
+    "crimson red, black, and gold",
+    "sage green, blush pink, and white",
+    "navy blue, coral, and sand",
+    "emerald green, pearl white, and gold"
+  ];
+
+  const designStyles = [
+    "dark academia aesthetic with vintage library feel",
+    "photorealistic cinematic movie poster style",
+    "moody atmospheric with dramatic lighting",
+    "sophisticated marble and metallic textures",
+    "elegant baroque inspired ornamental design"
+  ];
+
+  const imageElements: Record<string, string[]> = {
+    "Fantasy": ["majestic castle on misty mountain", "magical forest with ancient runes", "dragon flying over medieval village"],
+    "Science Fiction": ["futuristic cityscape with flying vehicles", "astronaut looking at spaceship among stars", "alien planet landscape"],
+    "Romance": ["couple walking through romantic garden at sunset", "lovers on sunset beach with golden light", "elegant couple dancing in ballroom"],
+    "Horror": ["haunted Victorian mansion with ghostly figure", "misty graveyard at night", "mysterious shadow figure in doorway"],
+    "Mystery": ["detective examining clues in dark study", "man in trench coat on foggy street", "shadowy figure in dark alley"],
+    "Self-Help": ["person standing triumphant on mountain summit", "serene meditation scene at sunrise", "confident person walking through light"],
+    "Business": ["modern executive overlooking city skyline", "team celebrating success around chart", "professional handshake in glass office"],
+    "Business & Finance": ["modern executive overlooking city skyline", "team celebrating success around chart", "professional handshake in glass office"],
+    "Health & Wellness": ["serene meditation scene at sunrise", "person in yoga pose at sunset", "peaceful nature wellness scene"],
+    "Psychology": ["abstract mind visualization with neural patterns", "person in contemplation with mirror reflection", "labyrinth representing the mind"],
+    "Spirituality": ["peaceful temple at sunrise", "meditation with aurora lights", "sacred geometry patterns"],
+    "Productivity": ["person at organized desk with productivity tools", "ascending staircase to success", "clock gears representing time management"],
+    "Historical Fiction": ["ancient battlefield with warriors", "royal throne room with medieval artifacts", "warrior silhouette at sunset"],
+    "default": ["elegant scholar with feather quill in grand library", "antique bookshop with leather-bound volumes", "writer in cozy study with fireplace"]
+  };
+
+  const seed = (title + genre + draftId).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const colorScheme = colorSchemes[seed % colorSchemes.length];
+  const designStyle = designStyles[(seed * 7) % designStyles.length];
+  
+  let genreKey = Object.keys(imageElements).find(key => 
+    genre.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(genre.toLowerCase())
+  ) || "default";
+  const genreElements = imageElements[genreKey] || imageElements["default"];
+  const selectedElement = genreElements[(seed * 11) % genreElements.length];
+
+  const prompt = `Professional cinematic artwork for "${title}" - a ${genre} theme. Style: ${designStyle}. Color palette: ${colorScheme}. Feature ${selectedElement} as central imagery. Sophisticated, premium quality, artistic composition. Beautiful scenic artwork. No text, letters, or words on the image.`;
+  
+  console.log(`[Replit-Cinematic] Prompt: ${prompt}`);
+  
+  try {
+    const response = await openaiDirectForImages.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt: prompt,
+      n: 1,
+      size: "1024x1024"
+    });
+    
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) {
+      throw new Error("No image data returned from OpenAI");
+    }
+    
+    console.log(`[Replit-Cinematic] Successfully generated cover for: ${title}`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    console.error(`[Replit-Cinematic] Error: ${error?.message}`);
+    throw error;
+  }
+}
+
+// ============= TEST STYLE BUTTONS - For finding the correct original style =============
+
+// TEST STYLE A: From commit 5777f15 (Jan 27) - "Professional cinematic artwork"
+async function generateTestStyleA(title: string, genre: string, draftId: number): Promise<Buffer> {
+  console.log(`[TEST-STYLE-A] Using commit 5777f15 prompt for: ${title}`);
+  
+  const colorSchemes = [
+    "deep burgundy, antique gold, and mahogany brown",
+    "midnight blue, silver, and charcoal gray",
+    "forest green, bronze, and cream",
+    "royal purple, gold leaf, and black",
+    "burnt orange, copper, and dark chocolate",
+    "teal, rose gold, and ivory",
+    "crimson red, black, and gold",
+    "sage green, blush pink, and white",
+    "navy blue, coral, and sand",
+    "emerald green, pearl white, and gold"
+  ];
+
+  const designStyles = [
+    "dark academia aesthetic with vintage library feel",
+    "photorealistic cinematic movie poster style",
+    "moody atmospheric with dramatic lighting",
+    "sophisticated marble and metallic textures",
+    "elegant baroque inspired ornamental design"
+  ];
+
+  const imageElements: Record<string, string[]> = {
+    "Fantasy": ["majestic castle on misty mountain", "magical forest with ancient runes", "dragon flying over medieval village"],
+    "Science Fiction": ["futuristic cityscape with flying vehicles", "astronaut looking at spaceship among stars", "alien planet landscape"],
+    "Romance": ["couple walking through romantic garden at sunset", "lovers on sunset beach with golden light", "elegant couple dancing in ballroom"],
+    "Horror": ["haunted Victorian mansion with ghostly figure", "misty graveyard at night", "mysterious shadow figure in doorway"],
+    "Mystery": ["detective examining clues in dark study", "man in trench coat on foggy street", "shadowy figure in dark alley"],
+    "Self-Help": ["person standing triumphant on mountain summit", "serene meditation scene at sunrise", "confident person walking through light"],
+    "Business": ["modern executive overlooking city skyline", "team celebrating success around chart", "professional handshake in glass office"],
+    "default": ["elegant scholar with feather quill in grand library", "antique bookshop with leather-bound volumes", "writer in cozy study with fireplace"]
+  };
+
+  const seed = (title + genre + draftId).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const colorScheme = colorSchemes[seed % colorSchemes.length];
+  const designStyle = designStyles[(seed * 7) % designStyles.length];
+  let genreKey = Object.keys(imageElements).find(key => 
+    genre.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(genre.toLowerCase())
+  ) || "default";
+  const genreElements = imageElements[genreKey] || imageElements["default"];
+  const selectedElement = genreElements[(seed * 11) % genreElements.length];
+
+  const prompt = `Professional cinematic artwork for "${title}" - a ${genre} theme. Style: ${designStyle}. Color palette: ${colorScheme}. Feature ${selectedElement} as central imagery. Sophisticated, premium quality, artistic composition. Beautiful scenic artwork. No text, letters, or words on the image.`;
+  
+  console.log(`[TEST-STYLE-A] Prompt: ${prompt}`);
+  
+  const response = await openaiDirectForImages.images.generate({
+    model: IMAGE_MODEL_PRIMARY,
+    prompt: prompt,
+    n: 1,
+    size: "1024x1024"
+  });
+  
+  const imageData = response.data?.[0]?.b64_json;
+  if (!imageData) throw new Error("No image data returned");
+  return Buffer.from(imageData, "base64");
+}
+
+// TEST STYLE C: From commit a0c793e (Jan 18) - Enhanced with 30 colors, 25 styles, 20 compositions
+async function generateTestStyleC(title: string, genre: string, draftId: number): Promise<Buffer> {
+  console.log(`[TEST-STYLE-C] Using commit a0c793e enhanced prompt for: ${title}`);
+  
+  const colorSchemes = [
+    "deep burgundy, antique gold, and mahogany brown",
+    "midnight blue, silver, and charcoal gray",
+    "forest green, bronze, and cream",
+    "royal purple, gold leaf, and black",
+    "burnt orange, copper, and dark chocolate",
+    "teal, rose gold, and ivory",
+    "crimson red, black, and gold",
+    "sage green, blush pink, and white",
+    "navy blue, coral, and sand",
+    "emerald green, pearl white, and gold",
+    "dusty rose, champagne, and dove gray",
+    "cobalt blue, amber, and cream",
+    "plum purple, silver, and midnight black",
+    "terracotta, olive green, and tan",
+    "sapphire blue, gold, and burgundy",
+    "ocean teal, sunset orange, and sandy beige",
+    "lavender purple, soft mint, and pearl white",
+    "charcoal black, electric blue, and silver",
+    "warm honey gold, deep brown, and cream",
+    "ice blue, arctic white, and silver frost"
+  ];
+
+  const designStyles = [
+    "dark academia aesthetic with vintage library feel",
+    "photorealistic cinematic movie poster style",
+    "moody atmospheric with dramatic lighting",
+    "sophisticated marble and metallic textures",
+    "elegant baroque inspired ornamental design",
+    "Japanese ukiyo-e inspired woodblock print style",
+    "Nordic Scandinavian minimalist with clean lines",
+    "steampunk Victorian with gears and mechanical elements",
+    "impressionist painting style with soft light",
+    "art nouveau with flowing organic curves and borders",
+    "surrealist dreamlike imagery with unexpected elements",
+    "folk art style with handcrafted rustic charm",
+    "neon cyberpunk with glowing accents and city lights",
+    "renaissance classical painting aesthetic"
+  ];
+
+  const compositionStyles = [
+    "centered symmetrical composition",
+    "dramatic diagonal composition",
+    "rule of thirds balanced layout",
+    "minimalist negative space focus",
+    "layered depth with foreground and background"
+  ];
+
+  const imageElements: Record<string, string[]> = {
+    "Fantasy": ["majestic castle on misty mountain", "magical forest with ancient runes", "dragon flying over medieval village"],
+    "Science Fiction": ["futuristic cityscape with flying vehicles", "astronaut looking at spaceship among stars", "alien planet landscape"],
+    "Romance": ["couple walking through romantic garden at sunset", "lovers on sunset beach with golden light", "elegant couple dancing in ballroom"],
+    "Horror": ["haunted Victorian mansion with ghostly figure", "misty graveyard at night", "mysterious shadow figure in doorway"],
+    "default": ["elegant scholar with feather quill in grand library", "antique bookshop with leather-bound volumes", "writer in cozy study with fireplace"]
+  };
+
+  const seed = (title + genre + draftId).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const colorScheme = colorSchemes[seed % colorSchemes.length];
+  const designStyle = designStyles[(seed * 7) % designStyles.length];
+  const compositionStyle = compositionStyles[(seed * 3) % compositionStyles.length];
+  let genreKey = Object.keys(imageElements).find(key => 
+    genre.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(genre.toLowerCase())
+  ) || "default";
+  const genreElements = imageElements[genreKey] || imageElements["default"];
+  const selectedElement = genreElements[(seed * 11) % genreElements.length];
+
+  const prompt = `Professional ebook cover design for "${title}" - a ${genre} book. ${designStyle}. ${compositionStyle}. Color palette: ${colorScheme}. Feature ${selectedElement} as central imagery. Sophisticated, premium quality, artistic composition. No text or letters on the image.`;
+  
+  console.log(`[TEST-STYLE-C] Prompt: ${prompt}`);
+  
+  const response = await openaiDirectForImages.images.generate({
+    model: IMAGE_MODEL_PRIMARY,
+    prompt: prompt,
+    n: 1,
+    size: "1024x1024"
+  });
+  
+  const imageData = response.data?.[0]?.b64_json;
+  if (!imageData) throw new Error("No image data returned");
+  return Buffer.from(imageData, "base64");
+}
+
+// TEST STYLE E: From commit 61544e9 (Jan 28) - AI Creative Director style (simplified)
+// TEST STYLE F: Two-Tone - Artistic Compact art (no text) + programmatic title bar
+async function generateTestStyleF(title: string, genre: string, draftId: number, description: string = ""): Promise<Buffer> {
+  console.log(`[TEST-STYLE-F] Two-Tone: Artistic Compact art + title bar for: ${title}`);
+  registerCoverFonts();
+
+  const genreKeywords: Record<string, string> = {
+    "fantasy": "magical, enchanted, mystical creatures, glowing runes",
+    "sci-fi": "futuristic, spacecraft, alien worlds, technology",
+    "romance": "intimate, beautiful, warm lighting, emotional",
+    "thriller": "suspenseful, shadows, danger, tension",
+    "horror": "dark, supernatural, haunting, ominous",
+    "self-help": "transformation, growth, enlightenment, strength",
+    "business": "success, leadership, modern, professional",
+    "psychology": "mind, thoughts, emotions, inner world",
+    "spirituality": "cosmic, transcendent, divine, peaceful",
+    "health": "vitality, wellness, natural, balanced",
+    "history": "epic, legendary, period authentic, grandeur",
+    "black history": "African heritage, civil rights, resilience, cultural pride, powerful legacy, dignity",
+    "default": "powerful, evocative, emotional"
+  };
+
+  const keywords = genreKeywords[genre.toLowerCase()] || genreKeywords["default"];
+  const context = description ? ` About: ${description.substring(0, 100)}` : "";
+
+  const subjectTypes = [
+    "person, creature, animal, or symbolic object",
+    "mythical being, majestic animal, or powerful artifact",
+    "human figure, fantastical creature, or meaningful symbol",
+    "hero, beast, mystical object, or abstract concept",
+    "character, animal spirit, ancient relic, or elemental force"
+  ];
+  const randomSubjectType = subjectTypes[Math.floor(Math.random() * subjectTypes.length)];
+
+  const compactPrompt = `Cinematic photorealistic book cover art for "${title}".
+
+Genre: ${genre} (${keywords})${context}
+
+Create beautiful art featuring a compelling ${randomSubjectType} that embodies the book's essence. Dramatic lighting, rich atmosphere, layered depth. Professional 8K quality.
+
+NO TEXT. Keep top 15% clear for overlay.`;
+
+  console.log(`[TEST-STYLE-F] Art prompt (${compactPrompt.length} chars): ${compactPrompt}`);
+
+  try {
+    const response = await openaiDalle3.images.generate({
+      model: "dall-e-3",
+      prompt: compactPrompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "hd",
+      style: "vivid",
+      response_format: "b64_json",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from DALL-E 3");
+    console.log(`SUCCESS: Generated art layer with DALL-E 3 Vivid!`);
+
+    const artBuffer = Buffer.from(imageData, "base64");
+    const artImage = await loadImage(artBuffer);
+    const width = artImage.width;
+    const height = artImage.height;
+
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext("2d");
+
+    ctx.drawImage(artImage, 0, 0);
+
+    const barHeight = Math.round(height * 0.14);
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, barHeight + 20);
+    gradient.addColorStop(0, "rgba(15, 10, 8, 0.92)");
+    gradient.addColorStop(0.7, "rgba(15, 10, 8, 0.85)");
+    gradient.addColorStop(1, "rgba(15, 10, 8, 0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, barHeight + 20);
+
+    const accentY = barHeight - 2;
+    const accentGrad = ctx.createLinearGradient(width * 0.15, 0, width * 0.85, 0);
+    accentGrad.addColorStop(0, "rgba(180, 150, 90, 0)");
+    accentGrad.addColorStop(0.3, "rgba(180, 150, 90, 0.6)");
+    accentGrad.addColorStop(0.5, "rgba(210, 180, 120, 0.8)");
+    accentGrad.addColorStop(0.7, "rgba(180, 150, 90, 0.6)");
+    accentGrad.addColorStop(1, "rgba(180, 150, 90, 0)");
+    ctx.fillStyle = accentGrad;
+    ctx.fillRect(width * 0.1, accentY, width * 0.8, 1.5);
+
+    const titleFonts = ["Cinzel", "Playfair Display", "Cormorant Garamond", "Libre Baskerville", "Prata", "Bodoni"];
+    const availableFonts = titleFonts.filter(f => isFontRegistered(f));
+    const chosenFont = availableFonts.length > 0
+      ? availableFonts[Math.floor(Math.random() * availableFonts.length)]
+      : "serif";
+
+    const maxTextWidth = width * 0.85;
+    const centerY = barHeight * 0.52;
+
+    const shortTitle = title.includes(":") && title.length > 35
+      ? title.substring(0, title.indexOf(":")).trim()
+      : title;
+
+    let fontSize = Math.round(barHeight * 0.42);
+    if (shortTitle.length > 30) fontSize = Math.round(barHeight * 0.34);
+    if (shortTitle.length > 45) fontSize = Math.round(barHeight * 0.28);
+
+    ctx.font = `bold ${fontSize}px "${chosenFont}"`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    let displayTitle = shortTitle.toUpperCase();
+    let metrics = ctx.measureText(displayTitle);
+
+    while (metrics.width > maxTextWidth && fontSize > 18) {
+      fontSize -= 2;
+      ctx.font = `bold ${fontSize}px "${chosenFont}"`;
+      metrics = ctx.measureText(displayTitle);
+    }
+
+    if (metrics.width > maxTextWidth) {
+      const words = displayTitle.split(" ");
+      const mid = Math.ceil(words.length / 2);
+      const line1 = words.slice(0, mid).join(" ");
+      const line2 = words.slice(mid).join(" ");
+      const lineSpacing = fontSize * 1.3;
+      const topLineY = centerY - lineSpacing * 0.3;
+      const bottomLineY = centerY + lineSpacing * 0.7;
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillText(line1, width / 2 + 1, topLineY + 1);
+      ctx.fillText(line2, width / 2 + 1, bottomLineY + 1);
+
+      ctx.fillStyle = "#f0e6d2";
+      ctx.fillText(line1, width / 2, topLineY);
+      ctx.fillText(line2, width / 2, bottomLineY);
+    } else {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillText(displayTitle, width / 2 + 1, centerY + 1);
+
+      ctx.fillStyle = "#f0e6d2";
+      ctx.fillText(displayTitle, width / 2, centerY);
+    }
+
+    console.log(`[TEST-STYLE-F] Added title bar: font=${chosenFont}, size=${fontSize}, barH=${barHeight}`);
+    return canvas.toBuffer("image/png");
+  } catch (error: any) {
+    console.error(`[Test-Style-F Error] DALL-E 3 failed for "${title}": ${error?.message}`);
+    throw error;
+  }
+}
+
+// TEST STYLE G: Artistic Compact with embedded title method
+async function generateTestStyleG(title: string, genre: string, draftId: number, description: string = ""): Promise<Buffer> {
+  console.log(`[TEST-STYLE-G] Artistic Compact + embedded title for: ${title}`);
+
+  const genreKeywords: Record<string, string> = {
+    "fantasy": "magical, enchanted, mystical creatures, glowing runes",
+    "sci-fi": "futuristic, spacecraft, alien worlds, technology",
+    "romance": "intimate, beautiful, warm lighting, emotional",
+    "thriller": "suspenseful, shadows, danger, tension",
+    "horror": "dark, supernatural, haunting, ominous",
+    "self-help": "transformation, growth, enlightenment, strength",
+    "business": "success, leadership, modern, professional",
+    "psychology": "mind, thoughts, emotions, inner world",
+    "spirituality": "cosmic, transcendent, divine, peaceful",
+    "health": "vitality, wellness, natural, balanced",
+    "history": "epic, legendary, period authentic, grandeur",
+    "black history": "African heritage, civil rights, resilience, cultural pride, powerful legacy, dignity",
+    "default": "powerful, evocative, emotional"
+  };
+
+  const keywords = genreKeywords[genre.toLowerCase()] || genreKeywords["default"];
+  const context = description ? ` About: ${description.substring(0, 100)}` : "";
+
+  const subjectTypes = [
+    "person, creature, animal, or symbolic object",
+    "mythical being, majestic animal, or powerful artifact",
+    "human figure, fantastical creature, or meaningful symbol",
+    "hero, beast, mystical object, or abstract concept",
+    "character, animal spirit, ancient relic, or elemental force"
+  ];
+  const randomSubjectType = subjectTypes[Math.floor(Math.random() * subjectTypes.length)];
+
+  const titleWords = title.split(/\s+/);
+  const spelledOut = titleWords.map(w => `"${w}"`).join(", ");
+
+  const titleFonts = [
+    "ornate gold serif lettering",
+    "glowing ethereal script",
+    "elegant calligraphic brushstrokes",
+    "bold art deco geometric type with gold accents",
+    "delicate silver filigree lettering",
+    "embossed typography with rich shadows",
+    "luminous crystal-like lettering",
+    "gothic blackletter with vine embellishments"
+  ];
+  const selectedFont = titleFonts[Math.floor(Math.random() * titleFonts.length)];
+
+  const prompt = `Cinematic photorealistic artwork featuring a ${randomSubjectType} in a dramatic ${keywords} scene.${context} Rich atmosphere, layered depth, vivid colors, 8K quality. Full-bleed composition filling the entire canvas.
+
+TITLE TEXT RULES: The title "${title}" must appear as SMALL, SUBTLE ${selectedFont} — occupying NO MORE than 15-20% of the total image area. Keep the text compact, refined, and elegantly understated. Every word spelled letter-perfect: ${spelledOut}. Place the title in the lower third or upper portion of the image with wide margins on all sides. ${titleWords.length > 3 ? "Use multiple lines with tight leading, sized small enough that the artwork dominates." : "Keep the title modest in size — the scene is the star, not the text."} The artwork must DOMINATE the composition — the title is a subtle accent, not the focal point.`;
+
+  console.log(`[TEST-STYLE-G] Compact prompt (${prompt.length} chars)`);
+
+  try {
+    const response = await openaiDirectForImages.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from gpt-image-1");
+    console.log(`SUCCESS: Generated Test Style G cover with gpt-image-1!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    console.error(`[Test-Style-G Error] gpt-image-1 failed for "${title}": ${error?.message}`);
+    throw error;
+  }
+}
+
+// TEST STYLE D: Vivid Painterly Pro with embedded title method
+async function generateTestStyleD(title: string, genre: string, draftId: number, description: string = ""): Promise<Buffer> {
+  console.log(`[TEST-STYLE-D] Vivid Painterly Pro + embedded title for: ${title}`);
+
+  const focalSubjects = [
+    "silhouette of a person standing heroically on a precipice, wind catching their hair and clothing",
+    "hooded mysterious figure with face partially illuminated, ancient symbols glowing on their robes",
+    "warrior in ornate battle-worn armor, scars telling stories, weapon at rest but ready",
+    "majestic dragon coiled around a mountain peak, scales shimmering with inner fire, eyes ancient and wise",
+    "phoenix in mid-rebirth, half flame and half feather, transforming from ash to glory",
+    "lone wolf howling at a blood moon, silhouette powerful against the night sky",
+    "majestic lion with flowing mane, eyes reflecting inner strength and royalty",
+    "ancient leather-bound book glowing with forbidden knowledge, pages turning by themselves",
+    "ornate sword thrust into stone, blade catching divine light, destiny awaiting",
+    "swirling vortex of light and shadow, representing the battle between good and evil",
+    "tree of life with roots in darkness and branches in starlight, cosmic balance"
+  ];
+
+  const symbols = [
+    "magnificent phoenix erupting from golden flames, trailing sparks and ash",
+    "spiral galaxy with millions of visible stars, cosmic dust swirling around a brilliant core",
+    "ancient world tree with roots extending into darkness and branches reaching into starlight",
+    "crystal hourglass with grains of stardust flowing between chambers",
+    "sacred lotus blooming in slow motion, hovering above still water",
+    "infinite staircase of marble and gold ascending through clouds",
+    "sun and moon occupying the same sky, eclipse creating a ring of fire",
+    "ouroboros - a dragon of stars consuming its own tail in an eternal cycle",
+    "open book with pages turning themselves, words lifting off as glowing particles"
+  ];
+
+  const backgrounds = [
+    "jagged mountain peak piercing through a sea of clouds at golden sunrise",
+    "infinite cosmic starfield with swirling nebulae in magenta and cyan",
+    "crumbling ancient temple overgrown with luminescent vines, shafts of dusty light",
+    "gleaming modern cityscape at blue hour, glass towers reflecting orange sunset",
+    "primordial enchanted forest with massive ancient trees, god rays through the canopy",
+    "vast golden desert under apocalyptic storm clouds, lightning striking distant dunes",
+    "impossible floating islands connected by delicate bridges, waterfalls into the void",
+    "infinite library with towering shelves disappearing into darkness above",
+    "crystalline underground cavern with bioluminescent pools"
+  ];
+
+  const lightingScenarios = [
+    "biblical god rays breaking through parting storm clouds, divine illumination",
+    "golden hour backlight creating perfect rim lighting on every edge",
+    "Rembrandt lighting with deep chiaroscuro shadows defining form",
+    "ethereal inner glow emanating from the subject, supernatural radiance",
+    "frozen lightning bolt illuminating the entire scene in harsh white light",
+    "first light of dawn painting everything in gradients of pink, orange, and gold",
+    "single dramatic spotlight from directly above, theatrical impact"
+  ];
+
+  const colorPalettes = [
+    "deep burgundy, antique gold, and mahogany brown creating rich classical warmth",
+    "midnight blue, silver, and charcoal gray evoking mysterious elegance",
+    "forest green, bronze, and cream bringing natural sophistication",
+    "royal purple, gold leaf, and black for regal dramatic impact",
+    "burnt orange, copper, and dark chocolate with autumn warmth",
+    "teal, rose gold, and ivory for modern elegance",
+    "crimson red, black, and gold creating passionate intensity",
+    "cosmic black with galaxy purple, nebula blue, and stardust gold"
+  ];
+
+  const randomPick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+  const aiDirection = await getAICreativeDirection(title, genre, description);
+
+  let prompt: string;
+
+  const titleWords = title.split(/\s+/);
+  const spelledOut = titleWords.map(w => `"${w}"`).join(", ");
+
+  const titleFonts = [
+    "ornate gold serif lettering with subtle metallic sheen",
+    "weathered carved stone typography with ancient texture",
+    "glowing ethereal script with soft light emanating from letters",
+    "elegant calligraphic brushstroke lettering",
+    "bold art deco geometric typography with gold leaf accents",
+    "delicate silver filigree lettering with intricate detail",
+    "embossed leather-bound typography with rich shadows",
+    "luminous crystal-like lettering refracting prismatic light"
+  ];
+  const selectedFont = randomPick(titleFonts);
+
+  if (aiDirection) {
+    console.log(`[AI Creative Director] Using custom visual direction: ${aiDirection.emotionalTone}`);
+    prompt = `Stunning vivid cinematic artwork. ${aiDirection.background}. ${aiDirection.lighting}. Colors: ${aiDirection.colorPalette}. ${aiDirection.atmosphere}. Focal subject: ${aiDirection.focalSubject}.
+
+Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Every texture visible. Full-bleed composition filling the entire canvas.
+
+TITLE TEXT RULES: The title "${title}" must appear as ${selectedFont}. Every single word spelled letter-perfect: ${spelledOut}. The ENTIRE title must be fully visible with comfortable margins on all sides - no letters or words may be cut off or touch any edge. ${titleWords.length > 3 ? "Use multiple lines and size text to fit comfortably within the center area." : "Center the title with generous space around it."} Design the artwork AROUND the title so both work together beautifully.`;
+  } else {
+    console.log(`[Vivid Painterly Pro] Using proven fallback elements`);
+    const selectedSubject = randomPick(focalSubjects);
+    const selectedBackground = randomPick(backgrounds);
+    const selectedLighting = randomPick(lightingScenarios);
+    const selectedPalette = randomPick(colorPalettes);
+
+    const descriptionContext = description ? ` Theme: ${description.substring(0, 150)}` : "";
+
+    prompt = `Stunning vivid cinematic artwork. ${selectedBackground}. ${selectedLighting}. Colors: ${selectedPalette}. Focal point: ${selectedSubject}.${descriptionContext}
+
+Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Every texture visible. Full-bleed composition filling the entire canvas.
+
+TITLE TEXT RULES: The title "${title}" must appear as ${selectedFont}. Every single word spelled letter-perfect: ${spelledOut}. The ENTIRE title must be fully visible with comfortable margins on all sides - no letters or words may be cut off or touch any edge. ${titleWords.length > 3 ? "Use multiple lines and size text to fit comfortably within the center area." : "Center the title with generous space around it."} Design the artwork AROUND the title so both work together beautifully.`;
+  }
+
+  console.log(`[TEST-STYLE-D] Using gpt-image-1 with ${aiDirection ? 'AI Creative Director' : 'proven fallback'}`);
+
+  try {
+    const response = await openaiDirectForImages.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from gpt-image-1");
+    console.log(`SUCCESS: Generated Test Style D cover with gpt-image-1!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    console.error(`[Test-Style-D Error] gpt-image-1 failed for "${title}": ${error?.message}`);
+    throw error;
+  }
+}
+
+// TEST STYLE B: DALL-E 3 Vivid with embedded title method
+async function generateTestStyleB(title: string, genre: string, draftId: number, description: string = ""): Promise<Buffer> {
+  const useHybrid = Math.random() < 0.5;
+  const modeLabel = useHybrid ? "HYBRID (Painted+Realistic)" : "PHOTOREALISTIC";
+  console.log(`[TEST-STYLE-B] ${modeLabel} mode + embedded title for: ${title}`);
+
+  const colorSchemes = [
+    "deep burgundy, antique gold, and mahogany brown",
+    "midnight blue, silver, and charcoal gray",
+    "forest green, bronze, and cream",
+    "royal purple, gold leaf, and black",
+    "burnt orange, copper, and dark chocolate",
+    "teal, rose gold, and ivory",
+    "crimson red, black, and gold",
+    "sage green, blush pink, and white",
+    "navy blue, coral, and sand",
+    "emerald green, pearl white, and gold",
+    "cobalt blue, amber, and cream",
+    "plum purple, silver, and midnight black",
+    "terracotta, olive green, and tan",
+    "sapphire blue, gold, and burgundy"
+  ];
+
+  const hybridStyles = [
+    "photorealistic subjects blended with painterly atmospheric backgrounds",
+    "realistic figures set against impressionistic, dream-like environments",
+    "hyper-detailed realistic foreground merging into artistic watercolor backgrounds",
+    "cinematic realism with artistic color grading and painterly light effects",
+    "realistic textures and faces combined with surreal artistic compositions",
+    "photographic clarity on subjects with baroque-inspired ornamental surroundings",
+    "lifelike detail with art nouveau flourishes and flowing artistic elements",
+    "realistic depth and shadows blended with gothic romantic painted atmosphere"
+  ];
+
+  const realisticStyles = [
+    "cinematic movie poster with photorealistic depth",
+    "photorealistic studio photography with dramatic lighting",
+    "hyper-realistic scene like a film still from a blockbuster",
+    "photojournalistic realism with natural lighting",
+    "realistic portrait photography with shallow depth of field",
+    "cinematic wide-angle landscape with photographic detail",
+    "photorealistic close-up with rich textures and fine detail",
+    "realistic editorial photography with moody atmosphere"
+  ];
+
+  const seed = draftId > 0 ? draftId : (title + genre).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const colorScheme = colorSchemes[seed % colorSchemes.length];
+  const stylePool = useHybrid ? hybridStyles : realisticStyles;
+  const designStyle = stylePool[Math.floor(Math.random() * stylePool.length)];
+
+  const titleWords = title.split(/\s+/);
+
+  const titleLayout = titleWords.length > 4
+    ? `Use 2-3 lines of elegantly sized text, centered with generous margins on all sides. Nothing touches any edge.`
+    : titleWords.length > 2
+    ? `Use 1-2 lines, centered with generous margins. Nothing touches any edge.`
+    : `Center the title prominently with generous space around it.`;
+
+  const spelledOut = titleWords.map(w => `"${w}"`).join(", ");
+
+  const titleFonts = [
+    "ornate gold serif lettering with subtle metallic sheen",
+    "glowing ethereal script with soft light emanating from letters",
+    "elegant calligraphic brushstroke lettering",
+    "bold art deco geometric typography with gold leaf accents",
+    "delicate silver filigree lettering with intricate detail",
+    "embossed leather-bound typography with rich shadows",
+    "luminous crystal-like lettering refracting prismatic light",
+    "gothic blackletter with thorny vine embellishments"
+  ];
+  const selectedFont = titleFonts[Math.floor(Math.random() * titleFonts.length)];
+
+  const sceneDescription = useHybrid
+    ? `SCENE: A stunning blend of photorealistic and artistic elements. Real-world textures and lifelike detail on key subjects, seamlessly merging with painterly, atmospheric artistic backgrounds. The result should feel like a realistic photograph that transitions into a beautiful painting - combining the best of both worlds.`
+    : `SCENE: A photorealistic, cinematic scene with real-world textures, natural materials, and believable lighting. Like a photograph or movie still - no painted or illustrated look. Rich depth of field, realistic shadows, and tangible surfaces.`;
+
+  const prompt = `Ebook cover for "${title}" (${genre}).
+
+Style: ${designStyle}
+Colors: ${colorScheme}
+
+${sceneDescription} Full-bleed artwork filling the entire canvas.
+
+TITLE: "${title}" in ${selectedFont}. Spelled: ${spelledOut}. ${titleLayout}
+
+Only the title and optionally a SHORT tagline (5 words max). NO long descriptions, NO paragraphs, NO author name. ONE unified composition. Premium bestseller quality.`;
+
+  console.log(`[TEST-STYLE-B] ${modeLabel} prompt (${prompt.length} chars)`);
+
+  try {
+    const response = await openaiDirectForImages.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from gpt-image-1");
+    console.log(`[TEST-STYLE-B] SUCCESS: Generated ${modeLabel} cover with embedded title!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Test-Style-B Error] gpt-image-1 failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+async function generateTestStyleE(title: string, genre: string, draftId: number, description: string = ""): Promise<Buffer> {
+  console.log(`[TEST-STYLE-E] Two-Tone: Artistic Painterly art + title bar for: ${title}`);
+  registerCoverFonts();
+
+  const focalSubjects = [
+    "silhouette of a person standing heroically on a precipice, wind catching their hair and clothing",
+    "hooded mysterious figure with face partially illuminated, ancient symbols glowing on their robes",
+    "warrior in ornate battle-worn armor, scars telling stories, weapon at rest but ready",
+    "ethereal figure in flowing silk robes that seem to merge with mist and starlight",
+    "ancient wizard with a long silver beard, staff crackling with arcane energy",
+    "majestic dragon coiled around a mountain peak, scales shimmering with inner fire, eyes ancient and wise",
+    "graceful unicorn in a moonlit glade, mane flowing like liquid silver, horn glowing with pure light",
+    "phoenix in mid-rebirth, half flame and half feather, transforming from ash to glory",
+    "wise owl perched on ancient tome, feathers inscribed with glowing runes, eyes holding secrets",
+    "lone wolf howling at a blood moon, silhouette powerful against the night sky",
+    "majestic lion with flowing mane, eyes reflecting inner strength and royalty",
+    "soaring eagle with wings fully spread, catching thermals above mountain ranges",
+    "ancient leather-bound book glowing with forbidden knowledge, pages turning by themselves",
+    "ornate sword thrust into stone, blade catching divine light, destiny awaiting",
+    "crystal ball showing swirling visions of possible futures, mist and light dancing within",
+    "swirling vortex of light and shadow, representing the battle between good and evil",
+    "shattered mirror reflecting multiple realities, each shard showing different possibilities",
+    "tree of life with roots in darkness and branches in starlight, cosmic balance"
+  ];
+
+  const symbols = [
+    "magnificent phoenix erupting from golden flames, feathers transitioning from ember red to brilliant gold",
+    "heavy iron chains shattering into a thousand pieces, each fragment catching light",
+    "spiral galaxy with millions of visible stars, arms of purple and blue cosmic dust",
+    "ancient world tree with roots extending into darkness and branches reaching into starlight",
+    "crystal hourglass with grains of stardust flowing between chambers",
+    "sacred lotus blooming in slow motion, each petal a different shade of pink and white",
+    "infinite staircase of marble and gold ascending through clouds",
+    "sun and moon occupying the same sky, eclipse creating a ring of fire",
+    "human brain with neural pathways visible as streams of electric blue light",
+    "ouroboros - a dragon of stars consuming its own tail in an eternal cycle",
+    "open book with pages turning themselves, words lifting off as glowing particles"
+  ];
+
+  const backgrounds = [
+    "jagged mountain peak piercing through a sea of clouds at golden sunrise",
+    "infinite cosmic starfield with swirling nebulae in magenta and cyan",
+    "crumbling ancient temple overgrown with luminescent vines, shafts of dusty light",
+    "gleaming modern cityscape at blue hour, glass towers reflecting orange sunset",
+    "primordial enchanted forest with massive ancient trees, god rays filtering through",
+    "vast golden desert under apocalyptic storm clouds, lightning striking distant dunes",
+    "impossible floating islands connected by delicate bridges, waterfalls cascading into void",
+    "infinite library with towering shelves disappearing into darkness above",
+    "crystalline underground cavern with bioluminescent pools",
+    "cyberpunk metropolis drenched in neon rain, holographic advertisements flickering",
+    "arctic landscape under dancing aurora borealis, ice formations reflecting light",
+    "deep ocean realm with light shafts piercing turquoise depths, ancient ruins"
+  ];
+
+  const lightingScenarios = [
+    "biblical god rays breaking through parting storm clouds, dust particles dancing",
+    "golden hour backlight creating perfect rim lighting on every edge",
+    "Rembrandt lighting with deep chiaroscuro shadows defining form",
+    "ethereal inner glow emanating from the subject, as if lit from within",
+    "frozen lightning bolt illuminating the entire scene in harsh white light",
+    "first light of dawn painting everything in gradients of pink, orange, and gold",
+    "single dramatic spotlight from directly above, pool of light in darkness",
+    "neon signs reflecting off wet pavement, pools of magenta, cyan, and electric blue"
+  ];
+
+  const atmosphericEffects = [
+    "thick volumetric fog hugging the ground, god rays slicing through",
+    "thousands of floating particles of golden light, like magic dust in still air",
+    "cherry blossom petals drifting lazily downward, each catching light",
+    "glowing embers and sparks rising from below, tiny stars ascending",
+    "mysterious smoke tendrils curling and weaving through the scene",
+    "bioluminescent fireflies dancing in complex patterns, leaving light trails",
+    "floating lanterns ascending into night sky, warm glow against stars"
+  ];
+
+  const colorSchemes = [
+    "deep burgundy, antique gold, and mahogany brown",
+    "midnight blue, silver, and charcoal gray",
+    "forest green, bronze, and cream",
+    "royal purple, gold leaf, and black",
+    "burnt orange, copper, and dark chocolate",
+    "teal, rose gold, and ivory",
+    "crimson red, black, and gold",
+    "cobalt blue, amber, and cream",
+    "sapphire blue, gold, and burgundy",
+    "midnight violet, starlight silver, and cosmic black"
+  ];
+
+  const designStyles = [
+    "dark academia aesthetic with vintage library feel",
+    "art deco style with elegant patterns and lines",
+    "gothic romantic aesthetic with ornate details",
+    "moody atmospheric with dramatic lighting",
+    "elegant baroque inspired ornamental design",
+    "photorealistic cinematic movie poster style",
+    "art nouveau with flowing organic curves and borders",
+    "surrealist dreamlike imagery with unexpected elements"
+  ];
+
+  const genreGuidance: Record<string, string> = {
+    "fantasy": "magical realms with castles, wizards, dragons, enchanted forests, mystical creatures",
+    "sci-fi": "futuristic technology, spacecraft, alien worlds, cybernetic interfaces",
+    "romance": "intimate emotional connection, beautiful settings, warm lighting",
+    "thriller": "tension and suspense, urban shadows, mysterious figures, danger lurking",
+    "horror": "dark creatures, supernatural dread, haunted places, psychological terror",
+    "self-help": "transformation and growth, breakthrough moments, ascending paths",
+    "business": "success and achievement, modern prosperity, leadership, strategic vision",
+    "psychology": "the mind visualized, neural patterns, emotional states, thought processes",
+    "default": "powerful imagery that captures the essence and emotional core of the title"
+  };
+
+  const randomPick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+  const selectedColorScheme = randomPick(colorSchemes);
+  const selectedDesignStyle = randomPick(designStyles);
+  const selectedSubject = randomPick(focalSubjects);
+  const selectedSymbol = randomPick(symbols);
+  const selectedBackground = randomPick(backgrounds);
+  const selectedLighting = randomPick(lightingScenarios);
+  const selectedAtmosphere = randomPick(atmosphericEffects);
+  const guidance = genreGuidance[genre.toLowerCase()] || genreGuidance["default"];
+
+  const descriptionSection = description
+    ? `\nBOOK DESCRIPTION: "${description.substring(0, 250)}"\nUse this description to guide the imagery - the scene should visually represent what the book is about.`
+    : "";
+
+  const artisticPrompt = `Create a stunning photorealistic cinematic artwork inspired by "${title}" — a ${genre} themed scene.${descriptionSection}
+
+This is a STANDALONE ARTWORK — NOT a book cover, NOT a product mockup. Do NOT render any books, book spines, book covers, or physical book objects. This is a cinematic scene, like a movie poster or concept art painting.
+
+The artwork must visually represent the meaning of "${title}" and the ${genre} genre. Every element should connect to what this title is about.
+
+GENRE FEEL: ${guidance}
+
+VISUAL APPROACH: ${selectedDesignStyle}
+COLORS: ${selectedColorScheme}
+
+Choose the most fitting elements for THIS specific title from the following options:
+- POSSIBLE SUBJECT: ${selectedSubject}
+- POSSIBLE SYMBOL: ${selectedSymbol}
+- POSSIBLE SETTING: ${selectedBackground}
+- LIGHTING: ${selectedLighting}
+- ATMOSPHERE: ${selectedAtmosphere}
+
+Adapt and reinterpret these elements to match "${title}" specifically. If the suggested subject or setting doesn't fit the title and genre, use something more appropriate that tells this story visually.
+
+QUALITY: Hyper-realistic cinematic art, ultra-detailed textures, 8K masterpiece quality. Think movie poster, concept art, or fine art — NOT a book mockup.
+
+CRITICAL: NO TEXT, NO LETTERS, NO WORDS anywhere in the image. Do NOT draw any books or book-shaped objects. Pure visual art only.`;
+
+  console.log(`[TEST-STYLE-E] Artistic Painterly prompt (${artisticPrompt.length} chars)`);
+
+  try {
+    const response = await openaiDalle3.images.generate({
+      model: "dall-e-3",
+      prompt: artisticPrompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "hd",
+      style: "vivid",
+      response_format: "b64_json",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from DALL-E 3");
+    console.log(`SUCCESS: Generated Artistic Painterly art layer!`);
+
+    const artBuffer = Buffer.from(imageData, "base64");
+    const artImage = await loadImage(artBuffer);
+    const width = artImage.width;
+    const height = artImage.height;
+
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext("2d");
+
+    ctx.drawImage(artImage, 0, 0);
+
+    const barHeight = Math.round(height * 0.14);
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, barHeight + 20);
+    gradient.addColorStop(0, "rgba(15, 10, 8, 0.92)");
+    gradient.addColorStop(0.7, "rgba(15, 10, 8, 0.85)");
+    gradient.addColorStop(1, "rgba(15, 10, 8, 0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, barHeight + 20);
+
+    const accentY = barHeight - 2;
+    const accentGrad = ctx.createLinearGradient(width * 0.15, 0, width * 0.85, 0);
+    accentGrad.addColorStop(0, "rgba(180, 150, 90, 0)");
+    accentGrad.addColorStop(0.3, "rgba(180, 150, 90, 0.6)");
+    accentGrad.addColorStop(0.5, "rgba(210, 180, 120, 0.8)");
+    accentGrad.addColorStop(0.7, "rgba(180, 150, 90, 0.6)");
+    accentGrad.addColorStop(1, "rgba(180, 150, 90, 0)");
+    ctx.fillStyle = accentGrad;
+    ctx.fillRect(width * 0.1, accentY, width * 0.8, 1.5);
+
+    const titleFonts = ["Cinzel", "Playfair Display", "Cormorant Garamond", "Libre Baskerville", "Prata", "Bodoni"];
+    const availableFonts = titleFonts.filter(f => isFontRegistered(f));
+    const chosenFont = availableFonts.length > 0
+      ? availableFonts[Math.floor(Math.random() * availableFonts.length)]
+      : "serif";
+
+    const maxTextWidth = width * 0.85;
+    const centerY = barHeight * 0.52;
+
+    const shortTitle = title.includes(":") && title.length > 35
+      ? title.substring(0, title.indexOf(":")).trim()
+      : title;
+
+    let fontSize = Math.round(barHeight * 0.42);
+    if (shortTitle.length > 30) fontSize = Math.round(barHeight * 0.34);
+    if (shortTitle.length > 45) fontSize = Math.round(barHeight * 0.28);
+
+    ctx.font = `bold ${fontSize}px "${chosenFont}"`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    let displayTitle = shortTitle.toUpperCase();
+    let metrics = ctx.measureText(displayTitle);
+
+    while (metrics.width > maxTextWidth && fontSize > 18) {
+      fontSize -= 2;
+      ctx.font = `bold ${fontSize}px "${chosenFont}"`;
+      metrics = ctx.measureText(displayTitle);
+    }
+
+    if (metrics.width > maxTextWidth) {
+      const words = displayTitle.split(" ");
+      const mid = Math.ceil(words.length / 2);
+      const line1 = words.slice(0, mid).join(" ");
+      const line2 = words.slice(mid).join(" ");
+      const lineSpacing = fontSize * 1.3;
+      const topLineY = centerY - lineSpacing * 0.3;
+      const bottomLineY = centerY + lineSpacing * 0.7;
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillText(line1, width / 2 + 1, topLineY + 1);
+      ctx.fillText(line2, width / 2 + 1, bottomLineY + 1);
+
+      ctx.fillStyle = "#f0e6d2";
+      ctx.fillText(line1, width / 2, topLineY);
+      ctx.fillText(line2, width / 2, bottomLineY);
+    } else {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillText(displayTitle, width / 2 + 1, centerY + 1);
+
+      ctx.fillStyle = "#f0e6d2";
+      ctx.fillText(displayTitle, width / 2, centerY);
+    }
+
+    console.log(`[TEST-STYLE-E] Added title bar: font=${chosenFont}, size=${fontSize}, barH=${barHeight}`);
+    return canvas.toBuffer("image/png");
+  } catch (error: any) {
+    console.error(`[Test-Style-E Error] DALL-E 3 failed for "${title}": ${error?.message}`);
+    throw error;
+  }
+}
+
+// TEST STYLE H: Full combined analysis of all 15 Replit Cinematic covers
+// ANALYSIS METHOD: Visual + Code + Database/Metadata + Comparative cross-referencing
+//
+// CRITICAL FINDING: gpt-image-1 overwhelmingly interprets the TITLE as the visual concept.
+// The code's color schemes and imageElements are largely treated as fallback suggestions.
+// Cross-referencing prompts vs actual images shows:
+//   - 12/15 covers ignored the specified color palette entirely
+//   - 10/15 covers reinterpreted or replaced the specified imageElement
+//   - 15/15 covers literally visualized the book TITLE as the scene
+//   - 13/15 covers featured prominent human figures (not always requested)
+//   - 15/15 covers had dramatic cinematic lighting with warm-cool contrast
+//   - The prompt structure "Professional cinematic artwork for [title]" is the key driver
+//
+// WHAT ACTUALLY MADE THESE COVERS GREAT:
+//   1. Putting the title in quotes lets gpt-image-1 treat it as the creative brief
+//   2. The genre provides thematic direction the AI respects
+//   3. The design style suggestions nudge toward cinematic quality
+//   4. The imageElements serve as a starting point the AI freely reinterprets
+//   5. "No text" instruction works well with gpt-image-1
+//   6. 1024x1024 square format at the model's native resolution
+//
+// This version preserves the original prompt structure that drives the AI's creative
+// interpretation, while adding the visual qualities observed across all 15 covers.
+async function generateTestStyleH(title: string, genre: string, draftId: number): Promise<Buffer> {
+  console.log(`[TEST-STYLE-H] Full combined analysis style for: ${title}`);
+  
+  const colorSchemes = [
+    "vibrant electric blue contrasted with warm sunset orange and bright gold highlights — use ALL three colors prominently throughout the scene",
+    "brilliant magenta and deep teal split palette with golden accents — balance warm and cool tones equally across the image",
+    "luminous emerald green paired with coral pink and pearl white — distribute colors across foreground, midground, and background differently",
+    "royal purple gradients meeting bright amber and silver chrome — create strong color contrast between scene elements",
+    "vivid turquoise environment with crimson red focal points and ivory highlights — no single color should dominate more than 40% of the image",
+    "fiery orange sky with sapphire blue architecture and bright mint green vegetation — three distinct color zones creating visual variety",
+    "cosmic indigo and nebula pink atmosphere with stardust gold structures and bioluminescent cyan accents — rainbow complexity",
+    "cherry blossom pink canopy over jade green landscape with warm peach sunrise and lavender mist — soft multi-color harmony",
+    "rich burgundy and bright teal contrast with golden hour warmth and pearl white highlights — dramatic complementary colors",
+    "electric violet merged with lime green energy and copper metallic surfaces against sky blue — bold multi-color palette",
+    "sunset gradient from tangerine through magenta to deep blue with emerald green foreground elements and gold details",
+    "arctic ice blue paired with warm amber firelight, rose gold metallics, and deep forest green — temperature contrast throughout"
+  ];
+
+  const designStyles = [
+    "photorealistic cinematic blockbuster movie poster with vivid saturated colors and epic backlighting",
+    "futuristic sci-fi concept art with holographic interfaces, neon accents, and advanced technology details",
+    "AAA video game key art with ultra-detailed environments, dynamic action, and epic cinematic scale",
+    "cinematic 4K movie still with perfect color grading, anamorphic lens flares, and shallow depth of field",
+    "AI-generated hyper-realistic digital art with impossible detail, glowing neural network energy, and holographic overlays",
+    "Unreal Engine 5 rendered scene with ray-traced global illumination, photogrammetric textures, and cinematic atmosphere",
+    "next-gen concept art blending fantasy and technology with bioluminescent elements and augmented reality overlays",
+    "IMAX movie poster quality with sweeping panoramic scale, rich environmental detail, and vibrant saturated palette"
+  ];
+
+  const imageElements: Record<string, string[]> = {
+    "Fantasy": ["majestic castle on misty mountain with glowing portals, dragons circling crystal towers, griffins perched on battlements, and magical energy cascading like waterfalls of light", "enchanted forest with ancient holographic runes, a massive phoenix rising from golden flames above the canopy, unicorns galloping through bioluminescent clearings, magical creatures everywhere", "dragon breathing prismatic fire over a medieval kingdom while a giant kraken emerges from the harbor, wizard towers projecting energy shields into a brilliant sunset sky", "floating island kingdom with crystal spires where pegasi soar between rainbow bridges, giant eagles nesting on towers, and serpentine sky-whales swimming through golden clouds", "legendary forge inside a volcano where a fire-breathing salamander guards enchanted weapons, molten magic flowing like rivers, a cerberus standing sentinel at the gates"],
+    "Science Fiction": ["massive orbital space station with holographic command centers, bio-engineered space dolphins swimming outside the hull, AI robot sentinels patrolling, nebula light washing through", "cyberpunk megacity with neon-soaked skyscrapers, mechanical cyber-wolves prowling rooftops, flying vehicles weaving through holographic billboards, robotic fish in neon aquariums", "alien planet with bizarre crystalline formations, giant alien insects with bioluminescent wings, robotic exploration drones, a massive mothership hovering above projecting scanning beams", "quantum computing core where cascading data streams form architecture, an AI entity taking the form of a luminous mechanical serpent, multiple dimensions overlapping visibly", "interstellar battle with massive warships, bio-mechanical space leviathans aiding the fleet, robotic fighter swarms, energy shields flashing, and a ringed planet looming behind"],
+    "Romance": ["grand Venetian masquerade ball with ornate masks, two white doves carrying ribbons of light, crystal chandeliers, rose petals floating, a pair of swans on a moonlit canal outside", "rain-soaked Parisian bridge at twilight with the Eiffel Tower blazing behind, a pair of beautiful horses pulling an ornate carriage, cobblestones reflecting warm cafe lights", "moonlit rooftop garden overlooking a sparkling city with fairy lights, white peacocks displaying luminous feathers, floating lanterns, champagne catching starlight, aurora above", "vintage Orient Express crossing snow-capped Alps at golden hour with a magnificent stag watching from the mountainside, velvet interiors, sunset painting wild horses running alongside", "tropical paradise cove at sunset with dolphins leaping through golden waves, exotic parrots in vivid colors perched on flowering vines, a glowing coral reef visible beneath crystal water"],
+    "Horror": ["Lovecraftian nightmare cityscape with massive tentacled elder god emerging from dimensional rifts, swarms of spectral bats, zombie hordes shambling through impossible architecture", "abandoned asylum where werewolves prowl flickering corridors, reality glitching like a corrupted video game, giant spiders weaving webs of shadow, ghost children in the windows", "haunted graveyard where vampire lords command armies of undead, spectral horses pulling a phantom carriage, zombie hands bursting from graves, supernatural fire in every color", "dark ocean depths where a massive kraken drags ships into the abyss, ghost sharks with glowing eyes circling, zombie pirates on a cursed vessel, bioluminescent horror below", "hellish dimension where demon wolves hunt through a landscape of bone and fire, a massive three-headed serpent guards a portal, gargoyles perched on crumbling gothic spires"],
+    "Mystery": ["high-tech detective command center with holographic evidence boards, a trained raven perched on a monitor analyzing clues, AI crime reconstruction floating as 3D models", "noir cityscape at night with a black cat silhouetted on a rooftop overlooking the crime scene, neon reflections in rain puddles, surveillance drones shaped like mechanical owls", "luxurious penthouse crime scene with forensic holograms, an aquarium wall with exotic fish as silent witnesses, city panorama through shattered windows, coded messages glowing", "underground intelligence bunker with walls of encrypted data, carrier pigeons replaced by mechanical drone birds, world maps showing agent locations, spy gadgets everywhere", "fog-shrouded Victorian street with a bloodhound following a glowing scent trail rendered as AR data, gaslight halos, mechanical ravens carrying encrypted messages through the mist"],
+    "Self-Help": ["mountain summit at sunrise with golden light exploding through storm clouds, broken chains scattered along the path, a brilliant stairway of light ascending beyond the peak", "massive doorway of brilliant light in a transformed landscape — the world beyond vibrant with impossible colors, holographic paths branching into bright futures, keys of light floating", "chrysalis of crystal and light cracking open to reveal magnificent stained-glass wings, transformation shockwave radiating colorful energy particles in every direction", "crossroads where each path leads to a different vivid world — one of radiant nature, one of gleaming technology, one of creative color — all brilliantly lit and inviting", "garden of achievements growing from cracked concrete — golden trees heavy with luminous fruit, flowers of light blooming, shattered walls becoming stepping stones upward"],
+    "Business": ["futuristic command center overlooking a gleaming city at golden hour with holographic market data, AI analytics dashboards, and global connection maps floating in 3D", "glass and gold chess board where pieces are miniature skyscrapers and tech companies — one piece making a decisive strategic move with energy rippling outward across the board", "summit penthouse office with floor-to-ceiling views of a futuristic skyline, holographic business plans, AI assistant interfaces, and rising success metrics glowing everywhere", "global trading floor reimagined as art — cascading streams of AI-processed financial data forming luminous waterfalls, world clocks and market visualizations as light sculptures", "visionary's blueprint table with holographic city models hovering above, AI-generated projections of future developments, drone delivery networks visible through panoramic windows"],
+    "Business & Finance": ["futuristic trading floor with AI-powered holographic displays showing global markets in real-time, quantum computing cores visible through glass walls, data rivers flowing", "cryptocurrency command center with blockchain visualizations as glowing golden chains linking across continents, real-time AI analytics flowing like rivers of multi-colored light", "next-gen fintech headquarters with transparent floors showing data infrastructure below, AI market predictions as vivid 3D landscapes, wealth visualization as flowing golden energy", "global financial command center at dawn with holographic world map showing trade routes as luminous streams, AI sentiment analysis displays, and market pulse as heartbeat visualizations", "stock exchange reimagined as a colosseum of energy where market forces clash as waves of light, financial data flowing as colorful streams, world clocks and currency symbols floating"],
+    "Health & Wellness": ["human body rendered as a magnificent bioluminescent ecosystem — neural pathways as light highways, healing energy flowing as visible aurora through the circulatory system", "wellness sanctuary blending nature and technology — crystal-clear healing pools, holographic health data floating above, medicinal flower gardens glowing, warm golden sunlight streaming in", "sleeping mind visualized as a cosmic aurora — neural restoration rendered as waves of brilliant color, brainwaves as beautiful flowing data streams, peaceful dreamscapes forming", "futuristic wellness center with holographic fitness coaches, biometric displays showing optimization, a beautiful zen garden visible through panoramic windows bathed in golden light", "DNA helix reimagined as a beautiful stairway of light ascending through a garden of medicinal plants, each base pair glowing with vital energy, molecular structures shimmering"],
+    "Psychology": ["human brain reimagined as a magnificent neon city — neural pathways as illuminated highways, memories stored in crystal towers, emotions as vivid weather systems of color", "hall of mirrors where each reflection shows a different emotion — joy as golden light, fear as electric storm, peace as calm water, anger as crimson fire — all in vivid color", "mind palace architecture in Unreal Engine quality — glass corridors of memories, rooms of skills glowing with mastery, subconscious ocean visible through crystal floors", "neural network constellation spanning a cosmos — synapses firing like supernovae, thought patterns as colorful nebulae, cognitive pathways as rivers of electric blue and gold light", "consciousness as a vast open world — islands of personality floating in a sea of dreams, bridges of neural connections, emotional landscapes rendered as vivid terrain maps"],
+    "Spirituality": ["cosmic mandala floating in deep space with sacred geometry of stars and nebulae, seven chakra points blazing as prismatic light columns, cosmic energy spiraling outward", "mountaintop temple at golden sunrise with crystal pillars channeling cosmic energy, sacred geometry floating in the air, an energy vortex ascending to a sky full of stars", "tree of life glowing with cosmic energy — roots reaching into crystalline earth, branches touching stars, each leaf a universe, sacred light flowing through every branch", "meditation chamber with a mandala-moon overhead, lotus flowers blooming on mirror-still water, sacred geometry crystallizing in the air, golden light streaming through temple windows", "celestial stairway of rainbow light ascending through cosmic clouds — each step a different color of spiritual energy, constellations forming sacred symbols, light expanding infinitely"],
+    "Productivity": ["magnificent clockwork command center with golden gears interlocking with holographic displays, precision mechanisms, AI task managers, every system running at peak efficiency", "futuristic architect's studio with holographic blueprints assembling themselves mid-air, AI algorithms optimizing in real-time, golden light flooding through floor-to-ceiling windows", "rocket launch at ignition — holographic mission control screens all green, countdown timers, trajectory visualizations, the perfect execution of a thousand coordinated systems", "time-manipulation lab with floating clocks showing different phases, AI algorithms as glowing data streams, eight holographic screens running simultaneously, perfect orchestration", "master workshop of the future — 3D printers creating precision objects, robotic arms assembling components, holographic to-do lists checking themselves off, golden sunlight streaming in"],
+    "Historical Fiction": ["epic battlefield at golden hour with war elephants charging, siege towers ablaze, armored war horses in ornate barding, falcons carrying messages, fortress walls crumbling", "royal court with a throne flanked by heraldic lions in gold, trained hunting hawks perched on gauntlets, war dogs at the king's feet, stained glass casting prismatic patterns", "ancient civilization at its peak — sacred cats guarding temple gates, camels in a bustling marketplace, trained hawks circling pyramids at sunset, crocodiles in the sacred river", "legendary forge where a dragon coils around the chimney providing fire, war horses wait for new armor, a wolf-dog guards the legendary blades, ancient runes glowing on every weapon", "Viking longship with a carved dragon prow emerging from fog, ravens of Odin circling overhead, wolves running along the shoreline, sea serpent visible in the luminous waters below"],
+    "Nature & Environment": ["massive glacier calving into turquoise ocean with pods of orcas breaching nearby, polar bears on ice floes, northern lights blazing, puffins and arctic foxes on snow-covered cliffs", "primordial forest with trees towering hundreds of feet — bears fishing in bioluminescent streams, wolves howling on moss-covered ridges, eagles soaring through god rays, deer in clearings", "coral reef teeming with life — humpback whales singing as they pass overhead, sea turtles, manta rays, clownfish, octopi changing colors, dolphins playing, sunbeams through crystal water", "African savanna at golden hour — elephants at a watering hole, lions resting on rocks, giraffes silhouetted against sunset, flamingos in pink lakes, eagles circling, zebra herds running", "rainforest canopy — jaguars on branches, toucans and macaws in electric colors, tree frogs in vivid patterns, a massive anaconda coiled around a trunk, butterflies everywhere, mist rising"],
+    "Parenting": ["magical treehouse library where storybook animals come alive — a friendly bear reading to fox cubs, rabbits carrying lanterns, owls shelving books, fairy lights everywhere", "enchanted garden where a gentle unicorn lets children braid its mane, butterflies of every color, baby deer following along, flowers growing in footsteps, golden warm light", "family kitchen wonderland — a cat wearing a chef's hat, a dog balancing treats on its nose, songbirds carrying sprinkles, cookies becoming miniature worlds, warm golden light", "bedtime story coming alive — a dragon shrunk to puppy-size curling up on the bed, story characters as friendly animals materializing, stars on ceiling, warm cozy glow everywhere", "playground adventure — a friendly elephant as a slide, a giraffe as a lookout tower, monkeys on the jungle gym, dolphins in a splash pond, rainbow parachute, joy everywhere"],
+    "Sociology": ["futuristic city intersection with holographic social connections visible as luminous threads between people, diverse neighborhoods glowing with cultural identity, AI analysis as aurora flows", "global village where different cultures blend beautifully — markets, temples, plazas, and gathering spaces all connected by bridges of golden light, humanity's tapestry made visible", "living mosaic of humanity — millions of faces forming a single portrait, data connections as threads of light linking communities, the architecture of society made brilliant and visible", "timeline of civilization as a flowing river — ancient structures evolving into modern cities, knowledge passed as glowing scrolls becoming data streams, progress rendered as rising light", "social network as a living city — communities as glowing districts, ideas as pulses of light traveling along neural-like pathways, innovation hubs blazing bright, all interconnected"],
+    "Art & Design": ["grand studio where paintings are portals to vivid worlds — colors leaping from canvases, brushstrokes becoming landscapes, AI creative tools floating, pure creative energy everywhere", "sculpture gallery where marble masterpieces glow from within — classical forms reimagined with holographic enhancements, golden light streaming through skylights, art transcending medium", "designer's workshop in creative explosion — paint splashes frozen mid-air in impossible colors, holographic designs assembling themselves, origami unfolding into architecture, pure creativity", "museum at midnight where artworks come alive — painted landscapes extending beyond their frames, colors dripping into reality, a Van Gogh starry night swirling overhead with real stars", "creative big bang — paint splashes forming vivid abstract shapes mid-air, AI algorithms as golden threads connecting ideas, colors never before seen, creativity made visible as light"],
+    "Literary Fiction": ["writer's study where the story escapes — manuscript words dissolving into luminous mist that forms vivid scenes from the narrative, ink becoming living landscapes and characters", "infinite library at twilight with warm golden light — book pages becoming butterflies of light, stories reaching between volumes as glowing threads, shelves extending into infinite depth", "typewriter in a tower room where typed words become reality outside the window — sentences forming into landscapes, paragraphs becoming weather, the story made physically visible", "living bookshop where genres create weather — rain from drama, sunshine from comedy, mist from mystery, northern lights from fantasy — all merging in a beautiful literary atmosphere", "author's mind palace — corridors of crystallized memories, rooms containing different story worlds visible through glass walls, golden creative energy flowing between narrative threads"],
+    "default": ["epic scene interpreting the title with vivid cinematic quality — the title's core concept made visually spectacular with holographic futuristic elements, dramatic multi-color lighting, and rich environmental details", "stunning world-building driven entirely by the title — every element chosen to visualize what the title means, rich multi-color environment, cinematic composition, Unreal Engine quality", "breathtaking landscape embodying the title's themes — dramatic lighting, vivid colors, multiple light sources, blending the book's subject matter with cinematic atmosphere and photorealistic detail"]
+  };
+
+  const seed = (title + genre + draftId).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const colorScheme = colorSchemes[seed % colorSchemes.length];
+  const designStyle = designStyles[(seed * 7) % designStyles.length];
+  
+  let genreKey = Object.keys(imageElements).find(key => 
+    genre.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(genre.toLowerCase())
+  ) || "default";
+  const genreElements = imageElements[genreKey] || imageElements["default"];
+  const selectedElement = genreElements[(seed * 11) % genreElements.length];
+
+  const prompt = `You are an expert ebook cover designer. Your job is to create the perfect cover artwork for this book:
+
+BOOK TITLE: "${title}"
+GENRE: ${genre}
+
+STEP 1 — UNDERSTAND THE TITLE:
+Before designing anything, think about what "${title}" means. What is this book about based on its title? What emotions does it evoke? What visual metaphors could represent it? What would a reader expect to see on this cover? The entire artwork must be a visual answer to the question: "What does '${title}' look like?"
+
+STEP 2 — DESIGN THE SCENE AROUND THE TITLE:
+Every object, creature, environment, and detail in the image must connect back to "${title}" and the ${genre} genre. Do NOT create a generic ${genre} scene — create a scene that could ONLY belong to a book called "${title}". A viewer should be able to guess the book's title just by looking at the cover.
+
+For visual inspiration and richness, draw from this scene concept (but ADAPT it to fit the title): ${selectedElement}
+
+STEP 3 — ENRICH WITH DETAILS THAT FIT THE TITLE:
+Once the title-driven scene is established, layer in quality details — but ONLY details that make sense for "${title}":
+- Animals and creatures: ONLY include if the title or genre naturally involves them (e.g., nature books, fantasy, horror). Do NOT add random animals to books about technology, cooking, business, AI, productivity, psychology, or self-help unless the title specifically references them. A book called "Mastering AI" should have technology, circuits, and robots — NOT horses or eagles. A book about food should have beautiful dishes — NOT wolves.
+- Technology and AI: For titles about tech, AI, digital, coding, or business — prioritize holographic interfaces, neural networks, circuit patterns, data streams, robots, futuristic machines, and digital environments
+- Food and lifestyle: For titles about cooking, food, health, or wellness — prioritize beautiful dishes, ingredients, kitchens, gardens, or wellness environments
+- Futuristic and cinematic touches: holographic effects, neon accents, dramatic lighting, lens flares — IF they fit the title
+- Video game quality rendering: Unreal Engine 5 level detail, ray-traced lighting, volumetric fog, particle effects, epic scale
+- Atmospheric richness: floating light particles, energy trails, embers, bokeh — whatever fits the mood of "${title}"
+
+STEP 4 — COLOR & BRIGHTNESS:
+Base palette: ${colorScheme}
+Use at least 3-4 distinctly different colors. No single color should dominate. The image must be BRIGHT, VIVID, and LUMINOUS — multiple light sources, glowing elements, well-lit shadows. Avoid large dark areas.
+
+STEP 5 — COMPOSITION:
+Style: ${designStyle}
+The environment and world-building should dominate. Human figures should be small or absent. Animals and creatures can be prominent if they serve the title. Dense visual complexity across foreground, midground, and background.
+
+STEP 6 — TITLE TEXT:
+Include "${title}" as elegant, stylized typography integrated into the design. Place it prominently in the upper third. The font style should match ${genre} conventions. The title should feel like a natural part of the artwork.
+
+QUALITY: Ultra-vivid 8K photorealistic digital art. Every texture rendered with extreme detail. Professional cinematic movie poster quality. Rich multi-color palette.`;
+  
+  console.log(`[TEST-STYLE-H] Prompt: ${prompt}`);
+  
+  try {
+    const response = await openaiDirectForImages.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt: prompt,
+      n: 1,
+      size: "1024x1024"
+    });
+    
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) {
+      throw new Error("No image data returned from OpenAI");
+    }
+    
+    console.log(`[TEST-STYLE-H] Successfully generated cover for: ${title}`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    console.error(`[TEST-STYLE-H] Error: ${error?.message}`);
+    throw error;
+  }
+}
+
+// Generate AI background with Artistic Painterly style using DALL-E 3
+// HYBRID: Combines rich Vivid Atmospheric element pools with covers 239-253 cinematic style
+async function generateAIBackgroundArtisticPainterly(title: string, genre: string, draftId: number = 0, description: string = ""): Promise<Buffer> {
+  
+  // ===== VIVID ATMOSPHERIC ELEMENT POOLS (for infinite variety) =====
+  
+  // FOCAL SUBJECTS - diverse subjects including humans, creatures, animals, objects, and abstract concepts
+  const focalSubjects = [
+    // Human figures
+    "silhouette of a person standing heroically on a precipice, wind catching their hair and clothing",
+    "hooded mysterious figure with face partially illuminated, ancient symbols glowing on their robes",
+    "warrior in ornate battle-worn armor, scars telling stories, weapon at rest but ready",
+    "ethereal figure in flowing silk robes that seem to merge with mist and starlight",
+    "ancient wizard with a long silver beard, staff crackling with arcane energy",
+    // Mythical creatures
+    "majestic dragon coiled around a mountain peak, scales shimmering with inner fire, eyes ancient and wise",
+    "graceful unicorn in a moonlit glade, mane flowing like liquid silver, horn glowing with pure light",
+    "phoenix in mid-rebirth, half flame and half feather, transforming from ash to glory",
+    "wise owl perched on ancient tome, feathers inscribed with glowing runes, eyes holding secrets",
+    "mythical griffin guarding a treasure hoard, eagle head raised proudly, lion body poised",
+    // Real animals
+    "lone wolf howling at a blood moon, silhouette powerful against the night sky",
+    "majestic lion with flowing mane, eyes reflecting inner strength and royalty",
+    "soaring eagle with wings fully spread, catching thermals above mountain ranges",
+    "graceful deer in enchanted forest, antlers adorned with flowers and vines",
+    "fierce tiger emerging from shadows, stripes blending with dappled light",
+    "raven with glossy feathers, perched on skull or ancient artifact, mysterious and knowing",
+    // Objects and artifacts
+    "ancient leather-bound book glowing with forbidden knowledge, pages turning by themselves",
+    "ornate sword thrust into stone, blade catching divine light, destiny awaiting",
+    "antique pocket watch suspended in time, gears visible, hands frozen at crucial moment",
+    "crystal ball showing swirling visions of possible futures, mist and light dancing within",
+    "crown of thorns and roses intertwined, beauty and pain in perfect balance",
+    "vintage typewriter with ghostly words floating up from keys, stories taking physical form",
+    // Abstract concepts
+    "swirling vortex of light and shadow, representing the battle between good and evil",
+    "two hands reaching toward each other across an impossible divide, almost touching",
+    "shattered mirror reflecting multiple realities, each shard showing different possibilities",
+    "tree of life with roots in darkness and branches in starlight, cosmic balance",
+    "heart made of clockwork and flowers, mechanical and organic beauty intertwined",
+    "staircase spiraling into infinity, each step representing a different choice or path"
+  ];
+  
+  // SYMBOLIC ELEMENTS - visual metaphors with intricate detail
+  const symbols = [
+    "magnificent phoenix erupting from golden flames, feathers transitioning from ember red to brilliant gold, trailing sparks and ash",
+    "heavy iron chains shattering into a thousand pieces, each fragment catching light as it flies outward in slow motion",
+    "spiral galaxy with millions of visible stars, arms of purple and blue cosmic dust swirling around a brilliant core",
+    "luminous DNA double helix twisting upward, base pairs glowing in different colors, genetic code made visible",
+    "ancient world tree with roots extending into darkness and branches reaching into starlight, leaves made of pure light",
+    "ornate golden compass with a needle pointing toward destiny, cardinal directions marked with mysterious runes",
+    "crystal hourglass with grains of stardust flowing between chambers, each grain a tiny glowing ember",
+    "monarch butterfly emerging from a crystalline cocoon, wings still wet with iridescent dewdrops",
+    "sacred lotus blooming in slow motion, each petal a different shade of pink and white, hovering above still water",
+    "infinite staircase of marble and gold ascending through clouds toward a brilliant light source",
+    "ancient stone doorway covered in glowing glyphs, portal revealing a completely different reality within",
+    "floating crown of pure energy with seven points representing different virtues, each emanating distinct colored light",
+    "perfectly balanced golden scales, one side holding a feather, the other a heart, suspended in judgment",
+    "sun and moon occupying the same sky, eclipse creating a ring of fire with visible solar flares",
+    "human brain with neural pathways visible as streams of electric blue light, synapses firing like tiny stars",
+    "cluster of amethyst and quartz crystals catching and refracting light into rainbow prisms",
+    "orrery of planets orbiting a central sun, each world unique and detailed with rings and moons",
+    "rippling waves of golden energy emanating from a central point, like a stone dropped in still water",
+    "labyrinth viewed from above with a glowing path showing the way through, walls covered in vines",
+    "ornate skeleton key made of light, unlocking an ancient chest that releases butterflies of pure energy",
+    "sacred geometry - flower of life pattern glowing with interconnected circles of light",
+    "caduceus with two serpents of light intertwined around a winged staff",
+    "ouroboros - a dragon of stars consuming its own tail in an eternal cycle",
+    "mandala of intricate patterns radiating outward, each ring containing different symbolic imagery",
+    "tree of life with roots in water and branches holding different fruits of knowledge",
+    "all-seeing eye within a triangle, rays of light emanating in all directions",
+    "yin-yang symbol with the two sides in dynamic motion, fish swimming around each other",
+    "anchor made of light embedded in solid rock, chain extending upward into clouds",
+    "open book with pages turning themselves, words lifting off as glowing particles",
+    "mirror showing a different reflection - the viewer's potential or alternate self"
+  ];
+  
+  // BACKGROUNDS - environmental settings with rich atmospheric detail
+  const backgrounds = [
+    "jagged mountain peak piercing through a sea of clouds at golden sunrise, distant ranges fading into purple haze",
+    "infinite cosmic starfield with swirling nebulae in magenta and cyan, distant galaxies visible as pinpricks of light",
+    "crumbling ancient temple overgrown with luminescent vines, shafts of dusty light revealing worn stone carvings",
+    "gleaming modern cityscape at blue hour, glass towers reflecting orange sunset, streets alive with tiny lights",
+    "endless turquoise ocean meeting a painted sky, single beam of sunlight breaking through dramatic clouds",
+    "primordial enchanted forest with massive ancient trees, god rays filtering through the canopy, fireflies dancing",
+    "vast golden desert under apocalyptic storm clouds, lightning striking distant dunes, sand swirling in wind",
+    "impossible floating islands connected by delicate bridges, waterfalls cascading into the void below",
+    "infinite library with towering shelves disappearing into darkness above, floating candles and rolling ladders",
+    "crystalline underground cavern with bioluminescent pools, stalactites dripping with liquid light",
+    "aftermath of an epic battle at golden hour, broken standards and scattered armor, sky ablaze with color",
+    "perfect Japanese zen garden in autumn, maple leaves falling on raked sand, stone lanterns glowing softly",
+    "cyberpunk metropolis drenched in neon rain, holographic advertisements flickering, flying vehicles in distance",
+    "arctic landscape under dancing aurora borealis, ice formations reflecting green and purple light",
+    "volcanic hellscape with rivers of molten lava, ash clouds lit from below, obsidian formations",
+    "wildflower meadow under a sky of impossible colors, storm and sunshine coexisting, rainbow touching ground",
+    "M.C. Escher-inspired impossible architecture, stairs leading in all directions, gravity-defying structures",
+    "deep ocean realm with light shafts piercing turquoise depths, ancient ruins on the seafloor, bioluminescent creatures",
+    "grand throne room with pillars of pure light, floor reflecting like still water, divine radiance from above",
+    "misty forest crossroads where four distinct paths lead to different seasons - spring, summer, autumn, winter",
+    "steampunk airship dock among the clouds, brass and copper vessels, steam and gears everywhere",
+    "ancient Roman colosseum restored to glory, filled with ghostly spectators, torches blazing",
+    "space station observation deck with panoramic view of Earth, stars visible through reinforced glass",
+    "enchanted coral reef at twilight, colors shifting between day and night modes, merfolk silhouettes distant",
+    "Himalayan monastery perched on impossible cliffs, prayer flags catching wind, snow-capped peaks beyond",
+    "post-apocalyptic city reclaimed by nature, skyscrapers wrapped in vines, deer grazing in streets",
+    "Viking longhouse interior during a feast, fire pit blazing, shields and weapons on walls, mead flowing",
+    "Art Deco ballroom frozen in time, chandelier of a thousand crystals, dust motes dancing in light",
+    "bamboo forest in morning mist, paths disappearing into white, silhouettes of distant temples",
+    "alien planet with two suns, purple vegetation, crystalline formations, unfamiliar constellations above"
+  ];
+  
+  // LIGHTING SCENARIOS - cinematic lighting techniques with precise detail
+  const lightingScenarios = [
+    "biblical god rays breaking through parting storm clouds, each beam visible with dust particles dancing within",
+    "golden hour backlight creating perfect rim lighting on every edge, long shadows stretching dramatically",
+    "Rembrandt lighting with a single strong source from 45 degrees, deep chiaroscuro shadows defining form",
+    "ethereal inner glow emanating from the subject themselves, as if lit from within by divine energy",
+    "cold blue moonlight filtering through clouds, casting long silver shadows on frosted surfaces",
+    "warm crackling firelight dancing across surfaces, shadows flickering and alive with movement",
+    "bioluminescent ambient glow from multiple organic sources, creating an otherworldly underwater atmosphere",
+    "frozen lightning bolt illuminating the entire scene in harsh white light, shadows razor-sharp",
+    "first light of dawn painting everything in gradients of pink, orange, and gold, mist catching color",
+    "single dramatic spotlight from directly above, creating a pool of light in surrounding darkness",
+    "three-point lighting with warm key, cool fill, and accent rim light creating professional depth",
+    "soft diffused light filtering through morning fog, no harsh shadows, everything wrapped in gentle luminosity",
+    "candlelight flickering on faces and walls, intimate warm glow against velvet darkness beyond",
+    "underwater caustics creating dancing patterns of light on surfaces, dappled and ever-moving",
+    "eclipse lighting with the sun blocked, creating an eerie twilight with corona visible around edges",
+    "neon signs reflecting off wet pavement, creating pools of magenta, cyan, and electric blue",
+    "window light streaming through stained glass, casting colored patterns across stone floors",
+    "campfire lighting from below, creating dramatic upward shadows on faces, stars visible above",
+    "studio beauty lighting with soft wraparound illumination, subjects rendered with perfect clarity",
+    "horror movie lighting with single harsh source from below, creating sinister inverted shadows",
+    "light painting effect with trails of luminescence following movement through the scene",
+    "volcanic glow casting everything in hellish orange and red, smoke catching and diffusing light",
+    "northern lights providing ambient shifting illumination in greens, purples, and occasional pinks",
+    "theatrical spotlight with visible beam cutting through haze, subject isolated in pool of light",
+    "light leaks and lens flares adding cinematic imperfection, anamorphic horizontal streaks"
+  ];
+  
+  // ATMOSPHERIC EFFECTS - environmental particles and visual texture
+  const atmosphericEffects = [
+    "thick volumetric fog hugging the ground, god rays slicing through and illuminating suspended dust particles",
+    "thousands of floating particles of golden light, like pollen or magic dust suspended in still air",
+    "visible wind currents carrying leaves, fabric, and hair in dynamic flowing patterns across the frame",
+    "cherry blossom petals drifting lazily downward, each catching light as it spirals and tumbles",
+    "glowing embers and sparks rising from below, each one a tiny star ascending toward darkness",
+    "heavy rain with every droplet visible, creating circular ripples in puddles and dramatic reflections",
+    "large snowflakes falling in perfect stillness, some caught mid-air in focus, others soft bokeh blurs",
+    "mysterious smoke tendrils curling and weaving through the scene, partially obscuring and revealing",
+    "bioluminescent fireflies or magical orbs dancing in complex patterns, leaving light trails behind",
+    "aurora borealis ribbons of color rippling across the sky, greens and purples shifting and dancing",
+    "pollen and seeds floating on warm air currents, backlit by golden sun, summer afternoon feeling",
+    "ash and cinders falling like gray snow from an unseen fire above, creating apocalyptic atmosphere",
+    "bubbles of various sizes drifting upward, each one reflecting the scene in miniature, iridescent surfaces",
+    "butterflies or moths swarming around a light source, wings creating complex overlapping patterns",
+    "heat shimmer distorting the background, creating a mirage effect suggesting intense warmth",
+    "falling stars or meteors streaking across the sky, leaving glowing trails that slowly fade",
+    "sand or dust being carried on desert winds, creating veils of tan and gold across the scene",
+    "dandelion seeds floating on imperceptible breeze, each one a tiny parachute of white fluff",
+    "water droplets suspended in mid-air, time frozen, each one a tiny lens reflecting the world",
+    "lightning bugs creating long exposure trails of yellow-green light in twilight darkness",
+    "motes of dust dancing in a sunbeam streaming through a window, domestic magic made visible",
+    "sakura petals mixed with snow, pink and white together, spring and winter colliding",
+    "floating lanterns ascending into night sky, each one carrying a wish, warm glow against stars",
+    "morning dew drops clinging to spider webs, each one a perfect sphere catching rainbow light",
+    "feathers from an unseen bird drifting slowly downward, soft and ethereal, angels nearby"
+  ];
+
+  // ===== COVERS 239-253 STYLE ELEMENTS =====
+  
+  // 30 color schemes from covers 239-253
+  const colorSchemes = [
+    "deep burgundy, antique gold, and mahogany brown",
+    "midnight blue, silver, and charcoal gray",
+    "forest green, bronze, and cream",
+    "royal purple, gold leaf, and black",
+    "burnt orange, copper, and dark chocolate",
+    "teal, rose gold, and ivory",
+    "crimson red, black, and gold",
+    "sage green, blush pink, and white",
+    "navy blue, coral, and sand",
+    "emerald green, pearl white, and gold",
+    "dusty rose, champagne, and dove gray",
+    "cobalt blue, amber, and cream",
+    "plum purple, silver, and midnight black",
+    "terracotta, olive green, and tan",
+    "sapphire blue, gold, and burgundy",
+    "ocean teal, sunset orange, and sandy beige",
+    "lavender purple, soft mint, and pearl white",
+    "charcoal black, electric blue, and silver",
+    "warm honey gold, deep brown, and cream",
+    "ice blue, arctic white, and silver frost",
+    "cherry blossom pink, soft gray, and white",
+    "deep forest green, golden amber, and black",
+    "sunset coral, peachy orange, and warm ivory",
+    "stormy gray, lightning white, and deep indigo",
+    "antique bronze, weathered copper, and aged parchment",
+    "midnight violet, starlight silver, and cosmic black",
+    "autumn rust, golden wheat, and deep olive",
+    "Caribbean turquoise, tropical coral, and sandy cream",
+    "Victorian mauve, dusty gold, and aged ivory",
+    "Nordic blue, winter white, and birch gray"
+  ];
+
+  // 25 design styles from covers 239-253
+  const designStyles = [
+    "dark academia aesthetic with vintage library feel",
+    "minimalist modern design with bold geometric shapes",
+    "art deco style with elegant patterns and lines",
+    "watercolor artistic style with soft gradients",
+    "vintage botanical illustration style",
+    "gothic romantic aesthetic with ornate details",
+    "contemporary clean design with gradient backgrounds",
+    "classic literary style with embossed texture look",
+    "moody atmospheric with dramatic lighting",
+    "elegant baroque inspired ornamental design",
+    "abstract expressionist with bold brushstrokes",
+    "celestial mystical theme with stars and moons",
+    "nature-inspired with organic flowing elements",
+    "retro vintage 1920s poster style",
+    "sophisticated marble and metallic textures",
+    "Japanese ukiyo-e inspired woodblock print style",
+    "Nordic Scandinavian minimalist with clean lines",
+    "steampunk Victorian with gears and mechanical elements",
+    "impressionist painting style with soft light",
+    "art nouveau with flowing organic curves and borders",
+    "surrealist dreamlike imagery with unexpected elements",
+    "photorealistic cinematic movie poster style",
+    "folk art style with handcrafted rustic charm",
+    "neon cyberpunk with glowing accents and city lights",
+    "renaissance classical painting aesthetic"
+  ];
+
+  // Genre-specific guidance combining both styles
+  const genreGuidance: Record<string, string> = {
+    "fantasy": "magical realms with castles, wizards, dragons, enchanted forests, mystical creatures, glowing runes",
+    "sci-fi": "futuristic technology, spacecraft, alien worlds, cybernetic interfaces, space stations, advanced civilizations",
+    "romance": "intimate emotional connection, beautiful settings, warm lighting, passionate moments, elegant aesthetics",
+    "thriller": "tension and suspense, urban shadows, mysterious figures, surveillance, danger lurking",
+    "horror": "dark creatures, supernatural dread, haunted places, psychological terror, ominous atmosphere",
+    "self-help": "transformation and growth, breakthrough moments, ascending paths, inner strength, enlightenment",
+    "business": "success and achievement, modern prosperity, leadership, strategic vision, professional excellence",
+    "psychology": "the mind visualized, neural patterns, emotional states, thought processes, inner worlds",
+    "spirituality": "cosmic connection, transcendence, meditation, divine light, universal energy",
+    "health": "vitality and wellness, natural healing, peaceful restoration, balanced living",
+    "productivity": "momentum and progress, systematic achievement, efficiency, forward motion",
+    "history": "epic historical moments, period authenticity, legendary figures, ancient grandeur",
+    "default": "powerful imagery that captures the essence and emotional core of the title"
+  };
+  
+  // Random selection for variety in style elements
+  const randomPick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  
+  const selectedColorScheme = randomPick(colorSchemes);
+  const selectedDesignStyle = randomPick(designStyles);
+  
+  // Pre-select ONE random element from each pool (instead of listing all options)
+  const selectedSubject = randomPick(focalSubjects);
+  const selectedSymbol = randomPick(symbols);
+  const selectedBackground = randomPick(backgrounds);
+  const selectedLighting = randomPick(lightingScenarios);
+  const selectedAtmosphere = randomPick(atmosphericEffects);
+  
+  const guidance = genreGuidance[genre.toLowerCase()] || genreGuidance["default"];
+  
+  // Build description section (shorter to stay under limit)
+  const descriptionSection = description 
+    ? `\nContext: "${description.substring(0, 150)}"`
+    : "";
+  
+  // FIXED PROMPT: Pre-selected elements for focused, shorter prompt (under 4000 chars)
+  const artisticPrompt = `Create a stunning photorealistic ebook cover for "${title}" (${genre}).
+
+THEME: ${guidance}${descriptionSection}
+
+STYLE: ${selectedDesignStyle}
+COLORS: ${selectedColorScheme}
+
+SCENE COMPOSITION:
+- FOCAL SUBJECT: ${selectedSubject}
+- SYMBOL: ${selectedSymbol}
+- SETTING: ${selectedBackground}
+- LIGHTING: ${selectedLighting}
+- ATMOSPHERE: ${selectedAtmosphere}
+
+Interpret this visually to tell the story of "${title}". The focal subject embodies the core concept - it could be a person, creature, animal, object, or abstract form that best represents the book's essence.
+
+QUALITY: Hyper-realistic cinematic art, ultra-detailed textures, 8K masterpiece quality, professional book cover.
+
+CRITICAL: NO TEXT anywhere. Keep top/bottom 15% clear for text overlay.`;
+
+  console.log(`Generating ARTISTIC-PAINTERLY style AI background for: "${title}" (ID: ${draftId})`);
+  console.log(`HYBRID style: Vivid Atmospheric pools + 239-253 cinematic elements`);
+  console.log(`Prompt: ${artisticPrompt}`);
+
+  try {
+    const response = await openaiDalle3.images.generate({
+      model: "dall-e-3",
+      prompt: artisticPrompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "hd",
+      style: "vivid",
+      response_format: "b64_json",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from DALL-E 3");
+    console.log(`SUCCESS: Generated artistic painterly cover with DALL-E 3!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Artistic-Painterly Error] DALL-E 3 failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+// Generate AI background with Artistic Compact style - super concise focused prompts
+async function generateAIBackgroundArtisticCompact(title: string, genre: string, draftId: number = 0, description: string = ""): Promise<Buffer> {
+  
+  // Genre-specific visual keywords
+  const genreKeywords: Record<string, string> = {
+    "fantasy": "magical, enchanted, mystical creatures, glowing runes",
+    "sci-fi": "futuristic, spacecraft, alien worlds, technology",
+    "romance": "intimate, beautiful, warm lighting, emotional",
+    "thriller": "suspenseful, shadows, danger, tension",
+    "horror": "dark, supernatural, haunting, ominous",
+    "self-help": "transformation, growth, enlightenment, strength",
+    "business": "success, leadership, modern, professional",
+    "psychology": "mind, thoughts, emotions, inner world",
+    "spirituality": "cosmic, transcendent, divine, peaceful",
+    "health": "vitality, wellness, natural, balanced",
+    "history": "epic, legendary, period authentic, grandeur",
+    "black history": "African heritage, civil rights, resilience, cultural pride, powerful legacy, dignity",
+    "default": "powerful, evocative, emotional"
+  };
+  
+  const keywords = genreKeywords[genre.toLowerCase()] || genreKeywords["default"];
+  const context = description ? ` About: ${description.substring(0, 100)}` : "";
+  
+  // Subject variety options
+  const subjectTypes = [
+    "person, creature, animal, or symbolic object",
+    "mythical being, majestic animal, or powerful artifact",
+    "human figure, fantastical creature, or meaningful symbol",
+    "hero, beast, mystical object, or abstract concept",
+    "character, animal spirit, ancient relic, or elemental force"
+  ];
+  const randomSubjectType = subjectTypes[Math.floor(Math.random() * subjectTypes.length)];
+  
+  // Super concise prompt - maximum impact with minimum words
+  const compactPrompt = `Cinematic photorealistic book cover art for "${title}".
+
+Genre: ${genre} (${keywords})${context}
+
+Create beautiful art featuring a compelling ${randomSubjectType} that embodies the book's essence. Dramatic lighting, rich atmosphere, layered depth. Professional 8K quality.
+
+NO TEXT. Keep top/bottom 15% clear for overlay.`;
+
+  console.log(`Generating ARTISTIC-COMPACT style AI background for: "${title}" (ID: ${draftId})`);
+  console.log(`Compact prompt (${compactPrompt.length} chars): ${compactPrompt}`);
+
+  try {
+    const response = await openaiDalle3.images.generate({
+      model: "dall-e-3",
+      prompt: compactPrompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "hd",
+      style: "vivid",
+      response_format: "b64_json",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from DALL-E 3");
+    console.log(`SUCCESS: Generated artistic compact cover with DALL-E 3!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Artistic-Compact Error] DALL-E 3 failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+// Generate AI background with Vivid Atmospheric style
+// Rich element pools for infinite variety while maintaining consistent quality
+async function generateAIBackgroundVividAtmospheric(title: string, genre: string, draftId: number = 0, description: string = ""): Promise<Buffer> {
+  
+  // FIGURE TYPES - diverse human representations with rich detail
+  const figureTypes = [
+    "silhouette of a person standing heroically on a precipice, wind catching their hair and clothing",
+    "back view of a lone figure gazing into an infinite horizon, shoulders squared with determination",
+    "hooded mysterious figure with face partially illuminated, ancient symbols glowing on their robes",
+    "warrior in ornate battle-worn armor, scars telling stories, weapon at rest but ready",
+    "ethereal figure in flowing silk robes that seem to merge with mist and starlight",
+    "meditating figure in perfect lotus position, energy visibly radiating from their form",
+    "sharply dressed professional silhouetted against floor-to-ceiling windows overlooking a metropolis",
+    "ancient wizard with a long silver beard, staff crackling with arcane energy, eyes glowing with wisdom",
+    "young person standing at a literal crossroads, multiple paths stretching into different realities",
+    "two figures reaching toward each other across an impossible divide, fingertips almost touching",
+    "weathered traveler with a worn pack, standing at the threshold of an undiscovered realm",
+    "commanding leader on horseback, army stretching to the horizon behind them",
+    "scientist in a lab coat surrounded by floating equations and holographic data streams",
+    "artist with paint-stained hands creating a masterpiece that comes alive off the canvas",
+    "child looking up in pure wonder at something miraculous just out of frame",
+    "dancer frozen mid-leap, body forming a perfect arc against cosmic backdrop",
+    "monk in simple robes walking a mountain path worn by centuries of pilgrims",
+    "queen or king on a throne of light, crown floating above their head",
+    "astronaut floating in zero gravity, Earth reflected in their visor",
+    "healer with gentle hands emanating soft golden light over a patient",
+    "musician playing an instrument that produces visible waves of colorful sound",
+    "archer drawing back a bow of pure energy, arrow aimed at the stars",
+    "philosopher sitting on ancient stone steps, scrolls and books scattered around",
+    "athlete at the peak of physical exertion, muscles defined, sweat catching light",
+    "mother and child silhouetted, connection between them visible as threads of light"
+  ];
+  
+  // SYMBOLIC ELEMENTS - visual metaphors with intricate detail
+  const symbols = [
+    "magnificent phoenix erupting from golden flames, feathers transitioning from ember red to brilliant gold, trailing sparks and ash",
+    "heavy iron chains shattering into a thousand pieces, each fragment catching light as it flies outward in slow motion",
+    "spiral galaxy with millions of visible stars, arms of purple and blue cosmic dust swirling around a brilliant core",
+    "luminous DNA double helix twisting upward, base pairs glowing in different colors, genetic code made visible",
+    "ancient world tree with roots extending into darkness and branches reaching into starlight, leaves made of pure light",
+    "ornate golden compass with a needle pointing toward destiny, cardinal directions marked with mysterious runes",
+    "crystal hourglass with grains of stardust flowing between chambers, each grain a tiny glowing ember",
+    "monarch butterfly emerging from a crystalline cocoon, wings still wet with iridescent dewdrops",
+    "sacred lotus blooming in slow motion, each petal a different shade of pink and white, hovering above still water",
+    "infinite staircase of marble and gold ascending through clouds toward a brilliant light source",
+    "ancient stone doorway covered in glowing glyphs, portal revealing a completely different reality within",
+    "floating crown of pure energy with seven points representing different virtues, each emanating distinct colored light",
+    "perfectly balanced golden scales, one side holding a feather, the other a heart, suspended in judgment",
+    "sun and moon occupying the same sky, eclipse creating a ring of fire with visible solar flares",
+    "human brain with neural pathways visible as streams of electric blue light, synapses firing like tiny stars",
+    "cluster of amethyst and quartz crystals catching and refracting light into rainbow prisms",
+    "orrery of planets orbiting a central sun, each world unique and detailed with rings and moons",
+    "rippling waves of golden energy emanating from a central point, like a stone dropped in still water",
+    "labyrinth viewed from above with a glowing path showing the way through, walls covered in vines",
+    "ornate skeleton key made of light, unlocking an ancient chest that releases butterflies of pure energy",
+    "sacred geometry - flower of life pattern glowing with interconnected circles of light",
+    "caduceus with two serpents of light intertwined around a winged staff",
+    "ouroboros - a dragon of stars consuming its own tail in an eternal cycle",
+    "mandala of intricate patterns radiating outward, each ring containing different symbolic imagery",
+    "tree of life with roots in water and branches holding different fruits of knowledge",
+    "all-seeing eye within a triangle, rays of light emanating in all directions",
+    "yin-yang symbol with the two sides in dynamic motion, fish swimming around each other",
+    "anchor made of light embedded in solid rock, chain extending upward into clouds",
+    "open book with pages turning themselves, words lifting off as glowing particles",
+    "mirror showing a different reflection - the viewer's potential or alternate self"
+  ];
+  
+  // BACKGROUNDS - environmental settings with rich atmospheric detail
+  const backgrounds = [
+    "jagged mountain peak piercing through a sea of clouds at golden sunrise, distant ranges fading into purple haze",
+    "infinite cosmic starfield with swirling nebulae in magenta and cyan, distant galaxies visible as pinpricks of light",
+    "crumbling ancient temple overgrown with luminescent vines, shafts of dusty light revealing worn stone carvings",
+    "gleaming modern cityscape at blue hour, glass towers reflecting orange sunset, streets alive with tiny lights",
+    "endless turquoise ocean meeting a painted sky, single beam of sunlight breaking through dramatic clouds",
+    "primordial enchanted forest with massive ancient trees, god rays filtering through the canopy, fireflies dancing",
+    "vast golden desert under apocalyptic storm clouds, lightning striking distant dunes, sand swirling in wind",
+    "impossible floating islands connected by delicate bridges, waterfalls cascading into the void below",
+    "infinite library with towering shelves disappearing into darkness above, floating candles and rolling ladders",
+    "crystalline underground cavern with bioluminescent pools, stalactites dripping with liquid light",
+    "aftermath of an epic battle at golden hour, broken standards and scattered armor, sky ablaze with color",
+    "perfect Japanese zen garden in autumn, maple leaves falling on raked sand, stone lanterns glowing softly",
+    "cyberpunk metropolis drenched in neon rain, holographic advertisements flickering, flying vehicles in distance",
+    "arctic landscape under dancing aurora borealis, ice formations reflecting green and purple light",
+    "volcanic hellscape with rivers of molten lava, ash clouds lit from below, obsidian formations",
+    "wildflower meadow under a sky of impossible colors, storm and sunshine coexisting, rainbow touching ground",
+    "M.C. Escher-inspired impossible architecture, stairs leading in all directions, gravity-defying structures",
+    "deep ocean realm with light shafts piercing turquoise depths, ancient ruins on the seafloor, bioluminescent creatures",
+    "grand throne room with pillars of pure light, floor reflecting like still water, divine radiance from above",
+    "misty forest crossroads where four distinct paths lead to different seasons - spring, summer, autumn, winter",
+    "steampunk airship dock among the clouds, brass and copper vessels, steam and gears everywhere",
+    "ancient Roman colosseum restored to glory, filled with ghostly spectators, torches blazing",
+    "space station observation deck with panoramic view of Earth, stars visible through reinforced glass",
+    "enchanted coral reef at twilight, colors shifting between day and night modes, merfolk silhouettes distant",
+    "Himalayan monastery perched on impossible cliffs, prayer flags catching wind, snow-capped peaks beyond",
+    "post-apocalyptic city reclaimed by nature, skyscrapers wrapped in vines, deer grazing in streets",
+    "Viking longhouse interior during a feast, fire pit blazing, shields and weapons on walls, mead flowing",
+    "Art Deco ballroom frozen in time, chandelier of a thousand crystals, dust motes dancing in light",
+    "bamboo forest in morning mist, paths disappearing into white, silhouettes of distant temples",
+    "alien planet with two suns, purple vegetation, crystalline formations, unfamiliar constellations above"
+  ];
+  
+  // LIGHTING SCENARIOS - cinematic lighting techniques with precise detail
+  const lightingScenarios = [
+    "biblical god rays breaking through parting storm clouds, each beam visible with dust particles dancing within",
+    "golden hour backlight creating perfect rim lighting on every edge, long shadows stretching dramatically",
+    "Rembrandt lighting with a single strong source from 45 degrees, deep chiaroscuro shadows defining form",
+    "ethereal inner glow emanating from the subject themselves, as if lit from within by divine energy",
+    "cold blue moonlight filtering through clouds, casting long silver shadows on frosted surfaces",
+    "warm crackling firelight dancing across surfaces, shadows flickering and alive with movement",
+    "bioluminescent ambient glow from multiple organic sources, creating an otherworldly underwater atmosphere",
+    "frozen lightning bolt illuminating the entire scene in harsh white light, shadows razor-sharp",
+    "first light of dawn painting everything in gradients of pink, orange, and gold, mist catching color",
+    "single dramatic spotlight from directly above, creating a pool of light in surrounding darkness",
+    "three-point lighting with warm key, cool fill, and accent rim light creating professional depth",
+    "soft diffused light filtering through morning fog, no harsh shadows, everything wrapped in gentle luminosity",
+    "candlelight flickering on faces and walls, intimate warm glow against velvet darkness beyond",
+    "underwater caustics creating dancing patterns of light on surfaces, dappled and ever-moving",
+    "eclipse lighting with the sun blocked, creating an eerie twilight with corona visible around edges",
+    "neon signs reflecting off wet pavement, creating pools of magenta, cyan, and electric blue",
+    "window light streaming through stained glass, casting colored patterns across stone floors",
+    "campfire lighting from below, creating dramatic upward shadows on faces, stars visible above",
+    "studio beauty lighting with soft wraparound illumination, subjects rendered with perfect clarity",
+    "horror movie lighting with single harsh source from below, creating sinister inverted shadows",
+    "light painting effect with trails of luminescence following movement through the scene",
+    "volcanic glow casting everything in hellish orange and red, smoke catching and diffusing light",
+    "northern lights providing ambient shifting illumination in greens, purples, and occasional pinks",
+    "theatrical spotlight with visible beam cutting through haze, subject isolated in pool of light",
+    "light leaks and lens flares adding cinematic imperfection, anamorphic horizontal streaks"
+  ];
+  
+  // COLOR PALETTES - rich and specific color combinations
+  const colorPalettes = [
+    "deep ocean blues (#1a365d) and teals (#0d9488) as foundation, with warm antique gold (#d4a574) accents on focal points",
+    "royal purple (#7c3aed) and violet (#8b5cf6) gradients with brushed silver (#c0c0c0) highlights catching light",
+    "burnt sienna (#e07b39) and deep crimson (#991b1b) with velvety dark chocolate (#1a0f0a) shadows",
+    "emerald green (#059669) forest tones with shafts of warm golden (#fbbf24) dappled sunlight",
+    "midnight blue (#1e1b4b) depths with electric cyan (#06b6d4) energy accents and white (#ffffff) star points",
+    "warm amber (#f59e0b) and antique bronze (#cd7f32) with cool slate blue (#64748b) shadow tones",
+    "rose gold (#e8b4b8) metallics with deep burgundy (#7f1d1d) wine tones and cream (#fef3c7) highlights",
+    "arctic ice blue (#e0f2fe) with dancing aurora greens (#4ade80), pinks (#f9a8d4), and purple (#a78bfa)",
+    "sunset gradient from tangerine (#fb923c) through magenta (#db2777) to deep purple (#581c87) twilight",
+    "stark monochromatic grays with a single vivid accent - electric blue (#3b82f6) or blood red (#dc2626)",
+    "earthy terracotta (#c2410c) and olive (#84cc16) with mysterious bioluminescent blue (#38bdf8) glows",
+    "pure black (#0a0a0a) negative space with brilliant gold (#ffd700) details creating maximum contrast",
+    "dusty rose (#f4a9b8) and sage green (#86efac) with soft peach (#fcd9c9) creating gentle warmth",
+    "deep forest green (#14532d) with misty gray (#9ca3af) and occasional golden (#eab308) light shafts",
+    "indigo night (#312e81) with starlight silver (#e5e7eb) and nebula pink (#f472b6) accents",
+    "sepia (#704214) and cream (#fef9c3) aged photograph tones with copper (#b87333) accents",
+    "tropical turquoise (#2dd4bf) with coral pink (#fb7185) and sandy beige (#fde68a) beach palette",
+    "stormy gray (#374151) with lightning white (#f9fafb) and ominous green (#22c55e) undertones",
+    "cherry blossom pink (#fce7f3) with dark wood brown (#422006) and spring green (#a3e635) accents",
+    "cosmic black (#030712) with galaxy purple (#9333ea), nebula blue (#0ea5e9), and stardust gold (#fde047)",
+    "autumn harvest palette - burnt orange (#ea580c), deep red (#b91c1c), golden yellow (#facc15), brown (#78350f)",
+    "underwater palette - deep navy (#1e3a5f), bioluminescent teal (#5eead4), coral orange (#f97316), pearl white (#f5f5f4)",
+    "vintage Hollywood - black (#000000), white (#ffffff), classic red (#ef4444), gold (#d4af37)",
+    "enchanted forest - moss green (#4d7c0f), twilight purple (#7e22ce), fairy light gold (#fef08a), shadow black (#18181b)",
+    "fire and ice - glacial blue (#bae6fd), flame orange (#f97316), ember red (#dc2626), smoke gray (#6b7280)"
+  ];
+  
+  // COMPOSITIONAL STYLES - cinematic framing and visual hierarchy
+  const compositions = [
+    "central figure with radial elements emanating outward like a starburst, creating intense focus on the subject",
+    "rule of thirds with figure in lower left, symbolic element dominating upper right, diagonal sight line connecting them",
+    "dramatic silhouette perfectly framed by architectural elements or natural formations creating a window effect",
+    "dynamic diagonal energy flow from lower left to upper right, following natural eye movement, creating momentum",
+    "perfect vertical symmetry with reflection - sky mirrored in water, figure standing at the dividing line",
+    "figure emerging from or stepping through a glowing portal, one foot in each reality, transition captured mid-moment",
+    "extreme low angle looking up at something magnificent, figure dwarfed by the grandeur above, sense of awe",
+    "figure standing at the exact border of two contrasting worlds - light/dark, chaos/order, past/future",
+    "golden spiral composition drawing the eye inward to a central focal point, nautilus shell layout",
+    "deep layered depth with bokeh foreground elements framing a sharp midground subject against soft background",
+    "triangular composition with three key elements forming stable base, most important at apex",
+    "leading lines converging on the subject - roads, rivers, light beams, all pointing to the focal point",
+    "negative space dominating with subject small but powerful, isolation emphasizing significance",
+    "over-the-shoulder perspective, viewer aligned with a figure looking at something profound beyond",
+    "birds-eye view looking down on a scene, god-like perspective revealing patterns invisible from ground level",
+    "frame within a frame - doorway, window, arch, or natural opening containing the main scene",
+    "split screen effect with two related but different scenes occupying left and right halves",
+    "foreground anchor with massive object (rock, tree, building) stabilizing the composition while action happens beyond",
+    "Z-composition guiding the eye across the image in a zigzag pattern, touching all major elements",
+    "centered subject breaking symmetry with one dynamic element - wind-blown hair, reaching hand, tilted head",
+    "triptych arrangement with three distinct zones - usually representing past, present, future or three aspects of a theme",
+    "vignette composition with darkness at edges naturally framing and focusing attention on lit center",
+    "vanishing point composition with all lines converging to infinity at the image center, creating depth",
+    "circular composition with elements arranged in a ring around a central void or light source",
+    "cascade composition with elements flowing downward like a waterfall of visual interest"
+  ];
+  
+  // ATMOSPHERIC EFFECTS - environmental particles and visual texture
+  const atmosphericEffects = [
+    "thick volumetric fog hugging the ground, god rays slicing through and illuminating suspended dust particles",
+    "thousands of floating particles of golden light, like pollen or magic dust suspended in still air",
+    "visible wind currents carrying leaves, fabric, and hair in dynamic flowing patterns across the frame",
+    "cherry blossom petals drifting lazily downward, each catching light as it spirals and tumbles",
+    "glowing embers and sparks rising from below, each one a tiny star ascending toward darkness",
+    "heavy rain with every droplet visible, creating circular ripples in puddles and dramatic reflections",
+    "large snowflakes falling in perfect stillness, some caught mid-air in focus, others soft bokeh blurs",
+    "mysterious smoke tendrils curling and weaving through the scene, partially obscuring and revealing",
+    "bioluminescent fireflies or magical orbs dancing in complex patterns, leaving light trails behind",
+    "aurora borealis ribbons of color rippling across the sky, greens and purples shifting and dancing",
+    "pollen and seeds floating on warm air currents, backlit by golden sun, summer afternoon feeling",
+    "ash and cinders falling like gray snow from an unseen fire above, creating apocalyptic atmosphere",
+    "bubbles of various sizes drifting upward, each one reflecting the scene in miniature, iridescent surfaces",
+    "butterflies or moths swarming around a light source, wings creating complex overlapping patterns",
+    "heat shimmer distorting the background, creating a mirage effect suggesting intense warmth",
+    "falling stars or meteors streaking across the sky, leaving glowing trails that slowly fade",
+    "sand or dust being carried on desert winds, creating veils of tan and gold across the scene",
+    "dandelion seeds floating on imperceptible breeze, each one a tiny parachute of white fluff",
+    "water droplets suspended in mid-air, time frozen, each one a tiny lens reflecting the world",
+    "lightning bugs creating long exposure trails of yellow-green light in twilight darkness",
+    "motes of dust dancing in a sunbeam streaming through a window, domestic magic made visible",
+    "sakura petals mixed with snow, pink and white together, spring and winter colliding",
+    "floating lanterns ascending into night sky, each one carrying a wish, warm glow against stars",
+    "morning dew drops clinging to spider webs, each one a perfect sphere catching rainbow light",
+    "feathers from an unseen bird drifting slowly downward, soft and ethereal, angels nearby"
+  ];
+  
+  // Select random elements for variety
+  const randomPick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  
+  const selectedFigure = randomPick(figureTypes);
+  const selectedSymbol = randomPick(symbols);
+  const selectedBackground = randomPick(backgrounds);
+  const selectedLighting = randomPick(lightingScenarios);
+  const selectedPalette = randomPick(colorPalettes);
+  const selectedComposition = randomPick(compositions);
+  const selectedAtmosphere = randomPick(atmosphericEffects);
+  
+  // Genre-specific vivid scene descriptions that prioritize environment, objects, and world-building over human figures
+  const genreSceneDirections: Record<string, string[]> = {
+    "fantasy": [
+      "A massive enchanted grimoire floating open mid-air, pages turning themselves as glowing runes and mythical creatures materialize from the text — dragons, phoenixes, and elemental spirits swirling around it",
+      "An ancient portal carved into a mountain face, glowing with otherworldly energy, with magical artifacts scattered around its base and arcane lightning crackling through the gateway",
+      "A crystal cavern where enormous gemstones pulse with trapped magical energy, enchanted weapons embedded in the walls, and a legendary sword glowing at the center",
+      "A floating island kingdom with waterfalls cascading into clouds, connected by bridges of solidified starlight, with mythical creatures nesting on crystalline towers",
+      "A dragon's treasure hoard filling an entire cavern — mountains of gold, enchanted artifacts glowing among the coins, ancient maps and magical relics scattered throughout"
+    ],
+    "science fiction": [
+      "A massive space station orbiting a ringed planet, with starship docking bays, holographic displays visible through enormous windows, and nebula light washing across the hull",
+      "A cyberpunk cityscape stretching to infinity — towering neon-lit megastructures, flying vehicles weaving between buildings, holographic advertisements flickering in the rain",
+      "An alien artifact discovered on a barren planet surface, covered in pulsing bioluminescent symbols, with a massive mothership hovering in the sky above",
+      "The interior of a generation ship with entire ecosystems under glass domes — forests, lakes, and weather systems contained within an enormous vessel traveling through deep space",
+      "A quantum computer core room with cascading data streams visible as light, reality glitching at the edges, multiple dimensions overlapping in the same space"
+    ],
+    "romance": [
+      "A grand Venetian masquerade ball in full swing — ornate masks, flowing gowns, crystal chandeliers, rose petals on marble floors, candlelight reflecting off gilt mirrors everywhere",
+      "A rain-soaked Parisian evening with the Eiffel Tower glowing behind, cobblestone streets glistening, cafe lights warm and inviting, a single red umbrella the focal point",
+      "A moonlit garden with an ornate gazebo draped in flowering vines, fairy lights twinkling, a handwritten love letter and roses on a vintage bench",
+      "A vintage train compartment crossing the Alps at sunset — velvet seats, champagne glasses catching golden light, snow-capped peaks visible through the window",
+      "A lighthouse on dramatic cliffs during a storm — warm light pouring from windows, waves crashing below, wildflowers somehow blooming despite the weather"
+    ],
+    "thriller": [
+      "A noir detective's desk covered in evidence — crime scene photos, maps with red string connections, a loaded revolver, scattered cigarette butts, city lights through venetian blinds",
+      "A surveillance room with dozens of screens showing different camera feeds, classified documents spread across a table, a phone ringing unanswered",
+      "A rain-slicked alley in a major city at night — fire escapes overhead, neon reflections in puddles, a briefcase with its contents spilling, car headlights approaching",
+      "An abandoned warehouse with evidence of conspiracy — corkboards covered in photos and connections, toppled chairs, a laptop still glowing with encrypted files",
+      "A luxury penthouse crime scene with shattered champagne flutes, an overturned chess board, city skyline through broken floor-to-ceiling windows, forensic markers everywhere"
+    ],
+    "horror": [
+      "A Lovecraftian nightmare landscape — impossible geometry, tentacles emerging from dimensional rifts, ancient temples with non-Euclidean architecture, an otherworldly sky with too many moons",
+      "An abandoned asylum corridor with peeling walls, flickering fluorescent lights, scattered medical equipment, doors opening on their own, and shadows that don't match their sources",
+      "A haunted Victorian mansion at midnight — every window glowing with different colored ghostly light, twisted dead trees, a full moon behind racing clouds, iron gates rusting open",
+      "A dark ritual site in ancient woods — stone circle covered in glowing sigils, supernatural energy erupting skyward, forest animals fleeing, candles burning with unnatural black flames",
+      "A nightmare library where books bleed, shelves twist into impossible spirals, shadows read over invisible shoulders, and the architecture shifts when you're not looking directly at it"
+    ],
+    "mystery": [
+      "A Victorian detective's study filled with clues — magnifying glass over a coded letter, maps with marked locations, chemistry equipment bubbling, newspaper clippings pinned to walls",
+      "A foggy London street with gaslit lamps creating halos in the mist, mysterious footprints on wet cobblestones, a pocket watch stopped at a significant time",
+      "A locked room mystery scene — an ornate study with a wall safe hanging open, scattered playing cards, a broken clock, multiple locked doors, and a key that fits none of them",
+      "An underground archive of cold cases — filing cabinets stretching into darkness, evidence bags on a table, a detective's notebook open to a breakthrough page",
+      "A grand library where every book is a different unsolved case — ladders reaching into shadows, a reading desk with a single illuminated manuscript revealing hidden text"
+    ],
+    "self-help": [
+      "A dramatic mountaintop at sunrise — golden light breaking through storm clouds, a path of stepping stones ascending from darkness into brilliant light, chains lying broken along the way",
+      "A massive door of light standing in a dark landscape, with the world beyond it vibrant and full of color — flowers, sunshine, and possibilities visible through the threshold",
+      "A chrysalis cracking open to reveal brilliant butterfly wings made of stained glass and light, the transformation moment captured in exquisite detail with energy radiating outward",
+      "A garden growing from cracked concrete — flowers pushing through rubble, a single tree heavy with golden fruit, nature reclaiming and transforming a barren wasteland into paradise",
+      "A compass made of pure light sitting atop an ancient map, with multiple possible paths illuminated in gold — crossroads rendered as a beautiful strategic landscape"
+    ],
+    "business": [
+      "A futuristic command center with holographic displays showing global market data, rising graphs rendered in luminous 3D, a city skyline visible through panoramic windows at golden hour",
+      "A chess board made of glass and gold where each piece represents a different industry — buildings, technology, shipping — with one piece making a decisive move",
+      "A magnificent blueprint table with holographic city models, architectural plans, and data dashboards floating above — the master plan for an empire rendered in light",
+      "A summit view from the top floor of a glass tower — the entire city below organized like a circuit board, private jet visible on a rooftop helipad, dawn breaking on the horizon",
+      "A trading floor rendered as art — cascading streams of financial data forming a waterfall of light, world clocks on the wall, multiple currencies and markets visualized as flowing rivers"
+    ],
+    "psychology": [
+      "A human brain rendered as a magnificent city — neural pathways as illuminated highways, memories stored in crystal towers, emotions as weather systems over different districts",
+      "A hall of mirrors where each reflection shows a different emotion — joy, fear, anger, peace — with the mirrors shattering and reforming in kaleidoscopic patterns",
+      "A vast internal landscape — subconscious represented as a deep ocean, conscious mind as an island, thoughts as ships sailing between islands of memory and emotion",
+      "A mind maze viewed from above — a labyrinth of glass walls where you can see the path but not reach it, with different rooms containing different mental states",
+      "A neural network visualized as a constellation — synapses firing like stars being born, memories forming as nebulae, cognitive pathways as rivers of electric light between galaxies"
+    ],
+    "spirituality": [
+      "A cosmic mandala forming in space — sacred geometry patterns made of stars and nebulae, the flower of life rendered in galactic scale with planetary chakra points",
+      "An ancient temple at the top of the world — golden sunrise streaming through ornate pillars, incense smoke forming sacred symbols, prayer wheels spinning, mountains below the clouds",
+      "A tree of life spanning from deep underground roots to branches reaching into the cosmos — each branch holding a different celestial body, roots drawing from underground rivers of light",
+      "A meditation space where reality dissolves — lotus flowers floating on still water that reflects a different sky than the one above, sacred geometry materializing in the air",
+      "A celestial stairway made of crystallized light ascending through clouds into a cosmic vista — each step inscribed with ancient wisdom symbols, stars orbiting the path"
+    ],
+    "health": [
+      "A human body rendered as a beautiful ecosystem — lungs as forests, heart as a sun, circulatory system as rivers, cells as flowers, all working in visible harmony",
+      "A serene wellness sanctuary — crystal-clear pools, healing gardens with medicinal herbs, warm light filtering through bamboo, perfectly balanced stones near a gentle waterfall",
+      "A sunrise over a pristine landscape with visible energy flowing through everything — golden healing light washing over mountains, lakes, and forests in a wave of restoration",
+      "A sleeping brain shown as a magnificent aurora — neural restoration happening as waves of color, dreams forming as clouds of light, the body healing in visible golden streams",
+      "A zen kitchen and apothecary filled with colorful superfoods, herbs, and elixirs — each ingredient glowing with vital energy, ancient remedy scrolls, and modern science equipment together"
+    ],
+    "productivity": [
+      "A magnificent clockwork mechanism — golden gears interlocking perfectly, each one representing a different system or process, the whole machine producing brilliant light from its center",
+      "An architect's vision table with holographic blueprints of a perfectly organized life — systems, routines, and habits visualized as an elegant interconnected machine of light",
+      "A rocket launch pad at the moment of ignition — systems checking off in illuminated panels, countdown at zero, energy erupting upward, mission control screens showing green across the board",
+      "A master craftsman's workshop at peak production — every tool in its place, projects in various stages of completion, blueprints on walls, golden light streaming through workshop windows",
+      "A time-manipulation chamber where clocks float suspended, hourglasses pour upward, and a central control panel allows the orchestration of every moment with precision"
+    ],
+    "history": [
+      "An epic historical battlefield at golden hour — siege engines, war banners from multiple nations, armor and weapons scattered, fortress walls breached, smoke and dramatic clouds above",
+      "A royal court in full ceremonial splendor — throne of gold and jewels, heraldic banners, stained glass windows telling stories, ancient crowns and royal regalia on display",
+      "An ancient civilization at its peak — towering pyramids, bustling marketplace, advanced engineering visible, ships in harbor, scholars with scrolls, astronomical instruments aimed at stars",
+      "A legendary forge where history's greatest weapons were made — molten metal glowing, ancient anvils, legendary blades on the walls, runes and blueprints for mythic armaments",
+      "A grand explorer's map room — massive world maps with uncharted territories marked in gold, navigation instruments, ship models, exotic artifacts from discovered lands, compass roses everywhere"
+    ],
+    "nature": [
+      "A primordial forest where ancient trees tower hundreds of feet high — bioluminescent fungi, exotic wildlife, waterfalls cascading through multiple levels, sunbeams piercing the emerald canopy",
+      "A coral reef teeming with life — thousands of fish species, giant sea turtles, octopi, rays, whale sharks passing overhead, every color visible in sunlit crystal-clear water",
+      "A volcanic landscape of creation — lava meeting ocean in explosions of steam, new land forming, hardy plants already colonizing warm rock, aurora overhead from volcanic gases",
+      "An arctic wilderness in full polar splendor — glaciers calving into luminous blue water, polar bears, northern lights dancing overhead, midnight sun on the ice fields",
+      "A rainforest canopy ecosystem — toucans, monkeys, orchids, giant butterflies, tree frogs in vivid colors, hanging vines, mist rising from the forest floor below"
+    ],
+    "parenting": [
+      "A magical treehouse library filled with children's books coming alive — characters emerging from pages, stars visible through the roof, warm lantern light, imagination made visible",
+      "A garden where every planted seed instantly grows into something wonderful — flowers, trees bearing fruit, vines forming playful shapes, butterflies and songbirds everywhere, pure wonder",
+      "A child's bedroom where toys have come alive — a magical adventure happening across the bedsheets landscape, pillow-fort castles, stuffed animal companions, stars projected on the ceiling",
+      "A family kitchen during holiday baking — flour floating like snow, colorful ingredients, cookies in whimsical shapes, warm oven glow, recipes passed down through generations visible on cards",
+      "A playground that transforms into a fantasy world — slides become waterfall adventures, swings reach toward clouds, sandbox becomes a vast desert expedition, monkey bars become castle ramparts"
+    ],
+    "sociology": [
+      "A massive city intersection from above at rush hour — thousands of people creating patterns of movement, social networks visible as threads of light connecting individuals across the crowd",
+      "A global village visualization — different cultures represented as distinct architectural styles flowing together, markets, temples, schools, and homes interconnected by bridges of shared experience",
+      "A living mosaic of human faces forming a larger portrait — each face tells a unique story, diverse ages and backgrounds, together creating a unified image greater than its parts",
+      "A protest movement rendered as art — luminous banners flowing through rain-soaked streets, passionate crowds, historic buildings as backdrop, the energy of social change captured as visible light",
+      "A timeline of human civilization as a flowing river — different eras and societies as tributaries joining the main stream, carrying artifacts, inventions, and cultural achievements forward"
+    ],
+    "art": [
+      "A grand art studio where paintings are portals — characters and landscapes spilling out of canvases into reality, paint floating in mid-air, brushes moving on their own, colors alive",
+      "A sculpture gallery where masterpieces are mid-transformation — marble becoming flesh, bronze flowing like water, installations responding to invisible viewers, art blurring into reality",
+      "A designer's workshop in creative explosion — color palettes floating as holographic wheels, sketches animating themselves, materials and textures layered in impossible combinations",
+      "A museum at midnight where every artwork glows with its own inner light — Renaissance next to Modern, sculpture gardens under starlight, the building itself a work of art",
+      "A creative explosion frozen in time — paint splashes suspended mid-air forming recognizable shapes, pencil lines drawing themselves, a palette of every color ever invented"
+    ],
+    "literary fiction": [
+      "A writer's study where the story escapes — manuscript pages swirling through the air, characters materializing as translucent figures, scenes from the narrative playing out in candlelight and shadow",
+      "An infinite library at twilight — books pulling themselves from shelves, opening to reveal miniature worlds within their pages, stories crossing between volumes, a reading lamp casting magic",
+      "A rain-soaked city at 3am rendered in literary noir — every surface telling a story, abandoned newspapers with significant headlines, neon reflections writing poetry in puddles",
+      "A single typewriter on a desk in a tower room — but the words it types become visible realities in the landscape outside the window, transforming the world with each keystroke",
+      "A living bookshop where genres have their own weather — fantasy corner snowing gently, romance section warm with firelight, horror aisle shrouded in mist, literary fiction illuminated by moonlight"
+    ],
+    "default": [
+      "Create a rich, atmospheric scene that visually captures the essence and themes of the title — prioritize world-building, symbolic objects, environmental storytelling, and dramatic atmosphere over human figures",
+      "Build a vivid visual world around the title's meaning — use architecture, nature, light, weather, and symbolic objects to tell the story, with environment as the main character",
+      "Construct a detailed scene using the title as the creative brief — every object, texture, color, and atmospheric element should reinforce the book's theme and emotional core"
+    ]
+  };
+  
+  // Match genre to scene directions
+  const genreLower = genre.toLowerCase();
+  let matchedGenreKey = "default";
+  for (const key of Object.keys(genreSceneDirections)) {
+    if (genreLower.includes(key) || key.includes(genreLower)) {
+      matchedGenreKey = key;
+      break;
+    }
+  }
+  const genreScenes = genreSceneDirections[matchedGenreKey];
+  const selectedScene = genreScenes[Math.floor(Math.random() * genreScenes.length)];
+  
+  // Include book description if available for richer context
+  const descriptionContext = description ? `\n\nBOOK DESCRIPTION: ${description.substring(0, 300)}` : "";
+  
+  const prompt = `You are an expert ebook cover designer and art director. Create the perfect cover artwork for this book:
+
+BOOK TITLE: "${title}"
+GENRE: ${genre}${descriptionContext}
+
+STEP 1 — ANALYZE THE TITLE:
+First, deeply consider what "${title}" means. Break it down:
+- What is the literal meaning of "${title}"?
+- What emotions and mood does it evoke?
+- What visual metaphors or symbols could represent it?
+- What would a reader browsing a ${genre} bookstore expect to see on a cover called "${title}"?
+The ENTIRE image must be a visual interpretation of this title. A viewer should be able to guess the book's name from the artwork alone.
+
+STEP 2 — BUILD A SCENE THAT TELLS THE TITLE'S STORY:
+Design a scene where every element — the setting, the objects, the creatures, the lighting, the mood — directly illustrates "${title}". Do NOT create a generic ${genre} image. Create a scene that could ONLY be the cover for "${title}".
+
+For visual richness, use this as inspiration (but ADAPT it to serve the title's meaning): ${selectedScene}
+
+STEP 3 — LAYER IN CINEMATIC QUALITY:
+Once the title-driven scene is designed, enhance it with:
+- Setting inspiration (adapt to fit the title): ${selectedBackground}
+- Symbolic element (only if it connects to the title): ${selectedSymbol}
+- Lighting: ${selectedLighting}
+- Atmosphere: ${selectedAtmosphere}
+- Composition: ${selectedComposition}
+
+STEP 4 — COLOR:
+${selectedPalette}
+Use rich, varied colors — no single color should dominate the entire image. Create contrast between different areas.
+
+STEP 5 — FINAL RULES:
+- The artwork, environment, and world-building are the stars — human figures should be small or absent
+- Ultra-vivid photorealistic digital art, cinematic movie poster quality
+- Every texture rendered with extreme detail — stone, metal, fabric, water, light
+- Clear depth layers: foreground framing, midground action, background scale
+- BRIGHT and LUMINOUS — avoid large dark areas
+
+CRITICAL: NO TEXT, NO LETTERS, NO WORDS, NO TYPOGRAPHY anywhere. Pure visual art only. Keep top and bottom 15% relatively clear for text overlay.`;
+
+  console.log(`Generating VIVID-ATMOSPHERIC style for: "${title}" (ID: ${draftId})`);
+  console.log(`Using gpt-image-1 with signature cinematic atmospheric style`);
+  console.log(`Prompt: ${prompt}`);
+
+  try {
+    // Use user's OpenAI API key (bypasses Replit budget limits)
+    const response = await openaiDalle3.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from gpt-image-1");
+    console.log(`SUCCESS: Generated cover with Vivid Atmospheric signature style!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Vivid-Atmospheric Error] gpt-image-1 failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+// Generate AI background with Standalone Scenes style - pure imagery without book design elements
+// Uses gpt-image-1 with prompts focused on beautiful standalone scenes
+async function generateAIBackgroundStandaloneScenes(title: string, genre: string, draftId: number = 0, description: string = ""): Promise<Buffer> {
+  console.log(`[STANDALONE-SCENES] Two-Tone: Vivid Painterly Pro art + title bar for: ${title}`);
+  registerCoverFonts();
+
+  const focalSubjects = [
+    "silhouette of a person standing heroically on a precipice, wind catching their hair and clothing",
+    "hooded mysterious figure with face partially illuminated, ancient symbols glowing on their robes",
+    "warrior in ornate battle-worn armor, scars telling stories, weapon at rest but ready",
+    "ethereal figure in flowing silk robes that seem to merge with mist and starlight",
+    "ancient wizard with a long silver beard, staff crackling with arcane energy",
+    "majestic dragon coiled around a mountain peak, scales shimmering with inner fire, eyes ancient and wise",
+    "graceful unicorn in a moonlit glade, mane flowing like liquid silver, horn glowing with pure light",
+    "phoenix in mid-rebirth, half flame and half feather, transforming from ash to glory",
+    "wise owl perched on ancient tome, feathers inscribed with glowing runes, eyes holding secrets",
+    "mythical griffin guarding a treasure hoard, eagle head raised proudly, lion body poised",
+    "lone wolf howling at a blood moon, silhouette powerful against the night sky",
+    "majestic lion with flowing mane, eyes reflecting inner strength and royalty",
+    "soaring eagle with wings fully spread, catching thermals above mountain ranges",
+    "graceful deer in enchanted forest, antlers adorned with flowers and vines",
+    "fierce tiger emerging from shadows, stripes blending with dappled light",
+    "ancient leather-bound book glowing with forbidden knowledge, pages turning by themselves",
+    "ornate sword thrust into stone, blade catching divine light, destiny awaiting",
+    "crystal ball showing swirling visions of possible futures, mist and light dancing within",
+    "swirling vortex of light and shadow, representing the battle between good and evil",
+    "two hands reaching toward each other across an impossible divide, almost touching",
+    "shattered mirror reflecting multiple realities, each shard showing different possibilities",
+    "tree of life with roots in darkness and branches in starlight, cosmic balance"
+  ];
+
+  const symbols = [
+    "magnificent phoenix erupting from golden flames, feathers transitioning from ember red to brilliant gold, trailing sparks and ash",
+    "heavy iron chains shattering into a thousand pieces, each fragment catching light as it flies outward in slow motion",
+    "spiral galaxy with millions of visible stars, arms of purple and blue cosmic dust swirling around a brilliant core",
+    "ancient world tree with roots extending into darkness and branches reaching into starlight, leaves made of pure light",
+    "crystal hourglass with grains of stardust flowing between chambers, each grain a tiny glowing ember",
+    "monarch butterfly emerging from a crystalline cocoon, wings still wet with iridescent dewdrops",
+    "sacred lotus blooming in slow motion, each petal a different shade of pink and white, hovering above still water",
+    "infinite staircase of marble and gold ascending through clouds toward a brilliant light source",
+    "sun and moon occupying the same sky, eclipse creating a ring of fire with visible solar flares",
+    "cluster of amethyst and quartz crystals catching and refracting light into rainbow prisms",
+    "rippling waves of golden energy emanating from a central point, like a stone dropped in still water",
+    "ouroboros - a dragon of stars consuming its own tail in an eternal cycle",
+    "open book with pages turning themselves, words lifting off as glowing particles"
+  ];
+
+  const backgrounds = [
+    "jagged mountain peak piercing through a sea of clouds at golden sunrise, distant ranges fading into purple haze",
+    "infinite cosmic starfield with swirling nebulae in magenta and cyan, distant galaxies visible as pinpricks of light",
+    "crumbling ancient temple overgrown with luminescent vines, shafts of dusty light revealing worn stone carvings",
+    "gleaming modern cityscape at blue hour, glass towers reflecting orange sunset, streets alive with tiny lights",
+    "primordial enchanted forest with massive ancient trees, god rays filtering through the canopy, fireflies dancing",
+    "vast golden desert under apocalyptic storm clouds, lightning striking distant dunes, sand swirling in wind",
+    "impossible floating islands connected by delicate bridges, waterfalls cascading into the void below",
+    "infinite library with towering shelves disappearing into darkness above, floating candles and rolling ladders",
+    "crystalline underground cavern with bioluminescent pools, stalactites dripping with liquid light"
+  ];
+
+  const lightingScenarios = [
+    "biblical god rays breaking through parting storm clouds, each beam visible with dust particles dancing within",
+    "golden hour backlight creating perfect rim lighting on every edge, long shadows stretching dramatically",
+    "Rembrandt lighting with a single strong source from 45 degrees, deep chiaroscuro shadows defining form",
+    "ethereal inner glow emanating from the subject themselves, as if lit from within by divine energy",
+    "frozen lightning bolt illuminating the entire scene in harsh white light, shadows razor-sharp",
+    "first light of dawn painting everything in gradients of pink, orange, and gold, mist catching color",
+    "single dramatic spotlight from directly above, creating a pool of light in surrounding darkness"
+  ];
+
+  const colorPalettes = [
+    "deep burgundy, antique gold, and mahogany brown creating rich classical warmth",
+    "midnight blue, silver, and charcoal gray evoking mysterious elegance",
+    "forest green, bronze, and cream bringing natural sophistication",
+    "royal purple, gold leaf, and black for regal dramatic impact",
+    "burnt orange, copper, and dark chocolate with autumn warmth",
+    "teal, rose gold, and ivory for modern elegance",
+    "crimson red, black, and gold creating passionate intensity",
+    "cosmic black with galaxy purple, nebula blue, and stardust gold"
+  ];
+
+  const randomPick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+  const aiDirection = await getAICreativeDirection(title, genre, description);
+
+  let prompt: string;
+
+  if (aiDirection) {
+    console.log(`[STANDALONE-SCENES] Using AI Creative Director: ${aiDirection.emotionalTone}`);
+    prompt = `Stunning vivid ebook cover art for "${title}" (${genre}).
+
+FOCAL SUBJECT: ${aiDirection.focalSubject}
+
+SYMBOLIC ELEMENT: ${aiDirection.symbolicElement}
+
+SCENE/BACKGROUND: ${aiDirection.background}
+
+LIGHTING: ${aiDirection.lighting}
+
+COLOR PALETTE: ${aiDirection.colorPalette}
+
+ATMOSPHERE: ${aiDirection.atmosphere}
+
+ARTISTIC INFLUENCES: ${aiDirection.artisticInfluences}
+
+EMOTIONAL TONE: ${aiDirection.emotionalTone}
+
+STYLE: Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Dramatic cinematic composition. Professional movie poster quality. Every texture visible.
+
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Keep top 15% clear for text overlay.`;
+  } else {
+    console.log(`[STANDALONE-SCENES] Using proven fallback elements`);
+    const selectedSubject = randomPick(focalSubjects);
+    const selectedSymbol = randomPick(symbols);
+    const selectedBackground = randomPick(backgrounds);
+    const selectedLighting = randomPick(lightingScenarios);
+    const selectedPalette = randomPick(colorPalettes);
+
+    const descriptionContext = description ? ` Book theme: ${description.substring(0, 200)}` : "";
+
+    prompt = `Stunning vivid ebook cover art for "${title}" (${genre}).${descriptionContext}
+
+SCENE: ${selectedBackground}
+
+FOCAL POINT: ${selectedSubject}
+
+SYMBOLIC ELEMENT: ${selectedSymbol}
+
+LIGHTING: ${selectedLighting}
+
+COLORS: ${selectedPalette}
+
+STYLE: Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Dramatic cinematic composition. Professional movie poster quality. Every texture visible.
+
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Keep top 15% clear for text overlay.`;
+  }
+
+  console.log(`[STANDALONE-SCENES] Prompt (${prompt.length} chars)`);
+
+  try {
+    const response = await openaiDalle3.images.generate({
+      model: "dall-e-3",
+      prompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "hd",
+      style: "vivid",
+      response_format: "b64_json",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from DALL-E 3");
+    console.log(`SUCCESS: Generated Vivid Painterly Pro art layer!`);
+
+    const artBuffer = Buffer.from(imageData, "base64");
+    const artImage = await loadImage(artBuffer);
+    const width = artImage.width;
+    const height = artImage.height;
+
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext("2d");
+
+    ctx.drawImage(artImage, 0, 0);
+
+    const barHeight = Math.round(height * 0.14);
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, barHeight + 20);
+    gradient.addColorStop(0, "rgba(15, 10, 8, 0.92)");
+    gradient.addColorStop(0.7, "rgba(15, 10, 8, 0.85)");
+    gradient.addColorStop(1, "rgba(15, 10, 8, 0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, barHeight + 20);
+
+    const accentY = barHeight - 2;
+    const accentGrad = ctx.createLinearGradient(width * 0.15, 0, width * 0.85, 0);
+    accentGrad.addColorStop(0, "rgba(180, 150, 90, 0)");
+    accentGrad.addColorStop(0.3, "rgba(180, 150, 90, 0.6)");
+    accentGrad.addColorStop(0.5, "rgba(210, 180, 120, 0.8)");
+    accentGrad.addColorStop(0.7, "rgba(180, 150, 90, 0.6)");
+    accentGrad.addColorStop(1, "rgba(180, 150, 90, 0)");
+    ctx.fillStyle = accentGrad;
+    ctx.fillRect(width * 0.1, accentY, width * 0.8, 1.5);
+
+    const titleFonts = ["Cinzel", "Playfair Display", "Cormorant Garamond", "Libre Baskerville", "Prata", "Bodoni"];
+    const availableFonts = titleFonts.filter(f => isFontRegistered(f));
+    const chosenFont = availableFonts.length > 0
+      ? availableFonts[Math.floor(Math.random() * availableFonts.length)]
+      : "serif";
+
+    const maxTextWidth = width * 0.85;
+    const centerY = barHeight * 0.52;
+
+    const shortTitle = title.includes(":") && title.length > 35
+      ? title.substring(0, title.indexOf(":")).trim()
+      : title;
+
+    let fontSize = Math.round(barHeight * 0.42);
+    if (shortTitle.length > 30) fontSize = Math.round(barHeight * 0.34);
+    if (shortTitle.length > 45) fontSize = Math.round(barHeight * 0.28);
+
+    ctx.font = `bold ${fontSize}px "${chosenFont}"`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    let displayTitle = shortTitle.toUpperCase();
+    let metrics = ctx.measureText(displayTitle);
+
+    while (metrics.width > maxTextWidth && fontSize > 18) {
+      fontSize -= 2;
+      ctx.font = `bold ${fontSize}px "${chosenFont}"`;
+      metrics = ctx.measureText(displayTitle);
+    }
+
+    if (metrics.width > maxTextWidth) {
+      const words = displayTitle.split(" ");
+      const mid = Math.ceil(words.length / 2);
+      const line1 = words.slice(0, mid).join(" ");
+      const line2 = words.slice(mid).join(" ");
+      const lineSpacing = fontSize * 1.3;
+      const topLineY = centerY - lineSpacing * 0.3;
+      const bottomLineY = centerY + lineSpacing * 0.7;
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillText(line1, width / 2 + 1, topLineY + 1);
+      ctx.fillText(line2, width / 2 + 1, bottomLineY + 1);
+
+      ctx.fillStyle = "#f0e6d2";
+      ctx.fillText(line1, width / 2, topLineY);
+      ctx.fillText(line2, width / 2, bottomLineY);
+    } else {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillText(displayTitle, width / 2 + 1, centerY + 1);
+
+      ctx.fillStyle = "#f0e6d2";
+      ctx.fillText(displayTitle, width / 2, centerY);
+    }
+
+    console.log(`[STANDALONE-SCENES] Added title bar: font=${chosenFont}, size=${fontSize}, barH=${barHeight}`);
+    return canvas.toBuffer("image/png");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Standalone-Scenes Error] DALL-E 3 failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+// Analyze a reference image and extract artistic inspiration for cover generation
+export async function analyzeReferenceImage(imageBase64: string): Promise<{
+  description: string;
+  style: string;
+  colors: string;
+  mood: string;
+  subjects: string;
+  composition: string;
+}> {
+  console.log("Analyzing reference image for artistic inspiration...");
+  
+  const response = await openaiDalle3.chat.completions.create({
+    model: "gpt-5.2",
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `Analyze this image to extract artistic elements for inspiring ebook cover art. Provide a detailed breakdown:
+
+1. DESCRIPTION: Briefly describe what's in the image (1-2 sentences)
+2. STYLE: What artistic style is this? (e.g., photorealistic, digital painting, watercolor, noir, cinematic, etc.)
+3. COLORS: What are the dominant colors and color palette? Be specific about hues, saturation, and contrast
+4. MOOD: What emotional mood or atmosphere does this convey?
+5. SUBJECTS: What are the main subjects or focal elements?
+6. COMPOSITION: Describe the composition (centered, rule of thirds, symmetrical, etc.) and lighting
+
+Respond in JSON format with keys: description, style, colors, mood, subjects, composition`
+          },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:image/png;base64,${imageBase64}`
+            }
+          }
+        ]
+      }
+    ],
+    max_completion_tokens: 1000
+  });
+
+  const content = response.choices[0]?.message?.content || "{}";
+  try {
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+  } catch (e) {
+    console.error("Failed to parse reference image analysis:", e);
+  }
+  
+  return {
+    description: "Reference image",
+    style: "cinematic digital art",
+    colors: "rich saturated colors with dramatic contrast",
+    mood: "atmospheric and evocative",
+    subjects: "central focal subject",
+    composition: "strong compositional balance with dramatic lighting"
+  };
+}
+
+// Generate a cover inspired by a reference image analysis
+export async function generateCoverFromReference(
+  title: string,
+  genre: string,
+  referenceAnalysis: {
+    description: string;
+    style: string;
+    colors: string;
+    mood: string;
+    subjects: string;
+    composition: string;
+  },
+  draftId: number = 0,
+  bookDescription: string = ""
+): Promise<Buffer> {
+  // Include book description for richer context
+  const descriptionContext = bookDescription ? `\n\nBOOK DESCRIPTION: ${bookDescription.substring(0, 300)}` : "";
+  
+  const prompt = `Create a unique ebook cover image for "${title}" in the ${genre} genre.${descriptionContext}
+
+MATCH THIS REFERENCE STYLE EXACTLY:
+- ARTISTIC STYLE: ${referenceAnalysis.style} - replicate this rendering technique
+- COLOR PALETTE: ${referenceAnalysis.colors} - use these exact colors and tones
+- MOOD/ATMOSPHERE: ${referenceAnalysis.mood} - capture this emotional feeling
+- COMPOSITION: ${referenceAnalysis.composition} - follow this layout approach
+
+SUBJECT MATTER: Create imagery that represents the themes of "${title}" for the ${genre} genre. The subject should be unique and appropriate for this book, but rendered in the exact style described above.
+
+LIGHTING: Use dramatic lighting with volumetric effects, rim lighting, and subtle bloom where appropriate to the reference style.
+
+QUALITY: Professional, polished finish. Clean composition with visual depth.
+
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS, NO TYPOGRAPHY anywhere in the image. Pure visual art only. Leave top and bottom areas clear for text overlay.`;
+
+  console.log(`Generating cover inspired by reference for: "${title}" (ID: ${draftId})`);
+  console.log(`Reference style: ${referenceAnalysis.style}`);
+  console.log(`Prompt: ${prompt}`);
+
+  try {
+    const response = await openaiDalle3.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned");
+    console.log(`SUCCESS: Generated cover inspired by reference image!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    console.error(`[Reference-Inspired Error] Generation failed: ${error?.message || error}`);
+    throw error;
+  }
+}
+
+// Store reference image analysis for reuse across multiple covers
+let storedReferenceAnalysis: {
+  description: string;
+  style: string;
+  colors: string;
+  mood: string;
+  subjects: string;
+  composition: string;
+} | null = null;
+
+export function setStoredReferenceAnalysis(analysis: typeof storedReferenceAnalysis) {
+  storedReferenceAnalysis = analysis;
+  console.log("Stored reference analysis for future cover generation");
+}
+
+export function getStoredReferenceAnalysis() {
+  return storedReferenceAnalysis;
+}
+
+export function clearStoredReferenceAnalysis() {
+  storedReferenceAnalysis = null;
+  console.log("Cleared stored reference analysis");
+}
+
+// ====================================================================================
+// NEW ENHANCED STYLES - Based on the proven vivid beauty of covers 239-253
+// These are COPIES that enhance the original proven prompts - originals remain unchanged
+// ====================================================================================
+
+// AI CREATIVE DIRECTOR - Uses GPT-4 to brainstorm unique visual concepts for each book
+// This provides the "web research" knowledge without needing external APIs
+interface CreativeDirection {
+  focalSubject: string;
+  symbolicElement: string;
+  background: string;
+  lighting: string;
+  colorPalette: string;
+  atmosphere: string;
+  artisticInfluences: string;
+  emotionalTone: string;
+}
+
+async function getAICreativeDirection(title: string, genre: string, description: string = ""): Promise<CreativeDirection | null> {
+  try {
+    console.log(`[AI Creative Director] Brainstorming visual concepts for "${title}"...`);
+    
+    const prompt = `You are an expert art director and visual designer who combines knowledge of:
+- Classic and contemporary art movements (Renaissance, Impressionism, Art Nouveau, Surrealism, Modern Digital Art)
+- Cinematography and film visual techniques (from Kubrick to Villeneuve, Nolan to Del Toro)
+- Book cover design trends and what makes covers visually striking
+- Symbolic imagery and visual metaphors
+- Color theory and emotional impact of palettes
+
+For this ebook, create a UNIQUE, CREATIVE visual direction:
+
+TITLE: "${title}"
+GENRE: ${genre}
+${description ? `DESCRIPTION: ${description.substring(0, 400)}` : ""}
+
+Brainstorm an original visual concept that will create a STUNNING, VIVID ebook cover. Think beyond clichés. Consider:
+- What visual metaphor perfectly captures this book's essence?
+- What unexpected imagery could make this cover stand out?
+- What artistic influences would elevate this design?
+
+Respond with ONLY this JSON (no markdown):
+{
+  "focalSubject": "Detailed description of the main visual focus - be specific and creative, can be a person, creature, object, or abstract concept",
+  "symbolicElement": "A powerful symbol or visual metaphor that reinforces the book's theme",
+  "background": "Rich, atmospheric setting that creates mood and depth",
+  "lighting": "Specific lighting technique that enhances drama and emotion",
+  "colorPalette": "5-6 specific colors with hex codes that create emotional impact",
+  "atmosphere": "Environmental effects that add texture and movement (particles, fog, light effects)",
+  "artisticInfluences": "Art styles or famous artists/films to channel (e.g., 'Monet's light + Blade Runner's neon')",
+  "emotionalTone": "The core feeling this cover should evoke in 3-5 words"
+}`;
+
+    const response = await openaiDalle3.chat.completions.create({
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.9, // High creativity
+      max_completion_tokens: 800,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) return null;
+    
+    // Parse JSON response
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    
+    const direction = JSON.parse(jsonMatch[0]) as CreativeDirection;
+    console.log(`[AI Creative Director] Generated creative direction:`, direction.emotionalTone);
+    return direction;
+  } catch (error: any) {
+    console.error(`[AI Creative Director] Error brainstorming:`, error?.message || error);
+    return null;
+  }
+}
+
+// AI STYLE SELECTOR - Uses GPT-4 to recommend the best cover generation style for a book
+interface StyleRecommendation {
+  recommendedStyle: ModelStyleId;
+  reasoning: string;
+  alternativeStyle: ModelStyleId;
+}
+
+async function getAIStyleRecommendation(title: string, genre: string, description: string = ""): Promise<StyleRecommendation | null> {
+  try {
+    console.log(`[AI Style Selector] Analyzing best style for "${title}"...`);
+    
+    const prompt = `You are an expert book cover designer. Analyze this ebook and recommend the BEST cover generation style.
+
+TITLE: "${title}"
+GENRE: ${genre}
+${description ? `DESCRIPTION: ${description.substring(0, 300)}` : ""}
+
+AVAILABLE STYLES:
+1. "vivid-painterly-pro" - DALL-E 3 with vivid painterly art. Best for: Fantasy, mythology, epic adventure, magical creatures, mystical themes, colorful dramatic scenes
+2. "atmospheric-cinema" - gpt-image-1 with cinematic quality. Best for: Drama, thriller, mystery, human stories, silhouettes, moody atmospheric scenes, emotional depth
+3. "cinematic-openai" - DALL-E 3 classic cinematic. Best for: Literary fiction, historical, romance, elegant subdued covers, classic book aesthetic
+4. "dalle3-vivid" - DALL-E 3 modern vivid. Best for: Contemporary fiction, sci-fi, technology themes, bold modern designs
+
+Choose the style that will create the most STUNNING, APPROPRIATE cover for this specific book.
+
+Respond with ONLY this JSON (no markdown):
+{
+  "recommendedStyle": "style-id-here",
+  "reasoning": "Brief explanation of why this style fits the book",
+  "alternativeStyle": "backup-style-id"
+}`;
+
+    const response = await openaiDalle3.chat.completions.create({
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+      max_completion_tokens: 300,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) return null;
+    
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    
+    const recommendation = JSON.parse(jsonMatch[0]) as StyleRecommendation;
+    console.log(`[AI Style Selector] Recommended: ${recommendation.recommendedStyle} - ${recommendation.reasoning}`);
+    return recommendation;
+  } catch (error: any) {
+    console.error(`[AI Style Selector] Error:`, error?.message || error);
+    return null;
+  }
+}
+
+// FULL AI AUTO - Complete automated cover generation with AI making all decisions
+// 1. AI selects the best style for the book
+// 2. AI Creative Director generates unique visual concepts
+// 3. Generates the cover image
+// 4. Auto-generates typography vault styles
+// 5. Auto-applies the best typography style
+export async function generateFullAIAuto(draftId: number): Promise<{ success: boolean; styleUsed: string; error?: string }> {
+  try {
+    console.log(`[Full AI Auto] Starting complete AI-driven generation for draft ${draftId}...`);
+    
+    // Get draft details from database
+    const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+    if (!draft) {
+      return { success: false, styleUsed: "none", error: "Draft not found" };
+    }
+    
+    const title = draft.title || "Untitled";
+    const genre = draft.genre || "General";
+    const description = draft.topic || draft.outline?.substring(0, 300) || "";
+    
+    // Step 1: AI selects the best style
+    console.log(`[Full AI Auto] Step 1: AI selecting best style...`);
+    const styleRec = await getAIStyleRecommendation(title, genre, description);
+    let selectedStyle: ModelStyleId = styleRec?.recommendedStyle || "vivid-painterly-pro";
+    
+    // Validate the style is a valid option
+    const validStyles: ModelStyleId[] = ["vivid-painterly-pro", "atmospheric-cinema", "cinematic-openai", "dalle3-vivid"];
+    if (!validStyles.includes(selectedStyle)) {
+      selectedStyle = "vivid-painterly-pro"; // Default fallback
+    }
+    
+    console.log(`[Full AI Auto] AI selected style: ${selectedStyle}`);
+    
+    // Step 2: Generate the cover using the selected style
+    console.log(`[Full AI Auto] Step 2: Generating cover with ${selectedStyle}...`);
+    let imageBuffer: Buffer;
+    
+    switch (selectedStyle) {
+      case "vivid-painterly-pro":
+        imageBuffer = await generateAIBackgroundVividPainterlyPro(title, genre, draftId, description);
+        break;
+      case "atmospheric-cinema":
+        imageBuffer = await generateAIBackgroundAtmosphericCinema(title, genre, draftId, description);
+        break;
+      case "cinematic-openai":
+        imageBuffer = await generateAIBackgroundCinematicOpenAI(title, genre, draftId);
+        break;
+      case "experimental-239":
+        imageBuffer = await generateAIBackgroundExperimental239(title, genre, draftId, description);
+        break;
+      case "test-style-a":
+        imageBuffer = await generateTestStyleA(title, genre, draftId);
+        break;
+      case "test-style-c":
+        imageBuffer = await generateTestStyleC(title, genre, draftId);
+        break;
+      case "test-style-e":
+        imageBuffer = await generateTestStyleE(title, genre, draftId);
+        break;
+      case "test-style-h":
+        imageBuffer = await generateTestStyleH(title, genre, draftId);
+        break;
+      case "test-style-b":
+        imageBuffer = await generateTestStyleB(title, genre, draftId, description);
+        break;
+      case "test-style-d":
+        imageBuffer = await generateTestStyleD(title, genre, draftId, description);
+        break;
+      case "test-style-f":
+        imageBuffer = await generateTestStyleF(title, genre, draftId, description);
+        break;
+      case "test-style-g":
+        imageBuffer = await generateTestStyleG(title, genre, draftId, description);
+        break;
+      case "dalle3-vivid":
+        imageBuffer = await generateAIBackgroundOnly(title, genre, draftId, description);
+        break;
+      default:
+        imageBuffer = await generateAIBackgroundVividPainterlyPro(title, genre, draftId, description);
+    }
+    
+    // Step 3: Save the cover as backgroundUrl (clean background) 
+    const coverDataUrl = `data:image/png;base64,${imageBuffer.toString("base64")}`;
+    await db.update(draftEbooks)
+      .set({ backgroundUrl: coverDataUrl })
+      .where(eq(draftEbooks.id, draftId));
+    console.log(`[Full AI Auto] Step 3: Cover saved successfully`);
+    
+    // Step 4: Auto-backup the cover
+    try {
+      const backupService = await import("./backupService");
+      await backupService.backupCover(draftId, imageBuffer, {
+        id: draftId,
+        title,
+        genre,
+        topic: description,
+        backedUpAt: new Date().toISOString()
+      });
+      console.log(`[Full AI Auto] Step 4: Cover backed up to cloud`);
+    } catch (backupError) {
+      console.log(`[Full AI Auto] Backup optional, continuing...`);
+    }
+    
+    // Step 5: Generate typography vault styles using AI
+    console.log(`[Full AI Auto] Step 5: Generating AI typography styles...`);
+    try {
+      const typographyResult = await generateTypographyOptions(
+        draftId,
+        coverDataUrl,
+        title,
+        "EbookGamez",
+        genre,
+        description
+      );
+      if (typographyResult.savedToVault && typographyResult.styleOptions && typographyResult.styleOptions.length > 0) {
+        // Auto-select the first style (usually "The Classic" - most elegant)
+        const backupService = await import("./backupService");
+        await backupService.updateSelectedTypographyStyle(draftId, typographyResult.styleOptions[0].id);
+        console.log(`[Full AI Auto] Typography styles generated and first style selected`);
+      }
+    } catch (typoError: any) {
+      console.log(`[Full AI Auto] Typography generation optional, continuing: ${typoError?.message}`);
+    }
+    
+    console.log(`[Full AI Auto] Complete! Used style: ${selectedStyle}`);
+    return { success: true, styleUsed: selectedStyle };
+    
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Full AI Auto] Error: ${errorMessage}`);
+    return { success: false, styleUsed: "none", error: errorMessage };
+  }
+}
+
+// Bulk Full AI Auto - Generate multiple covers with full AI automation
+export async function bulkFullAIAuto(draftIds: number[]): Promise<{ total: number; success: number; errors: number; results: Array<{ id: number; success: boolean; style?: string; error?: string }> }> {
+  console.log(`[Bulk Full AI Auto] Starting for ${draftIds.length} drafts...`);
+  
+  const results: Array<{ id: number; success: boolean; style?: string; error?: string }> = [];
+  let successCount = 0;
+  let errorCount = 0;
+  
+  for (const draftId of draftIds) {
+    const result = await generateFullAIAuto(draftId);
+    if (result.success) {
+      successCount++;
+      results.push({ id: draftId, success: true, style: result.styleUsed });
+    } else {
+      errorCount++;
+      results.push({ id: draftId, success: false, error: result.error });
+    }
+    
+    // Small delay between generations to avoid rate limits
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  
+  console.log(`[Bulk Full AI Auto] Complete! Success: ${successCount}, Errors: ${errorCount}`);
+  return { total: draftIds.length, success: successCount, errors: errorCount, results };
+}
+
+// VIVID PAINTERLY PRO - Enhanced version of Artistic Painterly
+// Now with AI Creative Director for unique, tailored visuals
+async function generateAIBackgroundVividPainterlyPro(title: string, genre: string, draftId: number = 0, description: string = ""): Promise<Buffer> {
+  
+  // PROVEN FOCAL SUBJECTS from covers 239-242 (copied from Artistic Painterly)
+  const focalSubjects = [
+    "silhouette of a person standing heroically on a precipice, wind catching their hair and clothing",
+    "hooded mysterious figure with face partially illuminated, ancient symbols glowing on their robes",
+    "warrior in ornate battle-worn armor, scars telling stories, weapon at rest but ready",
+    "ethereal figure in flowing silk robes that seem to merge with mist and starlight",
+    "ancient wizard with a long silver beard, staff crackling with arcane energy",
+    "majestic dragon coiled around a mountain peak, scales shimmering with inner fire, eyes ancient and wise",
+    "graceful unicorn in a moonlit glade, mane flowing like liquid silver, horn glowing with pure light",
+    "phoenix in mid-rebirth, half flame and half feather, transforming from ash to glory",
+    "wise owl perched on ancient tome, feathers inscribed with glowing runes, eyes holding secrets",
+    "mythical griffin guarding a treasure hoard, eagle head raised proudly, lion body poised",
+    "lone wolf howling at a blood moon, silhouette powerful against the night sky",
+    "majestic lion with flowing mane, eyes reflecting inner strength and royalty",
+    "soaring eagle with wings fully spread, catching thermals above mountain ranges",
+    "graceful deer in enchanted forest, antlers adorned with flowers and vines",
+    "fierce tiger emerging from shadows, stripes blending with dappled light",
+    "ancient leather-bound book glowing with forbidden knowledge, pages turning by themselves",
+    "ornate sword thrust into stone, blade catching divine light, destiny awaiting",
+    "crystal ball showing swirling visions of possible futures, mist and light dancing within",
+    "swirling vortex of light and shadow, representing the battle between good and evil",
+    "two hands reaching toward each other across an impossible divide, almost touching",
+    "shattered mirror reflecting multiple realities, each shard showing different possibilities",
+    "tree of life with roots in darkness and branches in starlight, cosmic balance"
+  ];
+  
+  // PROVEN SYMBOLIC ELEMENTS (copied from original successful covers)
+  const symbols = [
+    "magnificent phoenix erupting from golden flames, feathers transitioning from ember red to brilliant gold, trailing sparks and ash",
+    "heavy iron chains shattering into a thousand pieces, each fragment catching light as it flies outward in slow motion",
+    "spiral galaxy with millions of visible stars, arms of purple and blue cosmic dust swirling around a brilliant core",
+    "ancient world tree with roots extending into darkness and branches reaching into starlight, leaves made of pure light",
+    "crystal hourglass with grains of stardust flowing between chambers, each grain a tiny glowing ember",
+    "monarch butterfly emerging from a crystalline cocoon, wings still wet with iridescent dewdrops",
+    "sacred lotus blooming in slow motion, each petal a different shade of pink and white, hovering above still water",
+    "infinite staircase of marble and gold ascending through clouds toward a brilliant light source",
+    "sun and moon occupying the same sky, eclipse creating a ring of fire with visible solar flares",
+    "cluster of amethyst and quartz crystals catching and refracting light into rainbow prisms",
+    "rippling waves of golden energy emanating from a central point, like a stone dropped in still water",
+    "ouroboros - a dragon of stars consuming its own tail in an eternal cycle",
+    "open book with pages turning themselves, words lifting off as glowing particles"
+  ];
+  
+  // ENHANCED CINEMATIC BACKGROUNDS - more detail than original
+  const backgrounds = [
+    "jagged mountain peak piercing through a sea of clouds at golden sunrise, distant ranges fading into purple haze, air so clear you can see forever",
+    "infinite cosmic starfield with swirling nebulae in magenta and cyan, distant galaxies visible as pinpricks of light, cosmic dust trails catching starlight",
+    "crumbling ancient temple overgrown with luminescent vines, shafts of dusty light revealing worn stone carvings, nature reclaiming sacred ground",
+    "gleaming modern cityscape at blue hour, glass towers reflecting orange sunset, streets alive with tiny lights like veins of gold",
+    "primordial enchanted forest with massive ancient trees, god rays filtering through the canopy, fireflies dancing like earthbound stars",
+    "vast golden desert under apocalyptic storm clouds, lightning striking distant dunes, sand swirling in wind like liquid gold",
+    "impossible floating islands connected by delicate bridges, waterfalls cascading into the void below, clouds drifting between worlds",
+    "infinite library with towering shelves disappearing into darkness above, floating candles and rolling ladders, knowledge made infinite",
+    "crystalline underground cavern with bioluminescent pools, stalactites dripping with liquid light, a hidden world of wonder"
+  ];
+  
+  // ENHANCED LIGHTING - proven cinematic techniques
+  const lightingScenarios = [
+    "biblical god rays breaking through parting storm clouds, each beam visible with dust particles dancing within, divine illumination",
+    "golden hour backlight creating perfect rim lighting on every edge, long shadows stretching dramatically, magic hour captured",
+    "Rembrandt lighting with a single strong source from 45 degrees, deep chiaroscuro shadows defining form with dramatic contrast",
+    "ethereal inner glow emanating from the subject themselves, as if lit from within by divine energy, supernatural radiance",
+    "frozen lightning bolt illuminating the entire scene in harsh white light, shadows razor-sharp, moment of power",
+    "first light of dawn painting everything in gradients of pink, orange, and gold, mist catching color like watercolors",
+    "single dramatic spotlight from directly above, creating a pool of light in surrounding darkness, theatrical impact"
+  ];
+  
+  // PROVEN COLOR PALETTES from successful covers
+  const colorPalettes = [
+    "deep burgundy, antique gold, and mahogany brown creating rich classical warmth",
+    "midnight blue, silver, and charcoal gray evoking mysterious elegance",
+    "forest green, bronze, and cream bringing natural sophistication",
+    "royal purple, gold leaf, and black for regal dramatic impact",
+    "burnt orange, copper, and dark chocolate with autumn warmth",
+    "teal, rose gold, and ivory for modern elegance",
+    "crimson red, black, and gold creating passionate intensity",
+    "cosmic black with galaxy purple, nebula blue, and stardust gold"
+  ];
+  
+  const randomPick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  
+  // Try AI Creative Director first for unique, tailored visuals
+  const aiDirection = await getAICreativeDirection(title, genre, description);
+  
+  let prompt: string;
+  
+  if (aiDirection) {
+    // Use AI-generated creative direction for unique cover
+    console.log(`[AI Creative Director] Using custom visual direction: ${aiDirection.emotionalTone}`);
+    prompt = `Stunning vivid ebook cover art for "${title}" (${genre}).
+
+FOCAL SUBJECT: ${aiDirection.focalSubject}
+
+SYMBOLIC ELEMENT: ${aiDirection.symbolicElement}
+
+SCENE/BACKGROUND: ${aiDirection.background}
+
+LIGHTING: ${aiDirection.lighting}
+
+COLOR PALETTE: ${aiDirection.colorPalette}
+
+ATMOSPHERE: ${aiDirection.atmosphere}
+
+ARTISTIC INFLUENCES: ${aiDirection.artisticInfluences}
+
+EMOTIONAL TONE: ${aiDirection.emotionalTone}
+
+STYLE: Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Dramatic cinematic composition. Professional movie poster quality. Every texture visible - fabric weaves, metal reflections, skin pores, stone grain. Depth through foreground framing elements and atmospheric perspective.
+
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Keep top and bottom 15% clear for text overlay.`;
+  } else {
+    // Fallback to proven random elements from covers 239-253
+    console.log(`[Vivid Painterly Pro] Using proven fallback elements`);
+    const selectedSubject = randomPick(focalSubjects);
+    const selectedSymbol = randomPick(symbols);
+    const selectedBackground = randomPick(backgrounds);
+    const selectedLighting = randomPick(lightingScenarios);
+    const selectedPalette = randomPick(colorPalettes);
+    
+    const descriptionContext = description ? ` Book theme: ${description.substring(0, 200)}` : "";
+    
+    prompt = `Stunning vivid ebook cover art for "${title}" (${genre}).${descriptionContext}
+
+SCENE: ${selectedBackground}
+
+FOCAL POINT: ${selectedSubject}
+
+SYMBOLIC ELEMENT: ${selectedSymbol}
+
+LIGHTING: ${selectedLighting}
+
+COLORS: ${selectedPalette}
+
+STYLE: Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Dramatic cinematic composition. Professional movie poster quality. Every texture visible - fabric weaves, metal reflections, skin pores, stone grain. Depth through foreground framing elements and atmospheric perspective.
+
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Keep top and bottom 15% clear for text overlay.`;
+  }
+
+  console.log(`Generating VIVID-PAINTERLY-PRO style for: "${title}" (ID: ${draftId})`);
+  console.log(`Using DALL-E 3 with ${aiDirection ? 'AI Creative Director' : 'proven fallback'} prompts`);
+
+  try {
+    const response = await openaiDalle3.images.generate({
+      model: "dall-e-3",
+      prompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "hd",
+      style: "vivid",
+    });
+
+    const imageUrl = response.data?.[0]?.url;
+    if (!imageUrl) throw new Error("No image URL returned from DALL-E 3");
+    
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) throw new Error("Failed to fetch generated image");
+    
+    const arrayBuffer = await imageResponse.arrayBuffer();
+    console.log(`SUCCESS: Generated vivid painterly pro cover!`);
+    return Buffer.from(arrayBuffer);
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Vivid-Painterly-Pro Error] DALL-E 3 failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+// ATMOSPHERIC CINEMA - Enhanced version of Vivid Atmospheric
+// Copies the proven human figures + dramatic lighting from covers 243-253 with enhanced cinematic quality
+async function generateAIBackgroundAtmosphericCinema(title: string, genre: string, draftId: number = 0, description: string = ""): Promise<Buffer> {
+  
+  // PROVEN FIGURE TYPES from covers 243-253 (copied from Vivid Atmospheric)
+  const figureTypes = [
+    "silhouette of a person standing heroically on a precipice, wind catching their hair and clothing",
+    "back view of a lone figure gazing into an infinite horizon, shoulders squared with determination",
+    "hooded mysterious figure with face partially illuminated, ancient symbols glowing on their robes",
+    "warrior in ornate battle-worn armor, scars telling stories, weapon at rest but ready",
+    "ethereal figure in flowing silk robes that seem to merge with mist and starlight",
+    "meditating figure in perfect lotus position, energy visibly radiating from their form",
+    "ancient wizard with a long silver beard, staff crackling with arcane energy, eyes glowing with wisdom",
+    "young person standing at a literal crossroads, multiple paths stretching into different realities",
+    "two figures reaching toward each other across an impossible divide, fingertips almost touching",
+    "commanding leader on horseback, army stretching to the horizon behind them",
+    "dancer frozen mid-leap, body forming a perfect arc against cosmic backdrop",
+    "queen or king on a throne of light, crown floating above their head",
+    "archer drawing back a bow of pure energy, arrow aimed at the stars"
+  ];
+  
+  // PROVEN SYMBOLIC ELEMENTS (copied from original successful covers)
+  const symbols = [
+    "magnificent phoenix erupting from golden flames, feathers transitioning from ember red to brilliant gold",
+    "heavy iron chains shattering into a thousand pieces, each fragment catching light as it flies outward",
+    "spiral galaxy with millions of visible stars, arms of purple and blue cosmic dust swirling around a core",
+    "ancient world tree with roots extending into darkness and branches reaching into starlight",
+    "crystal hourglass with grains of stardust flowing between chambers, each grain a tiny glowing ember",
+    "sacred lotus blooming in slow motion, each petal a different shade of pink and white",
+    "infinite staircase of marble and gold ascending through clouds toward a brilliant light source",
+    "sun and moon occupying the same sky, eclipse creating a ring of fire with visible solar flares",
+    "open book with pages turning themselves, words lifting off as glowing particles"
+  ];
+  
+  // PROVEN EPIC BACKGROUNDS from covers 243-253
+  const backgrounds = [
+    "jagged mountain peak piercing through a sea of clouds at golden sunrise, distant ranges fading into purple haze",
+    "infinite cosmic starfield with swirling nebulae in magenta and cyan, distant galaxies as pinpricks of light",
+    "primordial enchanted forest with massive ancient trees, god rays filtering through the canopy, fireflies dancing",
+    "vast golden desert under apocalyptic storm clouds, lightning striking distant dunes, sand swirling",
+    "impossible floating islands connected by delicate bridges, waterfalls cascading into the void below",
+    "crystalline underground cavern with bioluminescent pools, stalactites dripping with liquid light",
+    "cyberpunk metropolis drenched in neon rain, holographic advertisements flickering, flying vehicles distant",
+    "arctic landscape under dancing aurora borealis, ice formations reflecting green and purple light",
+    "wildflower meadow under a sky of impossible colors, storm and sunshine coexisting, rainbow touching ground",
+    "deep ocean realm with light shafts piercing turquoise depths, ancient ruins on seafloor, bioluminescent creatures"
+  ];
+  
+  // PROVEN CINEMATIC LIGHTING from successful covers
+  const lightingScenarios = [
+    "biblical god rays breaking through parting storm clouds, each beam visible with dust particles dancing within",
+    "golden hour backlight creating perfect rim lighting on every edge, long shadows stretching dramatically",
+    "ethereal inner glow emanating from the subject themselves, as if lit from within by divine energy",
+    "cold blue moonlight filtering through clouds, casting long silver shadows on frosted surfaces",
+    "first light of dawn painting everything in gradients of pink, orange, and gold, mist catching color",
+    "aurora borealis ribbons of color rippling across the sky, greens and purples shifting and dancing",
+    "theatrical spotlight with visible beam cutting through haze, subject isolated in pool of light"
+  ];
+  
+  // PROVEN ATMOSPHERIC EFFECTS from successful covers
+  const atmosphericEffects = [
+    "thick volumetric fog hugging the ground, god rays slicing through and illuminating suspended dust particles",
+    "thousands of floating particles of golden light, like pollen or magic dust suspended in still air",
+    "visible wind currents carrying leaves, fabric, and hair in dynamic flowing patterns across the frame",
+    "glowing embers and sparks rising from below, each one a tiny star ascending toward darkness",
+    "bioluminescent fireflies or magical orbs dancing in complex patterns, leaving light trails behind",
+    "aurora borealis ribbons of color rippling across the sky, greens and purples shifting and dancing",
+    "cherry blossom petals drifting lazily downward, each catching light as it spirals and tumbles",
+    "falling stars or meteors streaking across the sky, leaving glowing trails that slowly fade"
+  ];
+  
+  // PROVEN COLOR PALETTES with hex codes
+  const colorPalettes = [
+    "deep ocean blues (#1a365d) and teals (#0d9488) with warm antique gold (#d4a574) accents",
+    "royal purple (#7c3aed) and violet (#8b5cf6) gradients with brushed silver (#c0c0c0) highlights",
+    "emerald green (#059669) forest tones with shafts of warm golden (#fbbf24) dappled sunlight",
+    "midnight blue (#1e1b4b) depths with electric cyan (#06b6d4) energy accents and white star points",
+    "rose gold (#e8b4b8) metallics with deep burgundy (#7f1d1d) wine tones and cream highlights",
+    "sunset gradient from tangerine (#fb923c) through magenta (#db2777) to deep purple (#581c87) twilight",
+    "cosmic black (#030712) with galaxy purple (#9333ea), nebula blue (#0ea5e9), and stardust gold (#fde047)",
+    "fire and ice - glacial blue (#bae6fd), flame orange (#f97316), ember red (#dc2626), smoke gray"
+  ];
+  
+  const randomPick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  
+  // Try AI Creative Director first for unique, tailored visuals
+  const aiDirection = await getAICreativeDirection(title, genre, description);
+  
+  let prompt: string;
+  
+  if (aiDirection) {
+    // Use AI-generated creative direction for unique cover
+    console.log(`[AI Creative Director] Using custom visual direction: ${aiDirection.emotionalTone}`);
+    prompt = `Create a stunning, photorealistic cinematic ebook cover for "${title}" (${genre}).
+
+CENTRAL FIGURE/SUBJECT: ${aiDirection.focalSubject}
+
+SYMBOLIC ELEMENT: ${aiDirection.symbolicElement} - integrated meaningfully with the scene
+
+THE SCENE: ${aiDirection.background}
+
+LIGHTING: ${aiDirection.lighting}
+
+COLOR PALETTE: ${aiDirection.colorPalette}
+
+ATMOSPHERE: ${aiDirection.atmosphere}
+
+ARTISTIC INFLUENCES: ${aiDirection.artisticInfluences}
+
+EMOTIONAL TONE: ${aiDirection.emotionalTone}
+
+QUALITY: Ultra-high definition photorealistic digital art. Cinematic movie poster quality with extreme attention to detail. Rich textures on fabric, skin, metal, stone. Professional polished finish with clear depth layers.
+
+COMPOSITION: Clear foreground framing elements, sharp midground action, epic scale background with atmospheric perspective.
+
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS, NO TYPOGRAPHY. Pure visual art. Keep top and bottom 15% relatively clear for text overlay.`;
+  } else {
+    // Fallback to proven random elements from covers 243-253
+    console.log(`[Atmospheric Cinema] Using proven fallback elements`);
+    const selectedFigure = randomPick(figureTypes);
+    const selectedSymbol = randomPick(symbols);
+    const selectedBackground = randomPick(backgrounds);
+    const selectedLighting = randomPick(lightingScenarios);
+    const selectedAtmosphere = randomPick(atmosphericEffects);
+    const selectedPalette = randomPick(colorPalettes);
+    
+    const descriptionContext = description ? `\n\nBOOK THEME: ${description.substring(0, 250)}` : "";
+    
+    prompt = `Create a stunning, photorealistic cinematic ebook cover for "${title}" (${genre}).${descriptionContext}
+
+THE SCENE: ${selectedBackground}
+
+CENTRAL FIGURE: ${selectedFigure}
+
+SYMBOLIC ELEMENT: ${selectedSymbol} - integrated meaningfully with the scene
+
+LIGHTING: ${selectedLighting}
+
+COLOR PALETTE: ${selectedPalette}
+
+ATMOSPHERE: ${selectedAtmosphere}
+
+QUALITY: Ultra-high definition photorealistic digital art. Cinematic movie poster quality with extreme attention to detail. Rich textures on fabric, skin, metal, stone. Professional polished finish with clear depth layers.
+
+COMPOSITION: Clear foreground framing elements, sharp midground action, epic scale background with atmospheric perspective.
+
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS, NO TYPOGRAPHY. Pure visual art. Keep top and bottom 15% relatively clear for text overlay.`;
+  }
+
+  console.log(`Generating ATMOSPHERIC-CINEMA style for: "${title}" (ID: ${draftId})`);
+  console.log(`Using gpt-image-1 with ${aiDirection ? 'AI Creative Director' : 'proven fallback'} prompts`);
+
+  try {
+    const response = await openaiDalle3.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from gpt-image-1");
+    console.log(`SUCCESS: Generated atmospheric cinema cover!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Atmospheric-Cinema Error] gpt-image-1 failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+// Title Embed Sync: Universal function that takes any style's visual approach
+// and generates the cover WITH the title artistically embedded, following Classic 239's approach.
+// Instead of generating a "no text" background, this produces a complete cover with title baked in.
+export async function generateWithTitleEmbedSync(
+  title: string, genre: string, draftId: number, modelStyleId: string, description: string = ""
+): Promise<Buffer> {
+  console.log(`[Title-Embed-Sync] Generating ${modelStyleId} style WITH embedded title for: "${title}"`);
+
+  const concept = await generateAIVisualConcept(title, genre, description);
+  const titleInstructions = getClassic239TitleInstructions(title);
+
+  const stylePromptMap: Record<string, string> = {
+    "cinematic-openai": `Professional ebook cover, photorealistic CGI render, cinematic movie poster quality. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Ultra-detailed, dramatic cinematic lighting, sharp focus, depth of field, volumetric light rays, professional color grading.`,
+    "artistic-painterly": `Stunning painterly ebook cover with rich artistic detail. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Oil painting texture, visible brushstrokes, gallery-quality fine art composition with dramatic chiaroscuro lighting.`,
+    "artistic-compact": `Artistic ebook cover. ${concept.focalSubject}. ${concept.sceneDescription}. ${concept.colorPalette}. Painterly style, elegant composition, rich detail.`,
+    "vivid-atmospheric": `Atmospheric cinematic ebook cover with vivid colors. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Dramatic volumetric lighting, environmental storytelling, immersive depth, professional cinematography.`,
+    "standalone-scenes": `Cinematic standalone scene for ebook cover. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Pure visual storytelling, no book design elements, raw cinematic imagery, movie still quality.`,
+    "vivid-painterly-pro": `Stunning vivid painterly ebook cover with professional artistry. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Rich oil paint texture, masterful brushwork, museum-quality composition, dramatic lighting with luminous color interplay.`,
+    "atmospheric-cinema": `Photorealistic cinematic ebook cover with atmospheric depth. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Ultra-high definition, movie poster quality, extreme detail in textures, professional color grading with atmospheric perspective.`,
+    "experimental-239": `Cinematic ebook cover with literal title imagery. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Dramatic rim lighting, symbolic objects, photorealistic CGI quality.`,
+  };
+
+  const basePrompt = stylePromptMap[modelStyleId] ||
+    `Professional ebook cover, cinematic quality. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Ultra-detailed, dramatic lighting, sharp focus.`;
+
+  const fullPrompt = `A framed ebook cover design displayed on a dark background. The cover artwork is INSET with a visible dark border/margin on ALL four sides.
+
+COVER ARTWORK: ${basePrompt}
+${titleInstructions.titleSection}
+
+COMPOSITION: The entire cover design including all artwork and title text must float INSIDE the canvas with dark padding around it. Nothing is cropped or cut off.`;
+
+  console.log(`[Title-Embed-Sync] Style: ${modelStyleId}, Font: ${titleInstructions.fontDesc}`);
+  console.log(`[Title-Embed-Sync] Prompt length: ${fullPrompt.length}`);
+
+  try {
+    const response = await openaiDirectForImages.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt: fullPrompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("No image data returned from gpt-image-1");
+    console.log(`[Title-Embed-Sync] SUCCESS: Generated ${modelStyleId} cover with embedded title!`);
+    return Buffer.from(imageData, "base64");
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error(`[Title-Embed-Sync Error] Failed for "${title}": ${errorMessage}`);
+    throw error;
+  }
+}
+
+// Model style IDs for cover generation
+// "replit-cinematic" - Uses Replit's AI integration with gpt-image-1 (subject to Replit budget)
+// "dalle3-vivid" - Uses user's OpenAI API key with DALL-E 3 and modern prompts
+// "cinematic-openai" - Uses Classic Cinematic prompts with user's OpenAI API key (bypasses Replit budget)
+// "artistic-painterly" - Rich detailed prompts with pre-selected random elements (under 4000 chars)
+// "artistic-compact" - Super concise focused prompts for comparison
+// "vivid-atmospheric" - Uses gpt-image-1 with atmospheric scene prompts
+// "standalone-scenes" - Uses gpt-image-1 with pure standalone imagery (no book design language)
+// "reference-inspired" - Uses uploaded reference image as inspiration
+// NEW ENHANCED STYLES based on proven covers 239-253:
+// "vivid-painterly-pro" - Enhanced DALL-E 3 with proven vivid elements from covers 239-242
+// "atmospheric-cinema" - Enhanced gpt-image-1 with proven cinematic elements from covers 243-253
+export type ModelStyleId = "replit-cinematic" | "dalle3-vivid" | "cinematic-openai" | "artistic-painterly" | "artistic-compact" | "vivid-atmospheric" | "standalone-scenes" | "reference-inspired" | "vivid-painterly-pro" | "atmospheric-cinema" | "experimental-239" | "classic-239" | "classic-library-239" | "test-style-a" | "test-style-b" | "test-style-c" | "test-style-d" | "test-style-e" | "test-style-f" | "test-style-g" | "test-style-h";
+
+// Regenerate backgrounds for selected ebooks with style option
+// Now accepts modelStyleId parameter for the three-option style system
+export async function regenerateSelectedBackgrounds(draftIds: number[], useOriginalStyleOrModelId: boolean | ModelStyleId, titleEmbedSync: boolean = false, onProgress?: (current: number, total: number, draftTitle: string, success: boolean, errorMsg?: string) => void): Promise<{ total: number; generated: number; errors: number; lastError?: string }> {
+  // Handle both legacy boolean and new string parameter
+  let modelStyleId: ModelStyleId;
+  if (typeof useOriginalStyleOrModelId === "boolean") {
+    modelStyleId = useOriginalStyleOrModelId ? "replit-cinematic" : "dalle3-vivid";
+  } else {
+    modelStyleId = useOriginalStyleOrModelId;
+  }
+  
+  const styleNames: Record<string, string> = {
+    "replit-cinematic": "Replit Cinematic (gpt-image-1)",
+    "dalle3-vivid": "DALL-E 3 Vivid",
+    "cinematic-openai": "Cinematic via OpenAI (gpt-image-1)",
+    "artistic-painterly": "Artistic Painterly (DALL-E 3)",
+    "artistic-compact": "Artistic Compact (DALL-E 3)",
+    "vivid-atmospheric": "Vivid Atmospheric (gpt-image-1)",
+    "standalone-scenes": "Standalone Scenes (gpt-image-1)",
+    "reference-inspired": "Reference Inspired",
+    "vivid-painterly-pro": "Vivid Painterly Pro (DALL-E 3)",
+    "atmospheric-cinema": "Atmospheric Cinema (gpt-image-1)",
+    "experimental-239": "Experimental 239 (Reverse-Engineered)",
+    "classic-239": "Classic 239 (Replit AI - CGI/Glowing/Bright)",
+    "classic-library-239": "Classic Library 239 (Original 239-253)",
+    "test-style-a": "Test A",
+    "test-style-b": "Test B",
+    "test-style-c": "Test C",
+    "test-style-d": "Test D",
+    "test-style-e": "Test E",
+    "test-style-f": "Test F",
+    "test-style-g": "Test G",
+    "test-style-h": "Test H"
+  };
+  
+  console.log(`Starting regeneration for ${draftIds.length} selected ebooks with ${styleNames[modelStyleId]} style...`);
+  
+  let generated = 0;
+  let errors = 0;
+  let lastError: string | undefined;
+  const total = draftIds.length;
+  
+  for (const draftId of draftIds) {
+    let draftTitle = `Draft #${draftId}`;
+    try {
+      const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+      if (!draft) {
+        console.log(`Draft ${draftId} not found, skipping`);
+        errors++;
+        lastError = `Draft ${draftId} not found`;
+        onProgress?.(generated + errors, total, draftTitle, false, "Draft not found");
+        continue;
+      }
+      
+      const title = draft.title || draft.topic || "Untitled";
+      draftTitle = title;
+      const genre = draft.genre || "Fiction";
+      const description = draft.topic || draft.outline?.substring(0, 500) || "";
+      
+      console.log(`[${generated + errors + 1}/${total}] Regenerating: ${title} (ID: ${draftId}) with ${styleNames[modelStyleId]}${titleEmbedSync ? ' + Title Embed Sync' : ''}`);
+      
+      let bgBuffer: Buffer;
+      
+      if (titleEmbedSync) {
+        bgBuffer = await generateWithTitleEmbedSync(title, genre, draftId, modelStyleId, description);
+      } else
+      switch (modelStyleId) {
+        case "replit-cinematic":
+          bgBuffer = await generateAIBackgroundOriginalStyle(title, genre, draftId, description);
+          break;
+        case "cinematic-openai":
+          bgBuffer = await generateAIBackgroundCinematicOpenAI(title, genre, draftId, description);
+          break;
+        case "artistic-painterly":
+          bgBuffer = await generateAIBackgroundArtisticPainterly(title, genre, draftId, description);
+          break;
+        case "artistic-compact":
+          bgBuffer = await generateAIBackgroundArtisticCompact(title, genre, draftId, description);
+          break;
+        case "vivid-atmospheric":
+          bgBuffer = await generateAIBackgroundVividAtmospheric(title, genre, draftId, description);
+          break;
+        case "standalone-scenes":
+          bgBuffer = await generateAIBackgroundStandaloneScenes(title, genre, draftId, description);
+          break;
+        case "reference-inspired":
+          const refAnalysis = getStoredReferenceAnalysis();
+          if (refAnalysis) {
+            bgBuffer = await generateCoverFromReference(title, genre, refAnalysis, draftId, description);
+          } else {
+            console.log("No reference image stored, falling back to vivid-atmospheric");
+            bgBuffer = await generateAIBackgroundVividAtmospheric(title, genre, draftId, description);
+          }
+          break;
+        case "vivid-painterly-pro":
+          bgBuffer = await generateAIBackgroundVividPainterlyPro(title, genre, draftId, description);
+          break;
+        case "atmospheric-cinema":
+          bgBuffer = await generateAIBackgroundAtmosphericCinema(title, genre, draftId, description);
+          break;
+        case "experimental-239":
+          bgBuffer = await generateAIBackgroundExperimental239(title, genre, draftId, description);
+          break;
+        case "classic-library-239":
+          bgBuffer = await generateAIBackgroundClassicLibrary239(title, genre, draftId);
+          break;
+        case "test-style-a":
+          bgBuffer = await generateTestStyleA(title, genre, draftId);
+          break;
+        case "test-style-c":
+          bgBuffer = await generateTestStyleC(title, genre, draftId);
+          break;
+        case "test-style-e":
+          bgBuffer = await generateTestStyleE(title, genre, draftId);
+          break;
+        case "test-style-h":
+          bgBuffer = await generateTestStyleH(title, genre, draftId);
+          break;
+        case "test-style-b":
+          bgBuffer = await generateTestStyleB(title, genre, draftId, description);
+          break;
+        case "test-style-d":
+          bgBuffer = await generateTestStyleD(title, genre, draftId, description);
+          break;
+        case "test-style-f":
+          bgBuffer = await generateTestStyleF(title, genre, draftId, description);
+          break;
+        case "test-style-g":
+          bgBuffer = await generateTestStyleG(title, genre, draftId, description);
+          break;
+        case "classic-239":
+        case "dalle3-vivid":
+        default:
+          bgBuffer = await generateAIBackgroundOnly(title, genre, draftId, description);
+          break;
+      }
+      
+      const timestamp = Date.now();
+      const bgFilename = `ai-bg-${modelStyleId}-${timestamp}.png`;
+      const backgroundUrl = await saveCoverFile(bgBuffer, bgFilename);
+      
+      const stylesWithBuiltInOverlay = ["standalone-scenes"];
+      const hasTitleOverlay = stylesWithBuiltInOverlay.includes(modelStyleId) || titleEmbedSync;
+      
+      await db.update(draftEbooks)
+        .set({ 
+          backgroundUrl, 
+          coverUrl: hasTitleOverlay ? backgroundUrl : null, 
+          coverStyleId: modelStyleId 
+        })
+        .where(eq(draftEbooks.id, draftId));
+      
+      generated++;
+      console.log(`[${generated + errors}/${total}] Successfully generated: ${title} with style: ${modelStyleId}`);
+      onProgress?.(generated + errors, total, title, true);
+      
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error: any) {
+      const errMsg = error?.message || String(error);
+      
+      if (errMsg.includes("safety system") || errMsg.includes("content_policy") || errMsg.includes("rejected")) {
+        console.log(`[${generated + errors + 1}/${total}] Safety filter triggered for "${draftTitle}" — retrying with softened prompt...`);
+        try {
+          const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+          const safeTitle = (draft?.title || draft?.topic || "Untitled");
+          const safeGenre = draft?.genre || "Fiction";
+          
+          const safeConcept: VisualConcept = {
+            focalSubject: `Beautiful atmospheric landscape representing the theme of "${safeTitle}"`,
+            sceneDescription: `Artistic cinematic scene with rich textures, dramatic lighting, and depth. A compelling environment that evokes the mood of a ${safeGenre} story.`,
+            colorPalette: "deep blues, warm amber, soft gold, and rich earth tones",
+            atmosphere: "Cinematic volumetric lighting with dramatic shadows and warm highlights"
+          };
+          
+          const safePrompt = `Cinematic standalone scene for ebook cover. ${safeConcept.focalSubject}. ${safeConcept.sceneDescription}. Color palette: ${safeConcept.colorPalette}. ${safeConcept.atmosphere}. Pure visual storytelling, raw cinematic imagery, movie still quality.`;
+          
+          console.log(`[Safety Retry] Using softened prompt for "${safeTitle}"`);
+          
+          let retryBuffer: Buffer;
+          try {
+            const replitResponse = await openaiReplit.images.generate({
+              model: IMAGE_MODEL_PRIMARY,
+              prompt: safePrompt,
+              n: 1,
+              size: "1024x1536" as any,
+              quality: "high" as any,
+            });
+            const b64 = (retryBuffer = Buffer.from(replitResponse.data?.[0]?.b64_json || "", "base64"));
+            retryBuffer = b64;
+          } catch {
+            const dalleResponse = await openaiDalle3.images.generate({
+              model: "dall-e-3",
+              prompt: safePrompt,
+              n: 1,
+              size: "1024x1792",
+              quality: "hd",
+              style: "vivid",
+            });
+            const imgUrl = dalleResponse.data?.[0]?.url;
+            if (!imgUrl) throw new Error("No image URL from DALL-E 3 retry");
+            const resp = await fetch(imgUrl);
+            retryBuffer = Buffer.from(await resp.arrayBuffer());
+          }
+          
+          const timestamp = Date.now();
+          const bgFilename = `ai-bg-${modelStyleId}-retry-${timestamp}.png`;
+          const backgroundUrl = await saveCoverFile(retryBuffer, bgFilename);
+          
+          await db.update(draftEbooks)
+            .set({ backgroundUrl, coverUrl: null, coverStyleId: modelStyleId })
+            .where(eq(draftEbooks.id, draftId));
+          
+          generated++;
+          console.log(`[Safety Retry] Successfully generated cover for "${safeTitle}" on retry`);
+          onProgress?.(generated + errors, total, safeTitle, true);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          continue;
+        } catch (retryError: any) {
+          console.error(`[Safety Retry] Retry also failed for draft ${draftId}:`, retryError?.message || retryError);
+        }
+      }
+      
+      errors++;
+      lastError = errMsg;
+      console.error(`[${generated + errors}/${total}] Failed for draft ${draftId}:`, lastError);
+      onProgress?.(generated + errors, total, draftTitle, false, errMsg);
+    }
+  }
+  
+  console.log(`Batch regeneration complete: ${generated}/${total} generated, ${errors} errors`);
+  if (lastError) {
+    console.log(`Last error: ${lastError}`);
+  }
+  return { total, generated, errors, lastError };
+}
+
+// AI Cover Analysis - Analyzes cover image for existing text and recommends typography
+export interface CoverAnalysisResult {
+  hasExistingText: boolean;
+  detectedTitle: string | null;
+  detectedAuthor: string | null;
+  existingTextAreas: Array<{ position: string; content: string }>;
+  dominantColors: string[];
+  imageStyle?: string;
+  emptyAreas?: string[];
+  mood?: string;
+  suggestedTypography: {
+    titleFont: string;
+    authorFont: string;
+    titleColor: string;
+    authorColor: string;
+    titlePosition: "top" | "center" | "bottom";
+    titleAlignment?: "left" | "center" | "right";
+    authorPosition: "top" | "center" | "bottom";
+    authorAlignment?: "left" | "center" | "right";
+    effect: string;
+    reasoning: string;
+  };
+  needsTitle: boolean;
+  needsAuthor: boolean;
+}
+
+// Map unknown font to nearest available font
+function mapToAvailableFont(fontName: string, isTitle: boolean): string {
+  const availableFonts = isTitle ? AVAILABLE_TITLE_FONTS : AVAILABLE_AUTHOR_FONTS;
+  
+  // Direct match
+  if (availableFonts.includes(fontName)) {
+    return fontName;
+  }
+  
+  // Fuzzy match - check if font name contains any available font
+  const lowerFont = fontName.toLowerCase();
+  for (const available of availableFonts) {
+    if (lowerFont.includes(available.toLowerCase()) || available.toLowerCase().includes(lowerFont)) {
+      return available;
+    }
+  }
+  
+  // Default fallback based on style hints
+  if (lowerFont.includes("script") || lowerFont.includes("cursive") || lowerFont.includes("hand")) {
+    return "Great Vibes";
+  }
+  if (lowerFont.includes("sans") || lowerFont.includes("gothic") || lowerFont.includes("modern")) {
+    return "Montserrat";
+  }
+  
+  // Default fallback
+  return isTitle ? "Playfair Display" : "Lora";
+}
+
+export async function analyzeCoverImage(imageUrl: string, expectedTitle: string, expectedAuthor: string = "EbookGamez", genre: string): Promise<CoverAnalysisResult> {
+  console.log(`Analyzing cover image for: "${expectedTitle}" (${genre})`);
+  
+  // Convert local URL to base64 if needed
+  let imageData: string;
+  if (imageUrl.startsWith("/uploads/")) {
+    const localPath = imageUrl.replace("/uploads/", "uploads/");
+    if (fs.existsSync(localPath)) {
+      const buffer = fs.readFileSync(localPath);
+      imageData = `data:image/png;base64,${buffer.toString("base64")}`;
+    } else {
+      throw new Error(`Image file not found: ${localPath}`);
+    }
+  } else if (imageUrl.startsWith("/api/") || imageUrl.startsWith("/objects/")) {
+    // Handle object storage URLs by fetching through localhost
+    console.log("Object storage URL detected, fetching via localhost...");
+    try {
+      const port = process.env.PORT || 5000;
+      const fullUrl = `http://localhost:${port}${imageUrl}`;
+      const response = await fetch(fullUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const contentType = response.headers.get("content-type") || "image/png";
+      imageData = `data:${contentType};base64,${buffer.toString("base64")}`;
+      console.log(`Object storage image fetched successfully: ${imageData.substring(0, 50)}...`);
+    } catch (fetchError: any) {
+      console.log(`Failed to fetch object storage image: ${fetchError.message}, using default analysis`);
+      return getDefaultAnalysis(genre);
+    }
+  } else {
+    imageData = imageUrl;
+  }
+  
+  // List available fonts for AI to choose from
+  const availableTitleFonts = AVAILABLE_TITLE_FONTS.join(", ");
+  const availableAuthorFonts = AVAILABLE_AUTHOR_FONTS.join(", ");
+  
+  const analysisPrompt = `Analyze this book cover image and provide a detailed JSON response.
+
+Expected book details:
+- Title: "${expectedTitle}"
+- Author: "${expectedAuthor}"
+- Genre: ${genre}
+
+AVAILABLE FONTS (you MUST choose from these):
+- Title fonts: ${availableTitleFonts}
+- Author fonts: ${availableAuthorFonts}
+
+Analyze the image carefully and respond with ONLY valid JSON (no markdown, no explanation):
+{
+  "hasExistingText": true/false,
+  "detectedTitle": "exact title text if found, or null",
+  "detectedAuthor": "exact author text if found, or null",
+  "existingTextAreas": [{"position": "top/center/bottom", "content": "text found"}],
+  "dominantColors": ["#hex1", "#hex2", "#hex3"],
+  "imageStyle": "describe the artistic style briefly",
+  "emptyAreas": ["describe which areas (top-left, top-center, top-right, bottom-left, bottom-center, bottom-right) have minimal important details"],
+  "suggestedTypography": {
+    "titleFont": "MUST be from available title fonts list above",
+    "authorFont": "MUST be from available author fonts list above",
+    "titleColor": "#hex color that contrasts well with the background at title position",
+    "authorColor": "#hex color for author text that contrasts with background at author position",
+    "titlePosition": "top",
+    "titleAlignment": "center",
+    "authorPosition": "bottom",
+    "authorAlignment": "left/center/right - choose based on which area has the least important image details",
+    "effect": "elegant-glow/gold-emboss/sharp-shadow/neon-glow/vintage/subtle-outline/bold-shadow",
+    "reasoning": "explain which image areas are clear for text and why these placements avoid covering important details"
+  },
+  "needsTitle": true/false,
+  "needsAuthor": true/false
+}
+
+CRITICAL PLACEMENT RULES:
+1. TITLE: Always place at TOP, horizontally centered. Look at the top portion of the image and choose colors that contrast with that specific area.
+2. AUTHOR: Always place at BOTTOM. Choose LEFT, CENTER, or RIGHT alignment based on which area has the LEAST important image details (faces, key objects, focal points).
+3. NEVER place text over: faces, important characters, key objects, text already in the image, or focal points of the artwork.
+4. Analyze each corner and edge of the image to identify the clearest areas for text placement.
+
+Additional rules:
+- If the title "${expectedTitle}" or similar is already visible on the cover, set needsTitle to false
+- If the author "${expectedAuthor}" or similar is already visible, set needsAuthor to false
+- ONLY suggest fonts from the AVAILABLE FONTS lists above
+- Choose colors that provide strong contrast against the SPECIFIC area where text will be placed`;
+
+  try {
+    // Use Replit's AI integration for vision analysis with gpt-5.2
+    const response = await openaiReplit.chat.completions.create({
+      model: "gpt-5.2",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: analysisPrompt },
+            { type: "image_url", image_url: { url: imageData, detail: "high" } }
+          ]
+        }
+      ],
+      max_completion_tokens: 1000,
+    });
+    
+    const content = response.choices[0]?.message?.content || "";
+    console.log("AI Cover Analysis Response:", content);
+    
+    // Parse JSON from response
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("No JSON found in response");
+    }
+    
+    const analysis = JSON.parse(jsonMatch[0]) as CoverAnalysisResult;
+    
+    // Validate and map fonts to available fonts
+    if (analysis.suggestedTypography) {
+      analysis.suggestedTypography.titleFont = mapToAvailableFont(
+        analysis.suggestedTypography.titleFont, 
+        true
+      );
+      analysis.suggestedTypography.authorFont = mapToAvailableFont(
+        analysis.suggestedTypography.authorFont, 
+        false
+      );
+    }
+    
+    return analysis;
+  } catch (error: any) {
+    console.error("Cover analysis error:", error?.message || error);
+    return getDefaultAnalysis(genre);
+  }
+}
+
+// ============================================================
+// ENHANCED AI TYPOGRAPHY ANALYSIS - Generates 3-4 artistic style options
+// Uses deep visual analysis to create perfectly harmonized typography
+// ============================================================
+
+import { 
+  TypographyStyleOption, 
+  TypographyVaultEntry, 
+  saveTypographyToVault, 
+  getTypographyFromVault 
+} from "./backupService";
+
+export interface EnhancedTypographyResult {
+  coverAnalysis: {
+    dominantColors: string[];
+    imageStyle: string;
+    mood: string;
+    emptyAreas: string[];
+    hasExistingText: boolean;
+  };
+  styleOptions: TypographyStyleOption[];
+  savedToVault: boolean;
+  vaultPath?: string;
+}
+
+// TYPOGRAPHY CREATIVE DIRECTOR - Brainstorms unique, special typography directions for each book
+interface TypographyCreativeDirection {
+  titlePersonality: string;
+  typographicMood: string;
+  signatureElement: string;
+  colorStrategy: string;
+  placementPhilosophy: string;
+  specialEffects: string;
+  inspirations: string;
+  premiumFeel: string;
+}
+
+async function getTypographyCreativeDirection(
+  title: string, 
+  genre: string, 
+  description: string = "",
+  coverColors: string[] = []
+): Promise<TypographyCreativeDirection | null> {
+  try {
+    console.log(`[Typography Creative Director] Brainstorming unique typography concepts for "${title}"...`);
+    
+    const prompt = `You are an ELITE typography designer who has created iconic book covers for bestsellers worldwide. You are a master of:
+
+PREMIUM TYPOGRAPHY KNOWLEDGE:
+- Film title design (Saul Bass's minimalism, Kyle Cooper's kinetic type, Aaron Sims's texture work)
+- Luxury brand typography (Vogue's elegant serifs, Chanel's refined spacing, Apple's clean precision)
+- Award-winning book covers (Chip Kidd's conceptual designs, Peter Mendelsund's literary art)
+- Historic movements (Art Deco's geometric glamour, Art Nouveau's organic flourishes, Bauhaus's bold geometry)
+- Modern trends 2024 (duotone gradients, 3D layered text, metallic foil effects, typography as visual storytelling)
+
+ADVANCED TYPOGRAPHY EFFECTS TO CONSIDER:
+- DUOTONE TYPOGRAPHY: Text rendered in two contrasting colors (orange/purple, cyan/magenta, gold/black)
+- 3D LAYERED TEXT: Multiple shadow layers creating depth and dimensionality
+- GRADIENT OVERLAYS: Smooth color transitions through letters (sunrise effect, cosmic fade, metallic sheen)
+- FOIL/METALLIC EFFECTS: Gold, silver, copper, rose gold accents that catch light
+- TYPOGRAPHY AS VISUAL STORYTELLING: Text that interacts with the cover (partially hidden, emerging from shadows, glowing, dripping, woven into scene)
+- MICRO-DETAILING: Tiny intricate elements within letterforms (stars in letters, texture fills, inner shadows)
+- ORNATE FLOURISHES: Decorative swirls, scrollwork, and embellishments around letters
+- SPLIT-TONE LETTERS: Individual letters with different colors creating visual rhythm
+- EMBOSS/DEBOSS SIMULATION: Raised or recessed text appearance with lighting effects
+- NEON/ELECTRIC GLOW: Vibrant glowing text with color bleed and light trails
+
+For this ebook, create a BREATHTAKING, INTRICATE typography direction:
+
+TITLE: "${title}"
+GENRE: ${genre}
+${description ? `STORY: ${description.substring(0, 500)}` : ""}
+${coverColors.length > 0 ? `COVER COLORS DETECTED: ${coverColors.join(", ")}` : ""}
+
+Think like the creative director of a $100 limited edition collector's book. Consider:
+- What makes titles like "The Great Gatsby", "Dune", "A Court of Thorns and Roses" ICONIC?
+- How can the typography BECOME part of the art, not just sit on top?
+- What would make someone frame this cover as art?
+- How do the title's WORDS inspire visual treatment? (e.g., "Atomic" suggests glowing particles, "Shadow" suggests darkness emerging)
+
+Respond with ONLY this JSON (no markdown):
+{
+  "titlePersonality": "Give the title a VIVID character - is it whispering secrets, roaring with power, dripping with mystery, burning with passion, frozen in elegance? Make it come alive",
+  "typographicMood": "The emotional atmosphere - ethereal dreamlike, raw powerful, intimate whispered, epic cinematic, unsettling disturbing, opulent luxurious. Be specific and evocative",
+  "signatureElement": "ONE intricate visual element that makes this UNFORGETTABLE - describe in detail (e.g., 'The letter O contains a swirling galaxy', 'Each letter has a subtle golden inner glow', 'The title appears to emerge from smoke')",
+  "colorStrategy": "SPECIFIC multi-color approach with HEX codes: describe gradient direction, which letters get accent colors, metallic effects, glow colors, shadow tints. Example: 'Title fades from #FF6B35 (ember) to #FFE66D (gold), with #2D1810 shadow and subtle #FFF5E6 inner glow'",
+  "placementPhilosophy": "Precise placement with artistic reasoning - how does position enhance meaning? Consider: emerging from bottom darkness, floating in center with breathing room, crowning the top majestically",
+  "specialEffects": "Layer multiple effects for richness: 'Outer glow (#FFD700 gold), sharp drop shadow (#1A0A00), subtle emboss highlight, letter spacing that breathes'. Be intricate",
+  "inspirations": "2-3 SPECIFIC references: 'The metallic elegance of Game of Thrones titles + the neon glow of Blade Runner + the hand-crafted feel of Wes Anderson films'",
+  "premiumFeel": "What specific elements scream 'limited edition'? Describe: special finishes, intricate details, color choices that feel expensive, effects that demand attention"
+}`;
+
+    const response = await openaiDalle3.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.95, // Very high creativity
+      max_completion_tokens: 1000,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) return null;
+    
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    
+    const direction = JSON.parse(jsonMatch[0]) as TypographyCreativeDirection;
+    console.log(`[Typography Creative Director] Created unique direction: ${direction.typographicMood}, Signature: ${direction.signatureElement}`);
+    return direction;
+  } catch (error: any) {
+    console.error(`[Typography Creative Director] Error:`, error?.message || error);
+    return null;
+  }
+}
+
+/**
+ * Generate 3-4 artistically harmonized typography options for a cover
+ * AI deeply analyzes the cover's visual language and creates complementary text designs
+ */
+export async function generateTypographyOptions(
+  draftId: number,
+  imageUrl: string, 
+  title: string, 
+  author: string = "EbookGamez", 
+  genre: string,
+  description?: string,
+  forceRegenerate: boolean = false
+): Promise<EnhancedTypographyResult> {
+  console.log(`[Typography AI Master] Generating comprehensive typography options for: "${title}" (${genre})${forceRegenerate ? " [FORCE]" : ""}`);
+  
+  // Check if we already have AI-generated styles in the vault (3 premium styles)
+  const existingVault = await getTypographyFromVault(draftId);
+  if (existingVault && existingVault.styleOptions.length >= 3 && !forceRegenerate) {
+    // Check if these are AI-generated styles or just defaults
+    // AI-generated styles have titleMeaning in coverAnalysis or unique reasoning per style
+    const hasAIAnalysis = (existingVault.coverAnalysis as any)?.titleMeaning || 
+                          (existingVault.coverAnalysis as any)?.genreSignature ||
+                          (existingVault.coverAnalysis as any)?.recommendedApproach;
+    
+    // Also check if the first style's reasoning mentions the actual title
+    const firstStyleMentionsTitle = existingVault.styleOptions[0]?.reasoning?.toLowerCase().includes(title.toLowerCase().split(" ")[0]);
+    
+    if (hasAIAnalysis || firstStyleMentionsTitle) {
+      console.log(`[Typography AI Master] Found ${existingVault.styleOptions.length} AI-generated styles in vault`);
+      return {
+        coverAnalysis: {
+          ...existingVault.coverAnalysis,
+          mood: (existingVault.coverAnalysis as any).mood || "artistic",
+          hasExistingText: (existingVault.coverAnalysis as any).hasExistingText || false,
+        },
+        styleOptions: existingVault.styleOptions,
+        savedToVault: true,
+      };
+    } else {
+      console.log(`[Typography AI Master] Found DEFAULT styles in vault - regenerating with AI for "${title}"`);
+      // Continue to regenerate with AI
+    }
+  }
+  
+  // Convert local URL to base64 if needed
+  let imageData: string;
+  if (imageUrl.startsWith("/uploads/")) {
+    const localPath = imageUrl.replace("/uploads/", "uploads/");
+    if (fs.existsSync(localPath)) {
+      const buffer = fs.readFileSync(localPath);
+      imageData = `data:image/png;base64,${buffer.toString("base64")}`;
+    } else {
+      throw new Error(`Image file not found: ${localPath}`);
+    }
+  } else if (imageUrl.startsWith("/api/")) {
+    console.log("[Typography AI Master] Object storage URL - using enhanced AI generation");
+    // Still try AI-based generation for object storage URLs
+    imageData = "";
+  } else {
+    imageData = imageUrl;
+  }
+  
+  // Get explicit font lists
+  const availableTitleFonts = AVAILABLE_TITLE_FONTS.join(", ");
+  const availableAuthorFonts = AVAILABLE_AUTHOR_FONTS.join(", ");
+  
+  // Build COMPACT font guide - only top recommendations (reduced token usage)
+  const genreLower = genre.toLowerCase();
+  const relevantFonts = Object.entries(FONT_GUIDE)
+    .filter(([font, info]) => 
+      info.genres.some(g => genreLower.includes(g.toLowerCase())) || 
+      info.mood.some(m => genreLower.includes(m.toLowerCase()))
+    )
+    .slice(0, 5);
+  
+  // If no genre matches, use a diverse subset
+  const defaultFonts: [string, typeof FONT_GUIDE[keyof typeof FONT_GUIDE]][] = [
+    ["Cinzel", FONT_GUIDE["Cinzel"]],
+    ["Playfair Display", FONT_GUIDE["Playfair Display"]],
+    ["Oswald", FONT_GUIDE["Oswald"]],
+    ["Great Vibes", FONT_GUIDE["Great Vibes"]],
+    ["Montserrat", FONT_GUIDE["Montserrat"]],
+  ];
+  
+  const fontsToShow = relevantFonts.length >= 3 ? relevantFonts : defaultFonts;
+  
+  const fontGuideStr = fontsToShow
+    .map((entry) => {
+      const font = entry[0] as string;
+      const info = entry[1] as { description: string; genres: string[] };
+      return `- ${font}: ${info.description} Best for: ${info.genres.slice(0,3).join(", ")}.`;
+    })
+    .join("\n");
+  
+  // Build placement examples - only genre-relevant ones
+  const relevantPlacements = PLACEMENT_EXAMPLES.filter(ex => 
+    ex.genreMatch.some(g => genreLower.includes(g.toLowerCase()))
+  ).slice(0, 3);
+  
+  const placementsToShow = relevantPlacements.length >= 2 ? relevantPlacements : PLACEMENT_EXAMPLES.slice(0, 4);
+  
+  const placementExamplesStr = placementsToShow
+    .map(ex => `- ${ex.name}: Title at ${ex.titlePosition}, Author at ${ex.authorPosition}. Effect: ${ex.effect}.`)
+    .join("\n");
+  
+  // Get the ebook content/dialog if available
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  const ebookContent = draft?.content?.substring(0, 500) || "";
+  const ebookOutline = draft?.outline?.substring(0, 300) || "";
+  
+  // STEP 1: Get Typography Creative Direction for this specific book
+  console.log(`[Typography AI Master] Step 1: Getting creative direction from Typography Creative Director...`);
+  const creativeDirection = await getTypographyCreativeDirection(title, genre, description || ebookOutline, []);
+  
+  // Build creative direction section for the prompt - THIS IS MANDATORY
+  let creativeDirectionSection = "";
+  if (creativeDirection) {
+    creativeDirectionSection = `
+====== !!! MANDATORY CREATIVE DIRECTION - YOU MUST FOLLOW THIS !!! ======
+A MASTER typography creative director has analyzed "${title}" and created this SPECIFIC vision.
+YOU MUST IMPLEMENT EXACTLY WHAT THEY PRESCRIBED:
+
+>>> TITLE PERSONALITY: ${creativeDirection.titlePersonality}
+    ^ Apply this emotional character to EVERY letter
+
+>>> TYPOGRAPHIC MOOD: ${creativeDirection.typographicMood}
+    ^ This defines the overall atmosphere - match it PRECISELY
+
+>>> SIGNATURE ELEMENT (CRITICAL): ${creativeDirection.signatureElement}
+    ^ This is the UNIQUE detail that makes this title UNFORGETTABLE - implement it!
+
+>>> COLOR STRATEGY (USE THESE EXACT COLORS): ${creativeDirection.colorStrategy}
+    ^ Follow these HEX codes and gradient directions EXACTLY
+
+>>> PLACEMENT PHILOSOPHY: ${creativeDirection.placementPhilosophy}
+    ^ Position the title according to this artistic reasoning
+
+>>> SPECIAL EFFECTS TO LAYER: ${creativeDirection.specialEffects}
+    ^ Apply these effects to create the premium look described
+
+>>> INSPIRATIONS: ${creativeDirection.inspirations}
+    ^ Channel the energy of these references
+
+>>> PREMIUM FEEL: ${creativeDirection.premiumFeel}
+    ^ This is what makes it look like a $100 collector's edition
+
+ALL 3 STYLES MUST HONOR THIS CREATIVE DIRECTION. Each interprets it differently but the ESSENCE must remain.
+`;
+    console.log(`[Typography AI Master] Creative direction received: ${creativeDirection.typographicMood}`);
+  } else {
+    console.log(`[Typography AI Master] No creative direction available, using standard generation`);
+  }
+  
+  const analysisPrompt = `You are a MASTER book cover typography artist. Your job is to REPLICATE the cover's visual style signature INTO the typography itself, making the text feel like it was born from the cover image.
+${creativeDirectionSection}
+====== BOOK DETAILS ======
+- Title: "${title}"
+- Author: "${author}"  
+- Genre: ${genre}
+${description ? `- Description: ${description.substring(0, 200)}` : ""}
+${ebookOutline ? `- Story Outline: ${ebookOutline}` : ""}
+
+====== YOUR MISSION: CREATE TYPOGRAPHY THAT ACCENTS THE COVER ======
+
+You are not just placing text - you are DESIGNING title art that makes this book look SPECIAL and PREMIUM.
+
+1. ABSORB THE COVER'S SOUL: Study the cover image deeply. What is its:
+   - Color palette (extract the most striking, vibrant colors)
+   - Visual energy (mysterious, explosive, serene, intense, magical, technological)
+   - Artistic style (cinematic, painterly, surreal, photorealistic, fantasy)
+   - Key visual elements (what makes this cover unique)
+
+2. CHANNEL THAT ENERGY INTO TYPOGRAPHY: Create title designs that:
+   - Use colors extracted FROM the cover (complementary or accent colors that POP)
+   - Match the cover's mood (if cover is fiery, use warm glowing text; if cosmic, use ethereal cool tones)
+   - Feel integrated with the artwork (not slapped on top, but part of the design)
+
+3. MAKE IT SPECIAL: Each style should feel like a different artistic interpretation:
+   - "Ember Edition" - title glows like it's made of the same fire in the cover
+   - "Celestial Script" - text has the same cosmic quality as a space scene
+   - "Shadow Whisper" - mysterious dark text that emerges from the shadows
+   - Create style names that reference BOTH the title meaning AND the cover's visual elements
+
+====== ALLOWED FONTS (ONLY USE THESE) ======
+TITLE FONTS: ${availableTitleFonts}
+AUTHOR FONTS: ${availableAuthorFonts}
+
+====== FONT RECOMMENDATIONS FOR ${genre.toUpperCase()} ======
+${fontGuideStr}
+
+====== PLACEMENT EXAMPLES ======
+${placementExamplesStr}
+
+====== PREMIUM TYPOGRAPHY EFFECTS (use these to create INTRICATE, STYLISH titles) ======
+BASIC EFFECTS: elegant-glow, gold-emboss, sharp-shadow, neon-glow, vintage, subtle-outline, bold-shadow, none
+
+PREMIUM EFFECTS (combine for maximum impact):
+- duotone-gradient: Title transitions between two colors (specify colors in reasoning)
+- metallic-gold: Luxurious gold foil appearance with shimmer
+- metallic-silver: Sleek silver metallic finish
+- metallic-copper: Warm copper/bronze metallic tone
+- 3d-layered: Multiple shadow layers creating depth (like pop-up letters)
+- embossed: Raised appearance with light/shadow simulation
+- debossed: Pressed-in appearance with reverse lighting
+- neon-electric: Vibrant glowing text with color bleed trails
+- frosted-glass: Subtle translucent appearance with blur
+- fire-glow: Warm ember-like glow (oranges, reds, yellows)
+- ice-crystal: Cool crystalline effect (blues, whites, silvers)
+- cosmic-glow: Ethereal space-like glow (purples, cyans, magentas)
+- smoke-emerge: Text appearing to emerge from smoke/mist
+- luxury-shadow: Deep, rich shadow with subtle color tint
+- split-tone: Different colors for different parts of title
+
+POSITIONS: top, top-left, top-right, center, bottom, bottom-left, bottom-right
+TITLE SIZE: 0.8-1.4 (larger = more impactful), AUTHOR SIZE: 0.6-1.0
+
+====== COLOR EXTRACTION: LEARN FROM THE COVER'S STYLE SIGNATURE ======
+DO NOT use pre-defined colors. Instead:
+1. ANALYZE the cover image to extract its EXACT color palette
+2. Identify the PRIMARY colors (dominant hues in the image)
+3. Identify ACCENT colors (pops of color, highlights, focal point colors)
+4. Identify BACKGROUND colors (what the text will sit on)
+
+CREATE COLORS THAT BELONG TO THIS SPECIFIC COVER:
+- Extract hex values directly from the image (#RRGGBB format)
+- Create variations: brighter, darker, more saturated versions of extracted colors
+- Use TWO-TONE or GRADIENT effects when appropriate:
+  * "titleColor": "#FF6B35" with "titleSecondaryColor": "#FFE66D" for gradient
+  * Title that shifts from warm to cool across letters
+  * First word in one color, second word in accent color
+
+MULTI-COLOR TECHNIQUES TO USE:
+- Two-Tone Gradient: Title transitions between two extracted colors
+- Accent First Letter: First letter in bright accent, rest in base color
+- Shadow Color Pop: Main text one color, shadow in contrasting accent
+- Glow Halo: Text with ethereal glow in secondary extracted color
+- Metallic extracted from cover: If cover has gold/silver/bronze tones, use them
+
+====== CRITICAL: EXACTLY 3 PREMIUM STYLES (NOT MORE) ======
+Create ONLY 3 typography masterpieces - each DRAMATICALLY different:
+
+STYLE 1 - "THE ELEGANT CLASSIC": 
+- Script or refined serif font (Great Vibes, Cinzel, Playfair Display)
+- Colors EXTRACTED from cover's warm/rich tones
+- Positioned where the cover has negative space
+- Premium effect: metallic-gold, embossed, or elegant-glow
+
+STYLE 2 - "THE BOLD STATEMENT":
+- Strong display font (Bebas Neue, Anton, Oswald, Abril Fatface)
+- High contrast colors - pull the BRIGHTEST accent from cover
+- Dramatic placement that commands attention
+- Premium effect: 3d-layered, neon-electric, or duotone-gradient
+
+STYLE 3 - "THE UNIQUE VISION":
+- Unexpected font choice that surprises (could be any category)
+- Multi-color technique using 2-3 extracted cover colors
+- Unconventional placement that creates artistic tension
+- Premium effect: cosmic-glow, split-tone, fire-glow, or ice-crystal
+
+MANDATORY FOR EACH STYLE:
+1. EXTRACT EXACT HEX COLORS from this specific cover image (look at it!)
+2. IDENTIFY EMPTY SPACES in the cover for text placement
+3. MATCH the cover's energy (fiery=warm glow, cosmic=cool ethereal, dark=mysterious shadow)
+4. Each style must look like a DIFFERENT $100 collector's edition
+
+TITLE WORD TREATMENT (MAKE IT INTRICATE):
+- Consider: first word larger, second word in accent color
+- Consider: gradient flowing through all letters
+- Consider: metallic first letter, rest in complementary tone
+- Consider: letters that seem to glow from within
+
+PLACEMENT BASED ON COVER ANALYSIS:
+- TOP: If focal point is center/bottom, place title at top
+- CENTER: If cover has empty middle with elements around edges
+- BOTTOM: If main image is at top
+- OFF-CENTER: If asymmetrical composition, match it
+
+Return ONLY valid JSON (no markdown, no code blocks):
+{"coverAnalysis":{"dominantColors":["#hex1","#hex2","#hex3"],"accentColors":["#hex4","#hex5"],"imageStyle":"description","mood":"tone","emptyAreas":["zone1","zone2"],"focalPointLocation":"where the main subject is","keyObjects":"what's in the cover","titleMeaning":"what the title words evoke visually","genreSignature":"typography conventions","recommendedApproach":"design philosophy"},"styleOptions":[{"id":"style-1","name":"Evocative Name From Title+Colors","aesthetic":"description","concept":"how typography interprets title meaning","titleFont":"specific font","authorFont":"specific font","titleColor":"#hex FROM cover","titleSecondaryColor":"#hex for gradient (required for multi-color)","authorColor":"#hex","titlePosition":"based on empty areas","titleAlignment":"alignment","authorPosition":"opposite from title","authorAlignment":"alignment","titleEffect":"premium effect","authorEffect":"subtle effect","titleSize":1.1,"authorSize":0.75,"titleCase":"titlecase","authorCase":"original","colorTechnique":"two-tone-gradient or split-tone or glow-halo","wordTreatment":"how individual words are styled differently","reasoning":"specific connection to title meaning + extracted colors"}]}`;
+
+  // Helper function to make API call with retry
+  const makeAPICall = async (retryCount = 0): Promise<any> => {
+    const MAX_RETRIES = 2;
+    
+    let response;
+    if (imageData && imageData.startsWith("data:image")) {
+      response = await openaiDalle3.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: analysisPrompt },
+              { type: "image_url", image_url: { url: imageData, detail: "high" } }
+            ]
+          }
+        ],
+        max_completion_tokens: 6000,
+      });
+    } else {
+      response = await openaiDalle3.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: analysisPrompt }],
+        max_completion_tokens: 6000,
+      });
+    }
+    
+    const content = response.choices[0]?.message?.content || "";
+    console.log(`[Typography AI Master] Response received (attempt ${retryCount + 1}), length: ${content.length}`);
+    
+    // Check for empty or insufficient response
+    if (content.length < 100) {
+      console.warn(`[Typography AI Master] Response too short (${content.length} chars), attempt ${retryCount + 1}/${MAX_RETRIES + 1}`);
+      if (retryCount < MAX_RETRIES) {
+        console.log("[Typography AI Master] Retrying API call...");
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        return makeAPICall(retryCount + 1);
+      }
+      throw new Error(`Empty or insufficient response after ${MAX_RETRIES + 1} attempts`);
+    }
+    
+    // Parse JSON from response
+    let jsonString = content;
+    if (content.includes("```json")) {
+      jsonString = content.replace(/```json\s*/g, "").replace(/```\s*/g, "");
+    } else if (content.includes("```")) {
+      jsonString = content.replace(/```\s*/g, "");
+    }
+    
+    const jsonMatch = jsonString.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("[Typography AI Master] Raw response (first 500 chars):", content.substring(0, 500));
+      if (retryCount < MAX_RETRIES) {
+        console.log("[Typography AI Master] No JSON found, retrying...");
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return makeAPICall(retryCount + 1);
+      }
+      throw new Error("No JSON found in response");
+    }
+    
+    return JSON.parse(jsonMatch[0]);
+  };
+  
+  try {
+    const result = await makeAPICall();
+    
+    // Validate and map fonts to available fonts, add unique IDs
+    for (let i = 0; i < result.styleOptions.length; i++) {
+      const style = result.styleOptions[i];
+      style.id = style.id || `style-${i + 1}`;
+      style.titleFont = mapToAvailableFont(style.titleFont, true);
+      style.authorFont = mapToAvailableFont(style.authorFont, false);
+      // Ensure required fields have defaults
+      style.titleSize = style.titleSize || 1.0;
+      style.authorSize = style.authorSize || 0.8;
+      style.titleCase = style.titleCase || "titlecase";
+      style.authorCase = style.authorCase || "original";
+      style.titlePosition = style.titlePosition || "top";
+      style.authorPosition = style.authorPosition || "bottom";
+      style.titleAlignment = style.titleAlignment || "center";
+      style.authorAlignment = style.authorAlignment || "center";
+      style.titleEffect = style.titleEffect || "elegant-glow";
+      style.authorEffect = style.authorEffect || "subtle-outline";
+    }
+    
+    // Save to vault for permanent storage
+    const vaultPath = await saveTypographyToVault(draftId, {
+      draftId,
+      title,
+      author,
+      genre,
+      coverAnalysis: result.coverAnalysis,
+      styleOptions: result.styleOptions,
+      selectedStyleId: null,
+    });
+    
+    console.log(`[Typography AI Master] Generated ${result.styleOptions.length} unique styles, saved to vault`);
+    
+    return {
+      coverAnalysis: result.coverAnalysis,
+      styleOptions: result.styleOptions,
+      savedToVault: true,
+      vaultPath,
+    };
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    console.error("[Typography AI Master] Error:", errorMessage);
+    
+    // If rate limited, DON'T save fallback to vault - so it will retry next time
+    if (errorMessage.includes("429") || errorMessage.includes("rate limit")) {
+      console.log("[Typography AI Master] Rate limited - returning unsaved fallback styles");
+      return createDefaultTypographyOptionsWithoutSaving(draftId, title, author, genre);
+    }
+    
+    return createDefaultTypographyOptions(draftId, title, author, genre);
+  }
+}
+
+/**
+ * Create default typography options when AI analysis fails or is unavailable
+ */
+async function createDefaultTypographyOptions(
+  draftId: number,
+  title: string,
+  author: string,
+  genre: string
+): Promise<EnhancedTypographyResult> {
+  // Generate 3 unique fallback styles that work for any genre
+  // These are intelligent defaults that vary fonts, colors, positions, and effects
+  // Generate title-based variation so each book gets a DIFFERENT default style
+  const titleHash = title.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const positions = ["top", "top-left", "top-right", "center", "bottom", "bottom-left", "bottom-right"];
+  const colors = ["#FFFFFF", "#FFD700", "#E74C3C", "#9B59B6", "#1ABC9C", "#FF9800", "#00CED1", "#E91E63", "#3498DB"];
+  const fonts = ["Cinzel", "Playfair Display", "Oswald", "Great Vibes", "Dancing Script", "Montserrat", "Bodoni", "Raleway"];
+  
+  // Pick varied options based on title hash
+  const basePosition = positions[titleHash % positions.length];
+  const baseColor = colors[titleHash % colors.length];
+  const baseFont = fonts[titleHash % fonts.length];
+  
+  // 3 BEST FALLBACK STYLES - Premium options covering different aesthetics
+  const styles: TypographyStyleOption[] = [
+    // STYLE 1 - THE ELEGANT CLASSIC
+    { 
+      id: "style-1", 
+      name: "Golden Elegance", 
+      aesthetic: "luxurious refinement", 
+      concept: "Script elegance with metallic gold warmth", 
+      titleFont: "Great Vibes", 
+      authorFont: "Playfair Display", 
+      titleColor: "#FFD700", 
+      titleSecondaryColor: "#FFA500",
+      authorColor: "#DAA520", 
+      titlePosition: "center", 
+      titleAlignment: "center", 
+      authorPosition: "bottom", 
+      authorAlignment: "center", 
+      titleEffect: "metallic-gold", 
+      authorEffect: "elegant-glow", 
+      titleSize: 1.3, 
+      authorSize: 0.8, 
+      titleCase: "titlecase", 
+      authorCase: "original", 
+      colorTechnique: "two-tone-gradient",
+      reasoning: "Flowing script with warm metallic gold gradient evokes premium collector's edition" 
+    },
+    // STYLE 2 - THE BOLD STATEMENT
+    { 
+      id: "style-2", 
+      name: "Cinematic Impact", 
+      aesthetic: "dramatic power", 
+      concept: "Bold display with 3D depth and vibrant accent", 
+      titleFont: "Bebas Neue", 
+      authorFont: "Montserrat", 
+      titleColor: "#FFFFFF", 
+      titleSecondaryColor: baseColor,
+      authorColor: "#C0C0C0", 
+      titlePosition: "bottom", 
+      titleAlignment: "center", 
+      authorPosition: "top-right", 
+      authorAlignment: "right", 
+      titleEffect: "3d-layered", 
+      authorEffect: "subtle-outline", 
+      titleSize: 1.4, 
+      authorSize: 0.7, 
+      titleCase: "uppercase", 
+      authorCase: "original", 
+      colorTechnique: "shadow-pop",
+      reasoning: "Movie poster style with layered shadows and dramatic bottom placement" 
+    },
+    // STYLE 3 - THE UNIQUE VISION
+    { 
+      id: "style-3", 
+      name: "Ethereal Glow", 
+      aesthetic: "mystical atmosphere", 
+      concept: "Unconventional placement with cosmic multi-color effect", 
+      titleFont: "Cinzel", 
+      authorFont: "Lora", 
+      titleColor: "#E6E6FA", 
+      titleSecondaryColor: "#9B59B6",
+      authorColor: "#DDA0DD", 
+      titlePosition: "top-left", 
+      titleAlignment: "left", 
+      authorPosition: "bottom-right", 
+      authorAlignment: "right", 
+      titleEffect: "cosmic-glow", 
+      authorEffect: "elegant-glow", 
+      titleSize: 1.1, 
+      authorSize: 0.8, 
+      titleCase: "titlecase", 
+      authorCase: "original", 
+      colorTechnique: "glow-halo",
+      reasoning: "Asymmetric placement with ethereal purple-lavender glow creates artistic tension" 
+    },
+  ];
+  
+  // Save to vault
+  const vaultPath = await saveTypographyToVault(draftId, {
+    draftId,
+    title,
+    author,
+    genre,
+    coverAnalysis: {
+      dominantColors: ["#1a1a2e", "#16213e", "#0f3460"],
+      imageStyle: "generated artwork",
+      emptyAreas: ["top-center", "bottom-center"],
+    },
+    styleOptions: styles,
+    selectedStyleId: null,
+  });
+  
+  return {
+    coverAnalysis: {
+      dominantColors: ["#1a1a2e", "#16213e", "#0f3460"],
+      imageStyle: "generated artwork",
+      mood: "artistic",
+      emptyAreas: ["top-center", "bottom-center"],
+      hasExistingText: false,
+    },
+    styleOptions: styles,
+    savedToVault: true,
+    vaultPath,
+  };
+}
+
+/**
+ * Create CREATIVE typography options WITHOUT saving to vault
+ * Uses intelligent title analysis to create unique, stylish designs for each book
+ * Analyzes: title length, word patterns, genre mood, first letters
+ */
+function createDefaultTypographyOptionsWithoutSaving(
+  draftId: number,
+  title: string,
+  author: string,
+  genre: string
+): EnhancedTypographyResult {
+  const genreLower = genre.toLowerCase();
+  const titleLower = title.toLowerCase();
+  
+  // INTELLIGENT TITLE ANALYSIS
+  const titleWords = title.split(/\s+/);
+  const wordCount = titleWords.length;
+  const charCount = title.replace(/\s/g, '').length;
+  const titleHash = title.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const firstChar = title.charAt(0).toUpperCase();
+  
+  // Detect mood words in title
+  const hasDarkWords = /shadow|dark|night|death|blood|black|secret|hidden|lost|forgotten|echo|silent|whisper/i.test(title);
+  const hasLightWords = /light|bright|sun|golden|hope|love|dream|star|heaven|angel|crystal/i.test(title);
+  const hasActionWords = /rise|fall|war|battle|storm|fire|rage|hunt|chase|escape|run/i.test(title);
+  const hasMysteryWords = /mystery|secret|hidden|code|cipher|puzzle|riddle|shadow|unknown/i.test(title);
+  const hasEpicWords = /empire|kingdom|throne|crown|realm|legend|saga|chronicle|dynasty/i.test(title);
+  
+  // Calculate creative variations based on title characteristics
+  const sizeVariation = (charCount < 15) ? 1.3 : (charCount < 25) ? 1.1 : (charCount < 35) ? 0.95 : 0.85;
+  const positionIndex = (titleHash % 7); // 0-6 for 7 positions
+  const colorIndex = (titleHash % 12); // 12 unique color schemes
+  const fontIndex = (titleHash % 8); // 8 font combinations
+  const effectIndex = (titleHash % 6); // 6 effect styles
+  
+  // CREATIVE POSITIONS (avoid always top-center)
+  const positions = ["top", "top-left", "top-right", "center", "bottom", "bottom-left", "bottom-right"];
+  const authorPositions = ["bottom", "bottom-left", "bottom-right", "top-right", "top-left"];
+  
+  // DRAMATIC COLOR PALETTES
+  const colorPalettes = [
+    { title: "#FFFFFF", author: "#C0C0C0" }, // Pure white
+    { title: "#FFD700", author: "#DAA520" }, // Rich gold
+    { title: "#FF6B6B", author: "#EE5A5A" }, // Coral red
+    { title: "#4ECDC4", author: "#45B7AA" }, // Teal
+    { title: "#9B59B6", author: "#8E44AD" }, // Royal purple
+    { title: "#E74C3C", author: "#C0392B" }, // Blood red
+    { title: "#3498DB", author: "#2980B9" }, // Ocean blue
+    { title: "#F39C12", author: "#D68910" }, // Amber
+    { title: "#1ABC9C", author: "#16A085" }, // Emerald
+    { title: "#E91E63", author: "#C2185B" }, // Hot pink
+    { title: "#00BCD4", author: "#0097A7" }, // Cyan
+    { title: "#FF9800", author: "#F57C00" }, // Orange fire
+  ];
+  
+  // FONT COMBINATIONS (title, author)
+  const fontCombos = [
+    { title: "Cinzel", author: "Montserrat" },
+    { title: "Playfair Display", author: "Lora" },
+    { title: "Oswald", author: "Raleway" },
+    { title: "Great Vibes", author: "Playfair Display" },
+    { title: "Dancing Script", author: "Merriweather" },
+    { title: "Montserrat", author: "Lato" },
+    { title: "Bodoni", author: "Crimson" },
+    { title: "Raleway", author: "Open Sans" },
+  ];
+  
+  // EFFECT COMBINATIONS
+  const effectCombos = [
+    { title: "gold-emboss", author: "gold-emboss" },
+    { title: "sharp-shadow", author: "bold-shadow" },
+    { title: "elegant-glow", author: "elegant-glow" },
+    { title: "neon-glow", author: "neon-glow" },
+    { title: "bold-shadow", author: "subtle-outline" },
+    { title: "vintage", author: "vintage" },
+  ];
+  
+  // BUILD THE STYLE based on title analysis
+  let selectedColors = colorPalettes[colorIndex];
+  let selectedFonts = fontCombos[fontIndex];
+  let selectedEffects = effectCombos[effectIndex];
+  let selectedPosition = positions[positionIndex];
+  let selectedAuthorPosition = authorPositions[(titleHash + 3) % 5];
+  let selectedCase = wordCount <= 3 ? "uppercase" : "titlecase";
+  
+  // ENHANCE (not override) based on mood - add dramatic variety
+  // Use a secondary variation to ensure different books with same mood still look different
+  const moodVariation = (titleHash + charCount) % 4;
+  
+  if (hasDarkWords) {
+    // 4 dramatically different dark styles
+    const darkStyles = [
+      { color: "#E74C3C", font: "Cinzel", effect: "sharp-shadow" },      // Blood red + serif
+      { color: "#9B59B6", font: "Playfair Display", effect: "elegant-glow" }, // Purple + elegant
+      { color: "#1ABC9C", font: "Oswald", effect: "neon-glow" },          // Teal + modern
+      { color: "#E8E8E8", font: "Montserrat", effect: "bold-shadow" },    // Silver + clean
+    ];
+    const dark = darkStyles[moodVariation];
+    selectedColors.title = dark.color;
+    selectedFonts.title = dark.font;
+    selectedEffects.title = dark.effect;
+  } else if (hasLightWords) {
+    const lightStyles = [
+      { color: "#FFD700", font: "Great Vibes", effect: "gold-emboss" },   // Gold + script
+      { color: "#FFB6C1", font: "Dancing Script", effect: "elegant-glow" }, // Pink + script
+      { color: "#87CEEB", font: "Playfair Display", effect: "elegant-glow" }, // Sky blue
+      { color: "#F39C12", font: "Cinzel", effect: "gold-emboss" },        // Amber + serif
+    ];
+    const light = lightStyles[moodVariation];
+    selectedColors.title = light.color;
+    selectedFonts.title = light.font;
+    selectedEffects.title = light.effect;
+  } else if (hasActionWords) {
+    const actionStyles = [
+      { color: "#FF4444", font: "Oswald", effect: "bold-shadow" },        // Red + bold
+      { color: "#FF9800", font: "Montserrat", effect: "sharp-shadow" },   // Orange + modern
+      { color: "#E91E63", font: "Raleway", effect: "neon-glow" },         // Pink + clean
+      { color: "#FFFFFF", font: "Cinzel", effect: "sharp-shadow" },       // White + dramatic
+    ];
+    const action = actionStyles[moodVariation];
+    selectedColors.title = action.color;
+    selectedFonts.title = action.font;
+    selectedEffects.title = action.effect;
+    selectedCase = "uppercase";
+  } else if (hasEpicWords) {
+    const epicStyles = [
+      { color: "#FFD700", font: "Cinzel", effect: "gold-emboss" },        // Gold + majestic
+      { color: "#C0C0C0", font: "Bodoni", effect: "elegant-glow" },       // Silver + classic
+      { color: "#9B59B6", font: "Great Vibes", effect: "elegant-glow" },  // Purple + script
+      { color: "#E74C3C", font: "Oswald", effect: "bold-shadow" },        // Red + powerful
+    ];
+    const epic = epicStyles[moodVariation];
+    selectedColors.title = epic.color;
+    selectedFonts.title = epic.font;
+    selectedEffects.title = epic.effect;
+    selectedCase = "uppercase";
+  }
+  
+  // GENRE-SPECIFIC OVERRIDES for even more variety
+  interface GenreStyle {
+    titleFont: string;
+    authorFont: string;
+    titleColor: string;
+    authorColor: string;
+    titlePosition: string;
+    authorPosition: string;
+    titleEffect: string;
+    authorEffect: string;
+    titleCase: string;
+    titleSize: number;
+  }
+  
+  let style: GenreStyle = {
+    titleFont: selectedFonts.title,
+    authorFont: selectedFonts.author,
+    titleColor: selectedColors.title,
+    authorColor: selectedColors.author,
+    titlePosition: selectedPosition,
+    authorPosition: selectedAuthorPosition,
+    titleEffect: selectedEffects.title,
+    authorEffect: selectedEffects.author,
+    titleCase: selectedCase,
+    titleSize: sizeVariation,
+  };
+  
+  // Genre-specific enhancements (add to intelligent defaults, don't replace)
+  if (genreLower.includes("romance") || genreLower.includes("love")) {
+    style.titleFont = "Great Vibes";
+    style.titleColor = "#FFB6C1";
+    style.titleEffect = "elegant-glow";
+  } else if (genreLower.includes("sci-fi") || genreLower.includes("science")) {
+    style.titleFont = "Montserrat";
+    style.titleColor = "#00D4FF";
+    style.titleEffect = "neon-glow";
+  } else if (genreLower.includes("horror")) {
+    style.titleColor = "#DC143C";
+    style.titleEffect = "sharp-shadow";
+  }
+  
+  // Generate a creative style name based on title
+  const styleNames = [
+    `${title.split(' ')[0]} Edition`,
+    `${firstChar}-Series Design`,
+    "Signature Collection",
+    "Premium Typography",
+    "Artistic Vision",
+  ];
+  const styleName = styleNames[titleHash % styleNames.length];
+  
+  const styles: TypographyStyleOption[] = [
+    { 
+      id: "style-1", 
+      name: styleName, 
+      aesthetic: "title-inspired", 
+      concept: `Creative typography inspired by "${title}"`, 
+      titleFont: style.titleFont, 
+      authorFont: style.authorFont, 
+      titleColor: style.titleColor, 
+      authorColor: style.authorColor, 
+      titlePosition: style.titlePosition as any, 
+      titleAlignment: style.titlePosition.includes("left") ? "left" : style.titlePosition.includes("right") ? "right" : "center", 
+      authorPosition: style.authorPosition as any, 
+      authorAlignment: style.authorPosition.includes("left") ? "left" : style.authorPosition.includes("right") ? "right" : "center", 
+      titleEffect: style.titleEffect, 
+      authorEffect: style.authorEffect, 
+      titleSize: style.titleSize, 
+      authorSize: 0.8, 
+      titleCase: style.titleCase as any, 
+      authorCase: "original", 
+      reasoning: `Intelligent styling: ${wordCount} words, ${hasDarkWords ? 'dark mood' : hasLightWords ? 'bright mood' : hasActionWords ? 'action mood' : hasEpicWords ? 'epic mood' : 'neutral mood'}` 
+    },
+  ];
+  
+  console.log(`[Typography AI Master] Creative fallback: "${title}" -> ${style.titleFont}, ${style.titleColor}, ${style.titlePosition}, size ${style.titleSize}`);
+  
+  return {
+    coverAnalysis: {
+      dominantColors: ["#1a1a2e", "#16213e", "#0f3460"],
+      imageStyle: "generated artwork",
+      mood: "artistic",
+      emptyAreas: ["top-center", "bottom-center"],
+      hasExistingText: false,
+    },
+    styleOptions: styles,
+    savedToVault: false, // NOT saved - will retry AI next time
+  };
+}
+
+// Get genre-appropriate default analysis
+function getDefaultAnalysis(genre: string): CoverAnalysisResult {
+  const genreLower = genre.toLowerCase();
+  
+  // Genre-specific defaults
+  let titleFont = "Playfair Display";
+  let authorFont = "Lora";
+  let titleColor = "#FFFFFF";
+  let authorColor = "#E0E0E0";
+  let effect = "elegant-glow";
+  let position: "top" | "center" | "bottom" = "top";
+  
+  if (genreLower.includes("romance") || genreLower.includes("love")) {
+    titleFont = "Great Vibes";
+    titleColor = "#F5E6D3";
+    effect = "elegant-glow";
+  } else if (genreLower.includes("fantasy") || genreLower.includes("magic")) {
+    titleFont = "Cinzel";
+    titleColor = "#FFD700";
+    effect = "gold-emboss";
+  } else if (genreLower.includes("thriller") || genreLower.includes("mystery")) {
+    titleFont = "Oswald";
+    effect = "sharp-shadow";
+    position = "top";
+  } else if (genreLower.includes("sci-fi") || genreLower.includes("science fiction")) {
+    titleFont = "Montserrat";
+    titleColor = "#00FFFF";
+    effect = "neon-glow";
+  } else if (genreLower.includes("horror")) {
+    titleFont = "Oswald";
+    titleColor = "#8B0000";
+    effect = "sharp-shadow";
+  } else if (genreLower.includes("business") || genreLower.includes("self-help")) {
+    titleFont = "Montserrat";
+    authorFont = "Lato";
+    effect = "subtle-outline";
+  }
+  
+  return {
+    hasExistingText: false,
+    detectedTitle: null,
+    detectedAuthor: null,
+    existingTextAreas: [],
+    dominantColors: ["#1a1a2e", "#16213e", "#0f3460"],
+    suggestedTypography: {
+      titleFont,
+      authorFont,
+      titleColor,
+      authorColor,
+      titlePosition: position,
+      authorPosition: "bottom",
+      effect,
+      reasoning: `Default ${genre} styling`
+    },
+    needsTitle: true,
+    needsAuthor: true
+  };
+}
+
+/**
+ * Generate typography options using Replit AI (gpt-5)
+ * This thinks about how titles would look as if they were EMBEDDED in the cover image
+ * Uses the same visual language as the original 239-253 covers
+ * 
+ * STEP 1: Analyze the actual cover image to extract colors and composition
+ * STEP 2: Use those insights to generate integrated typography
+ */
+export async function generateTypographyOptionsReplitStyle(
+  draftId: number,
+  imageUrl: string,
+  title: string,
+  author: string = "EbookGamez",
+  genre: string,
+  description?: string
+): Promise<EnhancedTypographyResult> {
+  console.log(`[Replit Typography AI] Generating embedded-style typography for: "${title}" (${genre})`);
+  
+  // STEP 1: First analyze the actual cover image to get real colors and composition
+  let usedRealCoverAnalysis = false;
+  let coverAnalysisData = {
+    dominantColors: ["#8B4513", "#FFD700", "#2F1B14"],
+    imageStyle: "dark academia cinematic",
+    emptyAreas: ["top-center", "bottom-center"],
+    mood: "sophisticated"
+  };
+  
+  try {
+    // Use the existing cover analysis function to get real image data
+    console.log(`[Replit Typography AI] Step 1: Analyzing actual cover image...`);
+    const coverAnalysis = await analyzeCoverImage(imageUrl, title, author, genre);
+    coverAnalysisData = {
+      dominantColors: coverAnalysis.dominantColors || coverAnalysisData.dominantColors,
+      imageStyle: coverAnalysis.imageStyle || coverAnalysisData.imageStyle,
+      emptyAreas: coverAnalysis.emptyAreas || coverAnalysisData.emptyAreas,
+      mood: (coverAnalysis as any).mood || "sophisticated"
+    };
+    usedRealCoverAnalysis = true;
+    console.log(`[Replit Typography AI] Cover analysis complete (REAL):`, coverAnalysisData);
+  } catch (error: any) {
+    console.log(`[Replit Typography AI] Cover analysis failed, using defaults:`, error?.message);
+    usedRealCoverAnalysis = false;
+  }
+  
+  // STEP 2: Use Replit's AI to design typography based on actual cover analysis
+  const embeddedStylePrompt = `You are a MASTER book cover designer who specializes in creating typography that looks NATURALLY EMBEDDED in cover artwork - as if the title was painted directly onto the scene by the original artist.
+
+BOOK DETAILS:
+- Title: "${title}"
+- Author: "${author}"
+- Genre: ${genre}
+${description ? `- Description: ${description.substring(0, 200)}` : ""}
+
+ACTUAL COVER ANALYSIS (from analyzing the real cover image):
+- Dominant Colors: ${coverAnalysisData.dominantColors.join(", ")}
+- Image Style: ${coverAnalysisData.imageStyle}
+- Empty Areas (good for text): ${coverAnalysisData.emptyAreas.join(", ")}
+- Overall Mood: ${coverAnalysisData.mood}
+
+YOUR MISSION: Design typography that looks naturally EMBEDDED in this specific cover using the ACTUAL colors and style extracted above.
+
+Think like the artist who created the 239-253 classic ebook covers:
+- Dark academia aesthetic with rich burgundy, gold, and dark brown colors
+- Vintage library feel with sophisticated, premium look
+- Titles that feel like they belong in the scene, not slapped on top
+- Elegant typography that enhances the artwork
+
+IMAGINE THE TITLE EMBEDDED IN THE IMAGE:
+1. What colors from the cover would the title naturally use?
+2. Where would the title sit to look like part of the original painting?
+3. What font style matches the era and mood of the artwork?
+4. What subtle effects would make it look integrated (not overlaid)?
+
+For each style, describe:
+- Font that matches the cover's artistic style
+- Colors extracted from or complementing the cover
+- Position where it would naturally fit
+- Effects that make it look painted into the scene
+
+AVAILABLE FONTS:
+Title: Cinzel, Playfair Display, Cormorant Garamond, Great Vibes, Dancing Script, Bebas Neue, Oswald, Lora, Merriweather, Bodoni Moda, Abril Fatface
+Author: Montserrat, Lora, Open Sans, Raleway, Cormorant Garamond, Playfair Display
+
+EFFECTS: elegant-glow, metallic-gold, metallic-copper, vintage, embossed, soft-shadow, subtle-outline, 3d-layered
+
+POSITIONS: top, top-left, top-right, center, bottom, bottom-left, bottom-right
+
+Create EXACTLY 3 styles in this JSON format (no markdown):
+{
+  "coverAnalysis": {
+    "dominantColors": ["#hex1", "#hex2", "#hex3"],
+    "imageStyle": "description of the cover style",
+    "mood": "the cover's emotional tone",
+    "emptyAreas": ["where titles could naturally sit"],
+    "embeddedApproach": "how you would paint the title into this scene"
+  },
+  "styleOptions": [
+    {
+      "id": "style-1",
+      "name": "Creative style name referencing both title and cover",
+      "aesthetic": "the visual feel",
+      "concept": "how the title integrates with the artwork",
+      "titleFont": "one of the available fonts",
+      "authorFont": "one of the available fonts",
+      "titleColor": "#hex primary color",
+      "titleSecondaryColor": "#hex secondary for gradient",
+      "authorColor": "#hex",
+      "titlePosition": "position",
+      "titleAlignment": "left/center/right",
+      "authorPosition": "position",
+      "authorAlignment": "left/center/right",
+      "titleEffect": "effect name",
+      "authorEffect": "effect name or none",
+      "titleSize": 1.0 to 1.4,
+      "authorSize": 0.7 to 0.9,
+      "titleCase": "titlecase/uppercase/original",
+      "authorCase": "original",
+      "colorTechnique": "two-tone-gradient/metallic/shadow-pop/glow-halo",
+      "reasoning": "Why this looks naturally embedded in the cover"
+    }
+  ]
+}`;
+
+  try {
+    const response = await openaiReplit.chat.completions.create({
+      model: "gpt-5",
+      messages: [
+        { role: "system", content: "You are an expert book cover typography designer. Respond only with valid JSON." },
+        { role: "user", content: embeddedStylePrompt }
+      ],
+      temperature: 0.8,
+      max_completion_tokens: 2500,
+    });
+
+    const content = response.choices[0]?.message?.content || "";
+    console.log(`[Replit Typography AI] Response received, length: ${content.length}`);
+
+    if (content.length < 100) {
+      throw new Error("Response too short");
+    }
+
+    // Parse the JSON response
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("No JSON found in response");
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    
+    // Validate and enhance the response
+    const styleOptions = (parsed.styleOptions || []).map((style: any, idx: number) => ({
+      id: style.id || `style-${idx + 1}`,
+      name: style.name || `Replit Style ${idx + 1}`,
+      aesthetic: style.aesthetic || "embedded elegance",
+      concept: style.concept || "naturally integrated typography",
+      titleFont: style.titleFont || "Cinzel",
+      authorFont: style.authorFont || "Montserrat",
+      titleColor: style.titleColor || "#FFD700",
+      titleSecondaryColor: style.titleSecondaryColor || "#FFA500",
+      authorColor: style.authorColor || "#FFFFFF",
+      titlePosition: style.titlePosition || "center",
+      titleAlignment: style.titleAlignment || "center",
+      authorPosition: style.authorPosition || "bottom",
+      authorAlignment: style.authorAlignment || "center",
+      titleEffect: style.titleEffect || "elegant-glow",
+      authorEffect: style.authorEffect || "none",
+      titleSize: style.titleSize || 1.2,
+      authorSize: style.authorSize || 0.8,
+      titleCase: style.titleCase || "titlecase",
+      authorCase: style.authorCase || "original",
+      colorTechnique: style.colorTechnique || "two-tone-gradient",
+      reasoning: style.reasoning || "Designed to look naturally embedded in the cover artwork"
+    }));
+
+    // Build cover analysis object
+    const coverAnalysis = {
+      dominantColors: parsed.coverAnalysis?.dominantColors || ["#8B4513", "#FFD700", "#2F1B14"],
+      imageStyle: parsed.coverAnalysis?.imageStyle || "dark academia",
+      mood: parsed.coverAnalysis?.mood || "sophisticated",
+      emptyAreas: parsed.coverAnalysis?.emptyAreas || ["top-center", "bottom-center"],
+      hasExistingText: false,
+    };
+
+    // Save to vault
+    const vaultPath = await saveTypographyToVault(draftId, {
+      draftId,
+      title,
+      author,
+      genre,
+      coverAnalysis,
+      styleOptions,
+      selectedStyleId: null,
+    });
+
+    console.log(`[Replit Typography AI] Generated ${styleOptions.length} embedded-style options, saved to: ${vaultPath}, usedRealCoverAnalysis: ${usedRealCoverAnalysis}`);
+
+    return {
+      coverAnalysis: {
+        ...coverAnalysis,
+        usedRealAnalysis: usedRealCoverAnalysis,
+      } as any,
+      styleOptions,
+      savedToVault: !!vaultPath,
+    };
+  } catch (error: any) {
+    console.error(`[Replit Typography AI] Error:`, error?.message || error);
+    
+    // Fall back to default dark academia style
+    return createDefaultTypographyOptionsWithoutSaving(draftId, title, author, genre);
+  }
+}

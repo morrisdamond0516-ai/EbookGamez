@@ -1,0 +1,86 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/title-perfection-styles.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  
+  /* Classic Library Theme Colors */
+  --color-background: hsl(30 15% 8%); /* Deep brown/black */
+  --color-foreground: hsl(35 30% 90%); /* Parchment */
+  
+  --color-card: hsl(30 15% 12%);
+  --color-card-foreground: hsl(35 30% 90%);
+  
+  --color-popover: hsl(30 15% 12%);
+  --color-popover-foreground: hsl(35 30% 90%);
+  
+  --color-primary: hsl(45 60% 50%); /* Antique Gold */
+  --color-primary-foreground: hsl(30 15% 5%);
+  
+  --color-secondary: hsl(30 10% 20%);
+  --color-secondary-foreground: hsl(35 30% 90%);
+  
+  --color-muted: hsl(30 10% 18%);
+  --color-muted-foreground: hsl(35 15% 70%);
+  
+  --color-accent: hsl(45 60% 50%);
+  --color-accent-foreground: hsl(30 15% 5%);
+  
+  --color-destructive: hsl(0 62% 30%);
+  --color-destructive-foreground: hsl(35 30% 90%);
+  
+  --color-border: hsl(30 15% 20%);
+  --color-input: hsl(30 15% 15%);
+  --color-ring: hsl(45 60% 50%);
+  
+  --color-chart-1: hsl(45 60% 50%);
+  --color-chart-2: hsl(30 40% 40%);
+  --color-chart-3: hsl(20 30% 30%);
+  --color-chart-4: hsl(10 20% 20%);
+  --color-chart-5: hsl(0 0% 15%);
+
+  --font-sans: 'Inter', sans-serif;
+  --font-serif: 'Playfair Display', serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Cinzel', serif;
+  --font-body: 'Libre Baskerville', serif;
+
+  --radius: 0.25rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply font-body antialiased bg-background text-foreground;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-serif text-primary;
+  }
+}
+
+@layer utilities {
+  .text-gold-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-[#D4AF37] via-[#F7EF8A] to-[#D4AF37];
+  }
+  .glass-panel {
+    @apply bg-black/40 backdrop-blur-md border border-white/5;
+  }
+}
+
+@keyframes shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes promo-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(201,169,113,0.3), inset 0 0 8px rgba(201,169,113,0.1); }
+  50% { box-shadow: 0 0 20px rgba(201,169,113,0.6), inset 0 0 12px rgba(201,169,113,0.2); }
+}

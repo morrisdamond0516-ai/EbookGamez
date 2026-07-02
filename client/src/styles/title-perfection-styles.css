@@ -1,0 +1,456 @@
+/* Title Perfection Engine Styles */
+/* Fonts loaded in index.html */
+
+/* CRITICAL: Never use solid backgrounds on titles */
+.title-perfection-container,
+.title-container,
+.title-overlay,
+.title-preview,
+.typography-style,
+.title-visual-enhanced {
+  background: none !important;
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+}
+
+.title-perfection-container {
+  position: absolute;
+  z-index: 1000;
+  pointer-events: none;
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.title-word {
+  position: absolute;
+  white-space: nowrap;
+  will-change: transform, opacity;
+  transition: all 0.3s ease;
+  pointer-events: auto;
+}
+
+.title-word:hover {
+  transform: scale(1.05) !important;
+  z-index: 2000 !important;
+}
+
+/* Complexity Levels */
+.complexity-simple .title-word {
+  letter-spacing: 0.05em;
+}
+
+.complexity-moderate .title-word {
+  letter-spacing: 0.08em;
+}
+
+.complexity-complex .title-word {
+  letter-spacing: 0.1em;
+}
+
+/* Layout Types */
+.layout-simple {
+  text-align: center;
+}
+
+.layout-curved .title-word {
+  transform-origin: center center;
+}
+
+.layout-staggered .title-word {
+  transition-delay: calc(var(--word-index, 0) * 0.1s);
+}
+
+.layout-artistic .title-word {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* First Letter Emphasis - DISABLED to prevent inconsistent sizing */
+.first-letter-emphasis .title-word:first-child::first-letter {
+  /* Disabled - was causing inconsistent styling */
+  /* font-size: 1.4em !important; */
+  /* color: var(--title-accent, #FFD700) !important; */
+}
+
+/* Two-tone Effects */
+.two-tone .title-word {
+  background: var(--title-gradient, linear-gradient(to right, #D4AF37, #FFD700));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.two-tone-vertical {
+  background: linear-gradient(to right, var(--color1, #D4AF37) 0%, var(--color1) 50%, var(--color2, #FFFFFF) 51%, var(--color2) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.two-tone-horizontal {
+  background: linear-gradient(to bottom, var(--color1, #D4AF37) 0%, var(--color1) 50%, var(--color2, #FFFFFF) 51%, var(--color2) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Multi-color Effects */
+.multi-color .title-word:nth-child(1) { color: var(--color-1, #D4AF37) !important; }
+.multi-color .title-word:nth-child(2) { color: var(--color-2, #FFFFFF) !important; }
+.multi-color .title-word:nth-child(3) { color: var(--color-3, #C4A35A) !important; }
+.multi-color .title-word:nth-child(4) { color: var(--color-4, #8B4513) !important; }
+.multi-color .title-word:nth-child(5) { color: var(--color-5, #FFD700) !important; }
+
+/* Effect Classes - Glows (SIMPLIFIED to prevent ghostly/blurry text) */
+.effect-elegant-glow {
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.effect-soft-glow {
+  text-shadow: 2px 2px 3px rgba(0, 0, 0, 0.4);
+}
+
+.effect-gold-glow {
+  color: #FFD700;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.effect-neon-glow {
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.effect-cosmic-glow {
+  color: #A78BFA;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.effect-fire-glow {
+  color: #FF6B00;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Effect Classes - Shadows */
+.effect-soft-shadow {
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.effect-hard-shadow {
+  text-shadow: 3px 3px 0 rgba(0, 0, 0, 0.5);
+}
+
+.effect-long-shadow {
+  text-shadow: 
+    1px 1px 0 rgba(0, 0, 0, 0.2),
+    2px 2px 0 rgba(0, 0, 0, 0.2),
+    3px 3px 0 rgba(0, 0, 0, 0.2),
+    4px 4px 0 rgba(0, 0, 0, 0.2),
+    5px 5px 0 rgba(0, 0, 0, 0.2),
+    6px 6px 6px rgba(0, 0, 0, 0.4);
+}
+
+.effect-floating-shadow {
+  text-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
+}
+
+.effect-perspective-shadow {
+  text-shadow: 
+    1px 1px 0 rgba(0, 0, 0, 0.15),
+    2px 4px 0 rgba(0, 0, 0, 0.12),
+    3px 6px 0 rgba(0, 0, 0, 0.09),
+    4px 8px 0 rgba(0, 0, 0, 0.06),
+    5px 10px 10px rgba(0, 0, 0, 0.3);
+}
+
+/* Effect Classes - Textures */
+.effect-gold-leaf {
+  background: linear-gradient(135deg, #BF953F, #FCF6BA, #B38728, #FBF5B7, #AA771C);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.effect-velvet {
+  background: linear-gradient(180deg, #8B0000, #DC143C, #8B0000);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(2px 2px 2px rgba(0, 0, 0, 0.5));
+}
+
+.effect-metallic,
+.effect-metal {
+  background: linear-gradient(180deg, #B8B8B8, #E8E8E8, #A0A0A0, #D0D0D0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(2px 2px 2px rgba(0, 0, 0, 0.4));
+}
+
+.effect-crystal {
+  background: linear-gradient(135deg, #A5F3FC, #E0F7FA, #67E8F9, #CFFAFE);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 5px rgba(103, 232, 249, 0.5));
+}
+
+/* Effect Classes - Special */
+.effect-3d-extrude {
+  text-shadow: 
+    1px 1px 0 var(--title-shadow, rgba(0, 0, 0, 0.3)),
+    2px 2px 0 var(--title-shadow, rgba(0, 0, 0, 0.3)),
+    3px 3px 0 var(--title-shadow, rgba(0, 0, 0, 0.3)),
+    4px 4px 6px rgba(0, 0, 0, 0.5);
+}
+
+.effect-liquid {
+  background: linear-gradient(180deg, 
+    var(--title-primary, #4FC3F7) 0%,
+    var(--title-secondary, #29B6F6) 50%,
+    var(--title-primary, #03A9F4) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+}
+
+.effect-sparkle {
+  animation: sparkle 2s ease-in-out infinite;
+}
+
+.effect-rainbow {
+  background: linear-gradient(90deg, 
+    #FF0000, #FF7F00, #FFFF00, #00FF00, #0000FF, #4B0082, #9400D3, #FF0000);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: rainbow-move 3s linear infinite;
+}
+
+.effect-two-tone {
+  background: linear-gradient(to right, 
+    var(--title-primary, #D4AF37) 0%, 
+    var(--title-secondary, #FFFFFF) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Horror/Mystery Effects */
+.effect-blood-drip {
+  color: #8B0000;
+  text-shadow: 0 2px 4px rgba(139, 0, 0, 0.5);
+}
+
+.effect-distressed {
+  text-shadow: 
+    1px 0 0 rgba(255, 255, 255, 0.1),
+    -1px 0 0 rgba(0, 0, 0, 0.3),
+    0 1px 0 rgba(255, 255, 255, 0.1),
+    0 -1px 0 rgba(0, 0, 0, 0.3);
+}
+
+.effect-smoke {
+  /* Reduced intensity - was causing foggy unreadable text */
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.effect-typewriter {
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.1em;
+}
+
+/* Sci-Fi Effects */
+.effect-cyber-shadow {
+  text-shadow: 
+    0 0 5px #00FFFF,
+    0 0 10px #00FFFF,
+    -2px 0 0 #FF00FF;
+}
+
+.effect-hologram {
+  /* Disabled - was causing unreadable text */
+  color: inherit;
+  opacity: 1;
+}
+
+.effect-scan-line {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 255, 255, 0.1) 2px,
+    rgba(0, 255, 255, 0.1) 4px
+  );
+}
+
+/* Children's Effects */
+.effect-bounce-effect {
+  animation: bounce 1s ease infinite;
+}
+
+.effect-cartoon-outline {
+  text-shadow: 
+    -2px -2px 0 #000,
+    2px -2px 0 #000,
+    -2px 2px 0 #000,
+    2px 2px 0 #000;
+}
+
+/* Clean/Professional Effects */
+.effect-clean,
+.effect-professional {
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.effect-elegant-shadow {
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* Vintage/Historical Effects */
+.effect-vintage {
+  color: #8B4513;
+  text-shadow: 1px 1px 0 #D2B48C;
+}
+
+.effect-embossed {
+  text-shadow: 
+    -1px -1px 0 rgba(255, 255, 255, 0.3),
+    1px 1px 0 rgba(0, 0, 0, 0.3);
+}
+
+.effect-parchment {
+  color: #5C4033;
+  text-shadow: 1px 1px 2px rgba(92, 64, 51, 0.3);
+}
+
+/* Nature/Wellness Effects */
+.effect-nature-tones {
+  background: linear-gradient(135deg, #228B22, #32CD32, #90EE90);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.effect-serene {
+  text-shadow: 0 0 10px rgba(135, 206, 235, 0.5);
+}
+
+/* Spiritual Effects */
+.effect-ethereal {
+  /* Reduced intensity - was causing foggy text */
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+  opacity: 1;
+}
+
+.effect-mystical {
+  /* Simplified - gradient text with shadow was causing blur issues */
+  color: #9B59B6;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Animations */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes subtle-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
+@keyframes glow-pulse {
+  /* Disabled - was causing ghostly appearance */
+  0%, 100% { opacity: 1; }
+  50% { opacity: 1; }
+}
+
+@keyframes wave {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-3px) rotate(1deg); }
+  75% { transform: translateY(3px) rotate(-1deg); }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes typewriter {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+@keyframes sparkle {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.3); }
+}
+
+@keyframes rainbow-move {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes hologram-flicker {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.95; }
+}
+
+/* Animation Classes */
+.animation-fade-in {
+  animation: fade-in 0.6s ease-out;
+}
+
+.animation-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animation-subtle-float {
+  animation: subtle-float 4s ease-in-out infinite;
+}
+
+.animation-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.animation-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+.animation-wave {
+  animation: wave 2s ease-in-out infinite;
+}
+
+.animation-bounce {
+  animation: bounce 1s ease infinite;
+}
+
+/* Author Name */
+.author-name {
+  font-family: 'Lora', serif;
+  font-size: 1.1em;
+  opacity: 0.85;
+  margin-top: 10px;
+  text-align: center;
+  position: relative;
+  z-index: 1001;
+}
+
+/* Debug Mode */
+.debug-mode .title-perfection-container {
+  border: 1px dashed rgba(255, 0, 0, 0.3);
+}
+
+.debug-mode .title-word {
+  outline: 1px solid rgba(0, 255, 0, 0.3);
+}
