@@ -546,7 +546,15 @@ app.use((req, res, next) => {
   next();
 });
 
+let _fixLocalCoverPathsRunning = false;
+
 async function fixLocalCoverPaths() {
+  if (_fixLocalCoverPathsRunning) {
+    console.log("[Startup] fixLocalCoverPaths already running — skipping overlapping run");
+    return;
+  }
+  _fixLocalCoverPathsRunning = true;
+  const startedAt = Date.now();
   try {
     const { ensureCoverPersisted } = await import("./coverStorage");
     const pg = await import("pg");
@@ -560,7 +568,7 @@ async function fixLocalCoverPaths() {
     );
     let booksFixed = 0;
     {
-      const CONCURRENCY = 20;
+      const CONCURRENCY = 40;
       const queue = [...booksResult.rows];
       const worker = async () => {
         while (queue.length > 0) {
@@ -592,7 +600,7 @@ async function fixLocalCoverPaths() {
 
     let draftsFixed = 0;
     {
-      const CONCURRENCY = 20;
+      const CONCURRENCY = 40;
       const queue = [...draftsResult.rows];
       const worker = async () => {
         while (queue.length > 0) {
@@ -633,8 +641,11 @@ async function fixLocalCoverPaths() {
     }
 
     await client.end();
+    console.log(`[Startup] fixLocalCoverPaths completed in ${Date.now() - startedAt}ms (${booksResult.rows.length} books, ${draftsResult.rows.length} drafts checked)`);
   } catch (err: any) {
     console.error("[Startup] Error fixing local cover paths:", err.message);
+  } finally {
+    _fixLocalCoverPathsRunning = false;
   }
 }
 
@@ -892,7 +903,9 @@ async function migrateColoringPageFiles() {
 
 (async () => {
   await seedProductionData();
-  await fixLocalCoverPaths();
+  // Run cover-path migration in background — does not block server startup.
+  // Guarded against overlapping runs via _fixLocalCoverPathsRunning.
+  setTimeout(() => fixLocalCoverPaths().catch(e => console.error("[Startup] Unhandled fixLocalCoverPaths error:", e.message)), 5000);
   // Run illustration migration in background — does not block server startup
   setTimeout(() => migrateIllustrationFiles(5000).catch(e => console.error("[IllustMigration] Unhandled:", e.message)), 8000);
   setTimeout(() => migrateColoringPageFiles().catch(e => console.error("[ColorMigration] Unhandled:", e.message)), 12000);

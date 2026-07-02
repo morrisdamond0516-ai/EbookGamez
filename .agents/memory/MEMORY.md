@@ -1,0 +1,1 @@
+- [Startup migrations must be deferred, not awaited](startup-migrations.md) — any one-time data-fixup that loops over DB rows with network calls must run via setTimeout after listen(), with a re-entrancy guard.
