@@ -561,15 +561,28 @@ async function fixLocalCoverPaths() {
     const client = new pg.default.Client({ connectionString: process.env.DATABASE_URL });
     await client.connect();
 
+    // Sample rate for re-verifying already-migrated (/objstore/covers/) rows on each
+    // restart, to catch drift (e.g. accidental deletion from the bucket) without
+    // paying the full object-storage existence-check cost for every row every time.
+    // Genuinely un-migrated (/uploads/covers/) rows are always fully processed.
+    const ALREADY_MIGRATED_SAMPLE_RATE = 0.05;
+    const needsVerification = (url: string | null | undefined) =>
+      !!url && (url.startsWith("/uploads/covers/") || Math.random() < ALREADY_MIGRATED_SAMPLE_RATE);
+
     // Upload local cover files to object storage and normalize book paths
     const booksResult = await client.query(
       `SELECT id, title, cover_url FROM books
        WHERE cover_url LIKE '/uploads/covers/%' OR cover_url LIKE '/objstore/covers/%'`
     );
     let booksFixed = 0;
+    let booksSkipped = 0;
     {
       const CONCURRENCY = 40;
-      const queue = [...booksResult.rows];
+      const queue = booksResult.rows.filter((book) => {
+        if (needsVerification(book.cover_url)) return true;
+        booksSkipped++;
+        return false;
+      });
       const worker = async () => {
         while (queue.length > 0) {
           const book = queue.shift();
@@ -599,6 +612,7 @@ async function fixLocalCoverPaths() {
     );
 
     let draftsFixed = 0;
+    let draftsSkipped = 0;
     {
       const CONCURRENCY = 40;
       const queue = [...draftsResult.rows];
@@ -608,12 +622,15 @@ async function fixLocalCoverPaths() {
           if (!draft) break;
           let coverUrl = draft.cover_url as string | null;
           let backgroundUrl = draft.background_url as string | null;
+          let verified = false;
 
-          if (coverUrl) {
+          if (coverUrl && needsVerification(coverUrl)) {
             coverUrl = await ensureCoverPersisted(coverUrl);
+            verified = true;
           }
-          if (backgroundUrl) {
+          if (backgroundUrl && needsVerification(backgroundUrl)) {
             backgroundUrl = await ensureCoverPersisted(backgroundUrl);
+            verified = true;
           }
 
           if (draft.status === "published") {
@@ -622,7 +639,12 @@ async function fixLocalCoverPaths() {
             }
             if (!coverUrl && !backgroundUrl && draft.book_cover_url) {
               coverUrl = await ensureCoverPersisted(draft.book_cover_url);
+              verified = true;
             }
+          }
+
+          if (!verified) {
+            draftsSkipped++;
           }
 
           if (coverUrl !== draft.cover_url || backgroundUrl !== draft.background_url) {
@@ -641,7 +663,11 @@ async function fixLocalCoverPaths() {
     }
 
     await client.end();
-    console.log(`[Startup] fixLocalCoverPaths completed in ${Date.now() - startedAt}ms (${booksResult.rows.length} books, ${draftsResult.rows.length} drafts checked)`);
+    console.log(
+      `[Startup] fixLocalCoverPaths completed in ${Date.now() - startedAt}ms ` +
+      `(${booksResult.rows.length} books [${booksSkipped} already-migrated skipped], ` +
+      `${draftsResult.rows.length} drafts [${draftsSkipped} already-migrated skipped])`
+    );
   } catch (err: any) {
     console.error("[Startup] Error fixing local cover paths:", err.message);
   } finally {
