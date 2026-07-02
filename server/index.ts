@@ -559,13 +559,22 @@ async function fixLocalCoverPaths() {
        WHERE cover_url LIKE '/uploads/covers/%' OR cover_url LIKE '/objstore/covers/%'`
     );
     let booksFixed = 0;
-    for (const book of booksResult.rows) {
-      const persisted = await ensureCoverPersisted(book.cover_url);
-      if (persisted && persisted !== book.cover_url) {
-        await client.query("UPDATE books SET cover_url = $1 WHERE id = $2", [persisted, book.id]);
-        booksFixed++;
-        console.log(`[Startup] Book #${book.id} cover -> ${persisted}`);
-      }
+    {
+      const CONCURRENCY = 20;
+      const queue = [...booksResult.rows];
+      const worker = async () => {
+        while (queue.length > 0) {
+          const book = queue.shift();
+          if (!book) break;
+          const persisted = await ensureCoverPersisted(book.cover_url);
+          if (persisted && persisted !== book.cover_url) {
+            await client.query("UPDATE books SET cover_url = $1 WHERE id = $2", [persisted, book.id]);
+            booksFixed++;
+            console.log(`[Startup] Book #${book.id} cover -> ${persisted}`);
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: CONCURRENCY }, worker));
     }
     if (booksFixed > 0) {
       console.log(`[Startup] Migrated ${booksFixed} book cover URL(s) to object storage`);
@@ -582,33 +591,42 @@ async function fixLocalCoverPaths() {
     );
 
     let draftsFixed = 0;
-    for (const draft of draftsResult.rows) {
-      let coverUrl = draft.cover_url as string | null;
-      let backgroundUrl = draft.background_url as string | null;
+    {
+      const CONCURRENCY = 20;
+      const queue = [...draftsResult.rows];
+      const worker = async () => {
+        while (queue.length > 0) {
+          const draft = queue.shift();
+          if (!draft) break;
+          let coverUrl = draft.cover_url as string | null;
+          let backgroundUrl = draft.background_url as string | null;
 
-      if (coverUrl) {
-        coverUrl = await ensureCoverPersisted(coverUrl);
-      }
-      if (backgroundUrl) {
-        backgroundUrl = await ensureCoverPersisted(backgroundUrl);
-      }
+          if (coverUrl) {
+            coverUrl = await ensureCoverPersisted(coverUrl);
+          }
+          if (backgroundUrl) {
+            backgroundUrl = await ensureCoverPersisted(backgroundUrl);
+          }
 
-      if (draft.status === "published") {
-        if (!coverUrl && backgroundUrl) {
-          coverUrl = backgroundUrl;
+          if (draft.status === "published") {
+            if (!coverUrl && backgroundUrl) {
+              coverUrl = backgroundUrl;
+            }
+            if (!coverUrl && !backgroundUrl && draft.book_cover_url) {
+              coverUrl = await ensureCoverPersisted(draft.book_cover_url);
+            }
+          }
+
+          if (coverUrl !== draft.cover_url || backgroundUrl !== draft.background_url) {
+            await client.query(
+              "UPDATE draft_ebooks SET cover_url = $1, background_url = $2 WHERE id = $3",
+              [coverUrl, backgroundUrl, draft.id]
+            );
+            draftsFixed++;
+          }
         }
-        if (!coverUrl && !backgroundUrl && draft.book_cover_url) {
-          coverUrl = await ensureCoverPersisted(draft.book_cover_url);
-        }
-      }
-
-      if (coverUrl !== draft.cover_url || backgroundUrl !== draft.background_url) {
-        await client.query(
-          "UPDATE draft_ebooks SET cover_url = $1, background_url = $2 WHERE id = $3",
-          [coverUrl, backgroundUrl, draft.id]
-        );
-        draftsFixed++;
-      }
+      };
+      await Promise.all(Array.from({ length: CONCURRENCY }, worker));
     }
     if (draftsFixed > 0) {
       console.log(`[Startup] Fixed ${draftsFixed} draft_ebooks cover URL(s)`);
