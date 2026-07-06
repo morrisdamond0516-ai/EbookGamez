@@ -8490,49 +8490,21 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
           if (status === "published") {
             try {
               const genre = d.genre || "Fiction";
-              const category = contentStudio.mapGenreToCategory(genre);
               const price = d.suggestedPrice ?? "9.99";
               const bookCoverUrl = coverUrl || backgroundUrl || "";
               const bookDesc = description || `An AI-generated ebook about ${topic}`;
-              const [existingBook] = await db.select({ id: books.id })
-                .from(books)
-                .where(sql`LOWER(${books.title}) = LOWER(${title})`)
-                .limit(1);
-              const bookPatch = {
-                genre,
-                category,
-                price,
-                visible: true,
-                sourceDraftId: draftId,
-                ...(bookCoverUrl ? { coverUrl: bookCoverUrl } : {}),
-                description: bookDesc,
-              };
-              if (existingBook) {
-                await db.update(books).set(bookPatch).where(eq(books.id, existingBook.id));
+              if (!bookCoverUrl) {
+                console.warn(`[SyncReceive] No cover URL for "${title}" — skipping catalog upsert`);
               } else {
-                try {
-                  await db.insert(books).values({
-                    title,
-                    author: "EbookGamez",
-                    rating: "4.5",
-                    coverUrl: bookCoverUrl,
-                    ...bookPatch,
-                  });
-                } catch (insertErr: any) {
-                  const msg = insertErr?.message || "";
-                  if (msg.includes("source_draft_id")) {
-                    const { sourceDraftId: _omit, ...withoutLink } = bookPatch;
-                    await db.insert(books).values({
-                      title,
-                      author: "EbookGamez",
-                      rating: "4.5",
-                      coverUrl: bookCoverUrl,
-                      ...withoutLink,
-                    });
-                  } else {
-                    throw insertErr;
-                  }
-                }
+                await contentStudio.upsertCatalogBookFromPublishedSync({
+                  productionDraftId: draftId,
+                  devDraftId: typeof d.id === "number" ? d.id : undefined,
+                  title,
+                  genre,
+                  price,
+                  coverUrl: bookCoverUrl,
+                  description: bookDesc,
+                });
               }
             } catch (catalogErr: any) {
               console.error(`[SyncReceive] Catalog upsert failed for "${title}":`, catalogErr.message?.slice(0, 300));
@@ -8777,9 +8749,14 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
           if (vResp.ok) {
             const vData = await vResp.json() as { books?: { title: string; coverUrl?: string }[] } | { title: string; coverUrl?: string }[];
             const list = Array.isArray(vData) ? vData : vData.books ?? [];
-            const match = list.find(
+            let match = list.find(
               (b) => b.title.trim().toLowerCase() === draft.title.trim().toLowerCase(),
             );
+            if (!match) {
+              match = list.find(
+                (b) => contentStudio.areTitlesSimilar(draft.title, b.title).similar,
+              );
+            }
             if (match) {
               onStorefront = true;
               hasCover = !!(match.coverUrl && match.coverUrl.length > 5);
@@ -8790,7 +8767,9 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         }
         verification.push({ title: draft.title, onStorefront, hasCover });
         if (!onStorefront) {
-          warnings.push(`"${draft.title}" is NOT on the production storefront yet — run db:push on production, redeploy, then push again or use Publish to Storefront on production.`);
+          warnings.push(
+            `"${draft.title}" is NOT on the production storefront yet — deploy latest code on Replit, then push again (catalog linking now matches similar titles like Replit Publish to Storefront).`,
+          );
         } else if (!hasCover) {
           warnings.push(`"${draft.title}" is on the storefront but has no cover URL on production.`);
         }

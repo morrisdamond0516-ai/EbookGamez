@@ -10537,6 +10537,119 @@ export async function findCatalogBookForDraft(
   return findExactCatalogBookForDraftTitle(draftTitle);
 }
 
+/**
+ * Find the storefront catalog row for a published draft — exact title, source link,
+ * or prefix match (e.g. short AI Studio title vs long live catalog title).
+ */
+export async function findCatalogBookForPublishedSync(
+  productionDraftId: number,
+  draftTitle: string,
+  devDraftId?: number,
+): Promise<{ id: number; title: string } | null> {
+  const byProdDraft = await findCatalogBookBySourceDraftId(productionDraftId);
+  if (byProdDraft) return { id: byProdDraft.id, title: byProdDraft.title };
+
+  if (devDraftId != null && devDraftId !== productionDraftId) {
+    const byDevDraft = await findCatalogBookBySourceDraftId(devDraftId);
+    if (byDevDraft) return { id: byDevDraft.id, title: byDevDraft.title };
+  }
+
+  const exact = await findExactCatalogBookForDraftTitle(draftTitle);
+  if (exact) return { id: exact.id, title: exact.title };
+
+  const norm = draftTitle.trim().toLowerCase();
+  if (norm.length < 10) return null;
+
+  const rows = await db
+    .select({ id: books.id, title: books.title })
+    .from(books)
+    .where(
+      sql`char_length(trim(${books.title})) >= 10 AND (
+        LOWER(TRIM(${books.title})) LIKE ${norm} || '%'
+        OR ${norm} LIKE LOWER(TRIM(${books.title})) || '%'
+      )`,
+    )
+    .limit(20);
+
+  let best: { id: number; title: string } | null = null;
+  for (const row of rows) {
+    if (!areTitlesSimilar(draftTitle, row.title).similar) continue;
+    if (!best || row.title.length > best.title.length) best = row;
+  }
+  return best;
+}
+
+/** Upsert catalog book when receiving a published draft from push-to-production. */
+export async function upsertCatalogBookFromPublishedSync(params: {
+  productionDraftId: number;
+  devDraftId?: number;
+  title: string;
+  genre: string;
+  price: string;
+  coverUrl: string;
+  description: string;
+}): Promise<number> {
+  const category = mapGenreToCategory(params.genre);
+  const bookCoverUrl = params.coverUrl || "";
+  if (!bookCoverUrl) {
+    throw new Error("Cover URL required for storefront catalog");
+  }
+
+  const existing = await findCatalogBookForPublishedSync(
+    params.productionDraftId,
+    params.title,
+    params.devDraftId,
+  );
+
+  const bookPatch = {
+    genre: params.genre,
+    category,
+    price: params.price,
+    visible: true,
+    sourceDraftId: params.productionDraftId,
+    coverUrl: bookCoverUrl,
+    description: params.description,
+  };
+
+  if (existing) {
+    await db.update(books).set(bookPatch).where(eq(books.id, existing.id));
+    console.log(
+      `[SyncReceive] Catalog book #${existing.id} updated for draft #${params.productionDraftId} (matched "${existing.title.slice(0, 50)}")`,
+    );
+    return existing.id;
+  }
+
+  try {
+    const [book] = await db
+      .insert(books)
+      .values({
+        title: params.title,
+        author: "EbookGamez",
+        rating: "4.5",
+        ...bookPatch,
+      })
+      .returning({ id: books.id });
+    console.log(`[SyncReceive] Catalog book #${book.id} created for draft #${params.productionDraftId}`);
+    return book.id;
+  } catch (insertErr: any) {
+    const msg = insertErr?.message || "";
+    if (msg.includes("source_draft_id")) {
+      const { sourceDraftId: _omit, ...withoutLink } = bookPatch;
+      const [book] = await db
+        .insert(books)
+        .values({
+          title: params.title,
+          author: "EbookGamez",
+          rating: "4.5",
+          ...withoutLink,
+        })
+        .returning({ id: books.id });
+      return book.id;
+    }
+    throw insertErr;
+  }
+}
+
 export type CatalogBookLink = {
   id: number;
   title: string;
