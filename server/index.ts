@@ -587,10 +587,12 @@ async function fixLocalCoverPaths() {
       let backgroundUrl = draft.background_url as string | null;
 
       if (coverUrl) {
-        coverUrl = await ensureCoverPersisted(coverUrl);
+        const persisted = await ensureCoverPersisted(coverUrl);
+        if (persisted) coverUrl = persisted;
       }
       if (backgroundUrl) {
-        backgroundUrl = await ensureCoverPersisted(backgroundUrl);
+        const persisted = await ensureCoverPersisted(backgroundUrl);
+        if (persisted) backgroundUrl = persisted;
       }
 
       if (draft.status === "published") {
@@ -918,21 +920,30 @@ async function migrateColoringPageFiles() {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
+  const host =
+    process.env.NODE_ENV === "production"
+      ? "0.0.0.0"
+      : (process.env.HOST || "0.0.0.0");
   httpServer.listen(
     {
       port,
-      host: "127.0.0.1",
+      host,
     },
     () => {
-      const url = `http://127.0.0.1:${port}`;
+      const localUrl = `http://127.0.0.1:${port}`;
+      const localhostUrl = `http://localhost:${port}`;
       if (process.env.NODE_ENV === "development") {
         console.log("");
         console.log("  ===================================================");
         console.log("  App is running — open this in your browser:");
-        console.log(`  ${url}`);
-        console.log(`  AI Studio: ${url}/content-studio`);
-        console.log(`  Admin:     ${url}/admin`);
+        console.log(`  ${localUrl}`);
+        console.log(`  ${localhostUrl}`);
+        console.log(`  AI Studio: ${localUrl}/content-studio`);
+        console.log(`  Admin:     ${localUrl}/admin`);
         console.log("  ===================================================");
+        console.log("  Cursor Simple Browser: Ctrl+Shift+P → \"Simple Browser: Show\"");
+        console.log(`  Paste: ${localUrl}`);
+        console.log("  (Use port shown above — NOT 5000 unless PORT=5000 in .env)");
         console.log("  Keep this terminal open while you use the app.");
         console.log("  (Stripe errors below are OK for local dev.)");
         console.log("");

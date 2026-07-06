@@ -67,3 +67,54 @@ This app was originally built on Replit. For **local Windows/Mac/Linux** dev:
 **Port already in use** — Change `PORT` in `.env` or stop the other process
 
 **Stripe sync errors on startup** — Expected with invalid/test keys; the app still runs
+
+## Deploying to Railway
+
+### 1) Create a Railway project from GitHub
+
+- In Railway, create a new project from this repository.
+- Railway will detect Node and use `railway.json`.
+- Build command is your package build script, and start command is `npm run start`.
+
+### 2) Add PostgreSQL on Railway
+
+- Add a PostgreSQL service to the same project.
+- Copy the generated `DATABASE_URL` into your app service variables.
+- If importing production data, restore your backup into this Railway database before cutover.
+
+### 3) Set required environment variables
+
+At minimum, set:
+
+- `NODE_ENV=production`
+- `PORT` (Railway injects this automatically; do not hardcode)
+- `DATABASE_URL`
+- `ADMIN_PASSWORD`
+- `SESSION_SECRET`
+- `OPENAI_API_KEY`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+
+Optional (only if you use object storage in production):
+
+- `PUBLIC_OBJECT_SEARCH_PATHS`
+
+Do not set local-only values like `HOST=127.0.0.1` in Railway.
+
+### 4) Push schema and backfill draft links
+
+After first deploy (or from Railway shell), run:
+
+```bash
+npx tsx script/push-schema.ts
+npx tsx script/backfill-book-draft-links.ts
+```
+
+### 5) Stripe + domain cutover
+
+- In Stripe, add/update webhook endpoint to:
+  - `https://<your-railway-domain>/api/stripe/webhook`
+- Test checkout/subscription flows.
+- Point your custom domain DNS to Railway once validated.
+- Keep Replit as temporary fallback until Railway traffic is stable.

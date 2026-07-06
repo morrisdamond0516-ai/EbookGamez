@@ -90,6 +90,73 @@ const formatPositionName = (position: string) => {
   return position.split("-").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 };
 
+/** Local dev serves /uploads/covers; production uses /objstore/covers. */
+function normalizeLocalCoverUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  return url.replace(/^\/objstore\/covers\//, "/uploads/covers/");
+}
+
+function coverReviewHasImage(draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl">): boolean {
+  return !!(draft.coverUrl || draft.backgroundUrl);
+}
+
+function coverReviewPrimaryUrl(
+  draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl">,
+  showCleanBackgrounds: boolean,
+): string {
+  if (showCleanBackgrounds) {
+    return normalizeLocalCoverUrl(draft.backgroundUrl || draft.coverUrl);
+  }
+  return normalizeLocalCoverUrl(draft.coverUrl || draft.backgroundUrl);
+}
+
+function coverReviewFallbackUrl(
+  draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl">,
+  showCleanBackgrounds: boolean,
+): string {
+  if (showCleanBackgrounds) {
+    return normalizeLocalCoverUrl(draft.coverUrl);
+  }
+  return normalizeLocalCoverUrl(draft.backgroundUrl);
+}
+
+function CoverReviewImage({
+  draft,
+  showCleanBackgrounds,
+  className,
+  loading,
+  "data-testid": dataTestId,
+}: {
+  draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl" | "title">;
+  showCleanBackgrounds: boolean;
+  className?: string;
+  loading?: "lazy" | "eager";
+  "data-testid"?: string;
+}) {
+  const primary = coverReviewPrimaryUrl(draft, showCleanBackgrounds);
+  const fallback = coverReviewFallbackUrl(draft, showCleanBackgrounds);
+  const [src, setSrc] = useState(primary || fallback);
+
+  useEffect(() => {
+    setSrc(primary || fallback);
+  }, [primary, fallback]);
+
+  if (!src) return null;
+
+  return (
+    <img
+      src={src}
+      alt={draft.title}
+      className={className}
+      loading={loading}
+      data-testid={dataTestId}
+      onError={() => {
+        if (fallback && src !== fallback) setSrc(fallback);
+      }}
+    />
+  );
+}
+
 // Genre-based typography selection based on industry best practices
 interface GenreTypography {
   titleFont: string;
@@ -1183,6 +1250,7 @@ export default function BatchCoverReview() {
       await apiRequest("POST", `/api/content-studio/regenerate-background/${draftId}`);
       toast({ title: "Success", description: "New background generated!" });
       queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
       setPreviewImage(null);
     } catch (error) {
       toast({ title: "Error", description: "Failed to regenerate background", variant: "destructive" });
@@ -1329,6 +1397,7 @@ export default function BatchCoverReview() {
             }
             if (!status.running) {
               queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
               if (status.lastResult) {
                 const { total, generated, errors } = status.lastResult;
                 if (errors > 0) {
@@ -3220,10 +3289,10 @@ export default function BatchCoverReview() {
                             data-testid={`card-draft-${draft.id}`}
                           >
                             <div className="relative w-full aspect-[2/3] bg-black">
-                              {(showCleanBackgrounds ? draft.backgroundUrl : (draft.coverUrl || draft.backgroundUrl)) ? (
-                                <img
-                                  src={showCleanBackgrounds ? (draft.backgroundUrl || "") : (draft.coverUrl || draft.backgroundUrl || "")}
-                                  alt={draft.title}
+                              {coverReviewHasImage(draft) ? (
+                                <CoverReviewImage
+                                  draft={draft}
+                                  showCleanBackgrounds={showCleanBackgrounds}
                                   className={`w-full h-full ${(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "contain" ? "object-contain" : "object-cover"}`}
                                   loading="lazy"
                                 />
@@ -3396,10 +3465,10 @@ export default function BatchCoverReview() {
                         data-testid={`card-draft-${draft.id}`}
                       >
                         <div className="relative w-full aspect-[2/3] bg-black">
-                          {(draft.backgroundUrl || draft.coverUrl) ? (
-                            <img
-                              src={showCleanBackgrounds ? (draft.backgroundUrl || draft.coverUrl || undefined) : (draft.coverUrl || draft.backgroundUrl || undefined)}
-                              alt={draft.title}
+                          {coverReviewHasImage(draft) ? (
+                            <CoverReviewImage
+                              draft={draft}
+                              showCleanBackgrounds={showCleanBackgrounds}
                               className={`w-full h-full ${(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "contain" ? "object-contain" : "object-cover"}`}
                             />
                           ) : (
@@ -3794,6 +3863,7 @@ export default function BatchCoverReview() {
                                     const data = await res.json();
                                     toast({ title: "Overlay Approved", description: data.message });
                                     queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
                                     setSelectedDraftIds(prev => {
                                       const next = new Set(prev);
                                       selectedPendingIds.forEach(id => next.delete(id));
@@ -3877,10 +3947,10 @@ export default function BatchCoverReview() {
                               data-testid={`card-draft-${draft.id}`}
                             >
                               <div className="relative w-full aspect-[2/3] bg-black">
-                                {(draft.backgroundUrl || draft.coverUrl) ? (
-                                  <img
-                                    src={showCleanBackgrounds ? (draft.backgroundUrl || draft.coverUrl || undefined) : (draft.coverUrl || draft.backgroundUrl || undefined)}
-                                    alt={draft.title}
+                                {coverReviewHasImage(draft) ? (
+                                  <CoverReviewImage
+                                    draft={draft}
+                                    showCleanBackgrounds={showCleanBackgrounds}
                                     className={`w-full h-full ${(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "contain" ? "object-contain" : "object-cover"}`}
                                   />
                                 ) : (
@@ -4017,6 +4087,7 @@ export default function BatchCoverReview() {
                                     const data = await res.json();
                                     toast({ title: "Moved Back", description: data.message });
                                     queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
                                     setSelectedDraftIds(prev => {
                                       const next = new Set(prev);
                                       selectedApprovedIds.forEach(id => next.delete(id));
@@ -4093,10 +4164,10 @@ export default function BatchCoverReview() {
                               data-testid={`card-approved-${draft.id}`}
                             >
                               <div className="relative w-full aspect-[2/3] bg-black">
-                                {(draft.coverUrl || draft.backgroundUrl) ? (
-                                  <img
-                                    src={showCleanBackgrounds ? (draft.backgroundUrl || draft.coverUrl || undefined) : (draft.coverUrl || draft.backgroundUrl || undefined)}
-                                    alt={draft.title}
+                                {coverReviewHasImage(draft) ? (
+                                  <CoverReviewImage
+                                    draft={draft}
+                                    showCleanBackgrounds={showCleanBackgrounds}
                                     className={`w-full h-full ${(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "contain" ? "object-contain" : "object-cover"}`}
                                   />
                                 ) : (
@@ -4222,10 +4293,10 @@ export default function BatchCoverReview() {
                         data-testid={`card-draft-${draft.id}`}
                       >
                         <div className="relative w-full aspect-[2/3] bg-black">
-                          {(draft.backgroundUrl || draft.coverUrl) ? (
-                            <img
-                              src={showCleanBackgrounds ? (draft.backgroundUrl || draft.coverUrl || undefined) : (draft.coverUrl || draft.backgroundUrl || undefined)}
-                              alt={draft.title}
+                          {coverReviewHasImage(draft) ? (
+                            <CoverReviewImage
+                              draft={draft}
+                              showCleanBackgrounds={showCleanBackgrounds}
                               className={`w-full h-full ${(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "contain" ? "object-contain" : "object-cover"}`}
                             />
                           ) : (
@@ -4426,8 +4497,12 @@ export default function BatchCoverReview() {
                             data-testid={`popup-duplicate-${draft.id}`}
                           >
                             <div className="relative w-full aspect-[2/3]">
-                              {(draft.backgroundUrl || draft.coverUrl) ? (
-                                <img src={showCleanBackgrounds ? (draft.backgroundUrl || draft.coverUrl || undefined) : (draft.coverUrl || draft.backgroundUrl || undefined)} alt={draft.title} className="w-full h-full object-cover" />
+                              {coverReviewHasImage(draft) ? (
+                                <CoverReviewImage
+                                  draft={draft}
+                                  showCleanBackgrounds={showCleanBackgrounds}
+                                  className="w-full h-full object-cover"
+                                />
                               ) : (
                                 <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
                                   <span className="text-gray-500 text-xs text-center px-2">No cover</span>
@@ -4500,6 +4575,7 @@ export default function BatchCoverReview() {
                                       await apiRequest("DELETE", `/api/content-studio/drafts/${draft.id}`);
                                       toast({ title: "Deleted", description: `"${draft.title}" removed.` });
                                       queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
                                     } catch {
                                       toast({ title: "Error", description: "Failed to delete.", variant: "destructive" });
                                     }
@@ -4547,6 +4623,7 @@ export default function BatchCoverReview() {
                                         return next;
                                       });
                                       queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
                                     } catch {
                                       toast({ title: "Error", description: "Failed to reassign cover.", variant: "destructive" });
                                     }
@@ -4614,6 +4691,7 @@ export default function BatchCoverReview() {
                                           return next;
                                         });
                                         queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
                                       } catch {
                                         toast({ title: "Error", description: "Failed to update title.", variant: "destructive" });
                                       } finally {
@@ -4687,6 +4765,7 @@ export default function BatchCoverReview() {
                       description: `${retitleIds.length} cover${retitleIds.length !== 1 ? "s" : ""} sent for retitling.`,
                     });
                     queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
                     setShowDuplicatesPopup(false);
                     setChosenDuplicates(new Map());
                     setAiMatches(new Map());
@@ -4712,10 +4791,10 @@ export default function BatchCoverReview() {
       <Dialog open={!!previewDraft} onOpenChange={(open) => { if (!open) { if (previewAutoSaveTimer.current) clearTimeout(previewAutoSaveTimer.current); userEditedTitleRef.current = false; lastSavedDraftIdRef.current = null; setPreviewDraft(null); setPreviewTitleMismatch(false); setPreviewSavingTitle(false); setPreviewGeneratingOverlay(false); setPreviewTitleCutoff(null); setPreviewOverlayMode(null); setPreviewTitleSize(100); setPreviewGeneratedTitles([]); } }}>
         <DialogContent className="max-w-2xl p-0 overflow-hidden bg-gray-950 border-gray-700 max-h-[95vh] overflow-y-auto" data-testid="dialog-cover-preview">
           <div className="flex flex-col items-center">
-            {previewDraft && (previewDraft.backgroundUrl || previewDraft.coverUrl) && (
-              <img
-                src={showCleanBackgrounds ? (previewDraft.backgroundUrl || previewDraft.coverUrl || undefined) : (previewDraft.coverUrl || previewDraft.backgroundUrl || undefined)}
-                alt={previewDraft.title}
+            {previewDraft && coverReviewHasImage(previewDraft) && (
+              <CoverReviewImage
+                draft={previewDraft}
+                showCleanBackgrounds={showCleanBackgrounds}
                 className="w-full max-h-[50vh] object-contain"
                 data-testid="img-cover-preview"
               />
@@ -4958,6 +5037,7 @@ export default function BatchCoverReview() {
                           const updated = await res.json();
                           setPreviewDraft((prev) => prev ? { ...prev, title: updated.title } : null);
                           queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
                         } catch {
                           toast({ title: "Error", description: "Failed to save title before generating.", variant: "destructive" });
                           return;
@@ -4981,6 +5061,7 @@ export default function BatchCoverReview() {
                           setPreviewDraft({ ...previewDraft, coverUrl: data.coverUrl });
                           toast({ title: "Cover updated", description: `AI title overlay applied to ID ${previewDraft.id}` });
                           queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
                         }
                       } catch {
                         toast({ title: "Error", description: "Failed to generate AI title overlay.", variant: "destructive" });

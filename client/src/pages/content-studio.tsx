@@ -44,6 +44,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -56,6 +57,7 @@ import {
 } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
+import { RequireAdminToken } from "@/components/require-admin-token";
 
 // Helper to format effect names for display
 const formatEffectName = (effect: string) => {
@@ -137,6 +139,23 @@ function DraftCoverThumb({
   );
 }
 
+function DraftIdCell({
+  draftId,
+  queueStar,
+}: {
+  draftId: number;
+  queueStar?: boolean;
+}) {
+  return (
+    <TableCell className="text-muted-foreground font-mono text-sm">
+      {queueStar && (
+        <span className="text-yellow-400 mr-1" title="Next in queue">★</span>
+      )}
+      {draftId}
+    </TableCell>
+  );
+}
+
 interface DraftEbook {
   id: number;
   title: string;
@@ -147,13 +166,16 @@ interface DraftEbook {
   backgroundUrl?: string | null;
   suggestedPrice: string | null;
   createdAt: string;
+  publishedAt?: string | null;
   outline?: string | null;
   content?: string | null;
   pdfUrl?: string | null;
   contentWordCount?: number;
   hasTBCMarker?: boolean;
+  hasIllustrations?: boolean;
   bookVisible?: boolean;
   publishedBookId?: number | null;
+  inCatalog?: boolean;
 }
 
 interface GenerationJob {
@@ -168,13 +190,18 @@ interface GenerationJob {
 }
 
 const VISUAL_FIRST_GENRES = new Set(["Comics", "Graphic Novels", "Photography Books", "Coloring Books", "Art Books"]);
+const PUSH_TO_PROD_MAX = 25;
+const DEFAULT_PRODUCTION_URL = "https://ebookgamez.com";
 
 export default function ContentStudio() {
-  const hasToken = typeof window !== "undefined" && !!localStorage.getItem("ebgz_admin_token");
-  if (!hasToken) {
-    window.location.href = "/";
-    return null;
-  }
+  return (
+    <RequireAdminToken>
+      <ContentStudioMain />
+    </RequireAdminToken>
+  );
+}
+
+function ContentStudioMain() {
   const [studioSearchQuery, setStudioSearchQuery] = useState("");
   const [publishedExpanded, setPublishedExpanded] = useState(false);
   const [formatScanResults, setFormatScanResults] = useState<any[] | null>(null);
@@ -185,30 +212,6 @@ export default function ContentStudio() {
   const [bookVisibilityOverrides, setBookVisibilityOverrides] = useState<Map<number, boolean>>(new Map());
   const [togglingVisibility, setTogglingVisibility] = useState<Set<number>>(new Set());
 
-  const toggleBookVisibility = async (draftId: number) => {
-    setTogglingVisibility(prev => new Set(prev).add(draftId));
-    try {
-      const res = await fetch(`/api/admin/drafts/${draftId}/toggle-book-visibility`, {
-        method: "POST",
-        headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const msg = res.status === 404
-          ? "This draft was never published to the catalog — there is no book entry to unpublish. Use the Publish action to add it first."
-          : (data.error || "Failed to toggle visibility");
-        toast({ title: "Not in Catalog", description: msg, variant: "destructive" });
-        return;
-      }
-      const { visible } = await res.json();
-      setBookVisibilityOverrides(prev => new Map(prev).set(draftId, visible));
-      toast({ title: visible ? "Book Republished" : "Book Unpublished", description: visible ? "Book is now visible on the storefront." : "Book hidden from storefront. Use Republish to restore it." });
-    } catch {
-      toast({ title: "Error", description: "Network error", variant: "destructive" });
-    } finally {
-      setTogglingVisibility(prev => { const next = new Set(prev); next.delete(draftId); return next; });
-    }
-  };
   const [selectedGenre, setSelectedGenre] = useState<string>("");
   const [customGenre, setCustomGenre] = useState<string>("");
   const [count, setCount] = useState(20);
@@ -252,13 +255,86 @@ export default function ContentStudio() {
   const [selectedStyleId, setSelectedStyleId] = useState<string>("classic-cinematic");
   const [regeneratingWithStyle, setRegeneratingWithStyle] = useState(false);
   const [syncToProductionOpen, setSyncToProductionOpen] = useState(false);
-  const [productionUrl, setProductionUrl] = useState(() => localStorage.getItem("ebgz_prod_url") || "");
-  const [syncMode, setSyncMode] = useState<"illustrated" | "prose" | "all">("illustrated");
+  const [productionUrl, setProductionUrl] = useState(() => {
+    const saved = localStorage.getItem("ebgz_prod_url") || "";
+    if (saved && !/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(saved)) return saved;
+    return DEFAULT_PRODUCTION_URL;
+  });
+  const [syncMode, setSyncMode] = useState<"selected" | "recent" | "illustrated" | "prose" | "all">("selected");
+  const [recentSyncDays, setRecentSyncDays] = useState(7);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<{totalDrafts: number; totalUpdated: number; totalInserted: number; totalErrors: number; message: string} | null>(null);
+  const [syncResult, setSyncResult] = useState<{
+    totalDrafts: number;
+    totalUpdated: number;
+    totalInserted: number;
+    totalErrors: number;
+    coversUploaded?: number;
+    coversMissing?: number;
+    verification?: { title: string; onStorefront: boolean; hasCover: boolean }[];
+    warnings?: string[];
+    ok?: boolean;
+    message: string;
+  } | null>(null);
   const publishedSectionRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const toggleBookVisibility = async (draft: DraftEbook) => {
+    const draftId = draft.id;
+    const inCatalog = draft.inCatalog ?? draft.publishedBookId != null;
+    if (!inCatalog) {
+      setTogglingVisibility(prev => new Set(prev).add(draftId));
+      try {
+        const res = await fetch(`/api/content-studio/drafts/${draftId}/push-to-storefront`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": localStorage.getItem("ebgz_admin_token") || "",
+          },
+          body: JSON.stringify({ subscriberExclusive: false }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({ title: "Publish to Storefront failed", description: data.error || "Failed", variant: "destructive" });
+          return;
+        }
+        queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/books"] });
+        toast({
+          title: "On the storefront",
+          description: `Catalog book #${data.bookId} created — draft #${draftId} stays Published in AI Studio.`,
+        });
+      } catch {
+        toast({ title: "Error", description: "Network error", variant: "destructive" });
+      } finally {
+        setTogglingVisibility(prev => { const next = new Set(prev); next.delete(draftId); return next; });
+      }
+      return;
+    }
+    setTogglingVisibility(prev => new Set(prev).add(draftId));
+    try {
+      const res = await fetch(`/api/admin/drafts/${draftId}/toggle-book-visibility`, {
+        method: "POST",
+        headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast({ title: "Not in Catalog", description: data.error || "Failed to toggle visibility", variant: "destructive" });
+        return;
+      }
+      const { visible } = await res.json();
+      setBookVisibilityOverrides(prev => new Map(prev).set(draftId, visible));
+      queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+      toast({
+        title: visible ? "Book Republished" : "Book Unpublished",
+        description: visible ? "Book is now visible on the storefront." : "Book hidden from storefront. Use Republish to restore it.",
+      });
+    } catch {
+      toast({ title: "Error", description: "Network error", variant: "destructive" });
+    } finally {
+      setTogglingVisibility(prev => { const next = new Set(prev); next.delete(draftId); return next; });
+    }
+  };
 
   useEffect(() => {
     async function verifyAndRefreshSession() {
@@ -445,6 +521,61 @@ export default function ContentStudio() {
   const unpublishedDrafts = useMemo(() => filteredDrafts.filter(d => d.status !== "published"), [filteredDrafts]);
   const publishedDrafts = useMemo(() => filteredDrafts.filter(d => d.status === "published"), [filteredDrafts]);
 
+  const pushToProdCounts = useMemo(() => {
+    const published = drafts.filter(d => d.status === "published" && (d.content === "has_content" || (d.content && d.content.length > 100)));
+    const illustrated = published.filter(d => d.hasIllustrations);
+    const prose = published.filter(d => !d.hasIllustrations);
+    const cutoff = Date.now() - recentSyncDays * 24 * 60 * 60 * 1000;
+    const recent = published.filter(d => d.publishedAt && new Date(d.publishedAt).getTime() >= cutoff);
+    const selected = published.filter(d => selectedIds.has(d.id));
+    return {
+      illustrated: illustrated.length,
+      prose: prose.length,
+      all: published.length,
+      recent: recent.length,
+      selected: selected.length,
+    };
+  }, [drafts, recentSyncDays, selectedIds]);
+
+  const pushCountForMode = useMemo(() => {
+    switch (syncMode) {
+      case "selected": return pushToProdCounts.selected;
+      case "recent": return pushToProdCounts.recent;
+      case "illustrated": return pushToProdCounts.illustrated;
+      case "prose": return pushToProdCounts.prose;
+      default: return pushToProdCounts.all;
+    }
+  }, [syncMode, pushToProdCounts]);
+
+  const isOverPushLimit = useMemo(() => {
+    if (syncMode === "selected") return selectedIds.size > PUSH_TO_PROD_MAX;
+    return pushCountForMode > PUSH_TO_PROD_MAX;
+  }, [syncMode, selectedIds.size, pushCountForMode]);
+
+  const pushDisabledReason = useMemo(() => {
+    if (isSyncing) return "Sync in progress…";
+    const prod = productionUrl.trim();
+    if (!prod) return "Enter your production URL above (e.g. https://ebookgamez.com).";
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(prod)) {
+      return "Production URL is localhost — that only updates this PC. Use https://ebookgamez.com";
+    }
+    if (isOverPushLimit) return `Too many books (max ${PUSH_TO_PROD_MAX}).`;
+    if (syncMode === "selected") {
+      if (selectedIds.size === 0) return "Step 3: Check one or more rows in the Published Books table below.";
+      if (pushToProdCounts.selected === 0) {
+        return `You checked ${selectedIds.size} row(s), but none are published with content. Publish the book first, then push.`;
+      }
+    } else if (pushCountForMode === 0) {
+      return "No published books match this sync mode. Try “Selected only”.";
+    }
+    return null;
+  }, [
+    isSyncing, productionUrl, isOverPushLimit, syncMode, selectedIds.size,
+    pushToProdCounts.selected, pushCountForMode,
+  ]);
+
+  const pushReady = pushDisabledReason === null;
+
   useEffect(() => {
     if (studioSearchQuery.trim() && publishedDrafts.length > 0) {
       setPublishedExpanded(true);
@@ -590,15 +721,40 @@ export default function ContentStudio() {
     });
   };
 
-  // Only select drafts that have covers (not stuck in "generating" status)
-  const selectableDrafts = drafts.filter(d => (d.coverUrl || d.backgroundUrl) && d.status !== "generating");
-  
+  // Select any draft except those still generating (covers not required — needed for EPUB download).
+  const bulkSelectableDrafts = useMemo(
+    () => drafts.filter(d => d.status !== "generating"),
+    [drafts],
+  );
+
+  const isDraftSelectable = (draft: DraftEbook) => draft.status !== "generating";
+
   const selectAll = () => {
-    if (selectedIds.size === selectableDrafts.length) {
+    if (selectedIds.size === bulkSelectableDrafts.length && bulkSelectableDrafts.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(selectableDrafts.map(d => d.id)));
+      setSelectedIds(new Set(bulkSelectableDrafts.map(d => d.id)));
     }
+  };
+
+  const publishedSelectable = useMemo(
+    () => publishedDrafts.filter(isDraftSelectable),
+    [publishedDrafts],
+  );
+
+  const allPublishedSelected =
+    publishedSelectable.length > 0 && publishedSelectable.every(d => selectedIds.has(d.id));
+
+  const toggleSelectAllPublished = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allPublishedSelected) {
+        publishedSelectable.forEach(d => next.delete(d.id));
+      } else {
+        publishedSelectable.forEach(d => next.add(d.id));
+      }
+      return next;
+    });
   };
 
   const selectedWithCovers = Array.from(selectedIds).filter(id => {
@@ -1042,7 +1198,9 @@ export default function ContentStudio() {
           return;
         }
         try {
-          const statusRes = await fetch(`/api/content-studio/drafts/${draftId}`);
+          const statusRes = await fetch(`/api/content-studio/drafts/${draftId}`, {
+            headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+          });
           if (statusRes.ok) {
             const draft = await statusRes.json();
             if (draft.status !== "generating") {
@@ -1819,46 +1977,143 @@ export default function ContentStudio() {
           >
             <div className="flex items-center gap-2">
               <Upload className="h-4 w-4 text-blue-400" />
-              <span className="text-sm font-semibold text-blue-300">Push Illustrated Books to Production</span>
-              <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">168 illustrated</Badge>
+              <span className="text-sm font-semibold text-blue-300">Push to Production</span>
+              <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">max {PUSH_TO_PROD_MAX} per push</Badge>
             </div>
             <ChevronDown className={`h-4 w-4 text-blue-400 transition-transform ${syncToProductionOpen ? "rotate-180" : ""}`} />
           </button>
           {syncToProductionOpen && (
             <div className="px-4 pb-4 space-y-3">
               <p className="text-xs text-blue-200/70 leading-relaxed">
-                Dev and production use separate databases. Illustrations and content you generate here won't appear on the live site until you sync. Enter your production URL and click Push — it won't delete or reset any existing content.
+                Pushes from <strong>this computer</strong> to the live site. You must deploy code to Replit first, then push small batches (max {PUSH_TO_PROD_MAX}).
               </p>
-              <div className="flex gap-2 items-end">
-                <div className="flex-1">
-                  <Label className="text-xs text-muted-foreground mb-1 block">Production URL (e.g. https://ebookgamez.replit.app)</Label>
+              <ol className="text-xs text-blue-200/80 space-y-1 list-decimal list-inside border border-blue-500/20 rounded-md px-3 py-2 bg-blue-950/30">
+                <li>Production URL = <strong className="text-blue-200">https://ebookgamez.com</strong> (not localhost)</li>
+                <li>Mode = <strong className="text-blue-200">Selected only</strong></li>
+                <li>Expand <strong className="text-blue-200">Published Books</strong> → check the row(s) you want</li>
+                <li>Click Push — read the result panel (must say “verified on storefront”)</li>
+              </ol>
+              {isOverPushLimit && (
+                <div
+                  className="flex items-start gap-2 rounded-md border border-red-500/50 bg-red-950/40 px-3 py-2 text-xs text-red-200"
+                  data-testid="push-to-prod-over-limit-warning"
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-400 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-red-300">Cannot push — over the {PUSH_TO_PROD_MAX}-book limit</p>
+                    <p className="mt-0.5 text-red-200/80">
+                      {syncMode === "selected"
+                        ? `You selected ${selectedIds.size} rows. Deselect down to ${PUSH_TO_PROD_MAX} or fewer.`
+                        : `“${syncMode === "recent" ? `Recently published (${recentSyncDays}d)` : syncMode}” matches ${pushCountForMode} books. Use “Selected only” or narrow the range.`}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {!isOverPushLimit && pushReady && (
+                <p className="text-xs text-green-300/90" data-testid="push-to-prod-count-preview">
+                  ✓ Ready to push <strong>{pushCountForMode}</strong> book{pushCountForMode === 1 ? "" : "s"} to {productionUrl.trim().replace(/^https?:\/\//, "")}
+                </p>
+              )}
+              {pushDisabledReason && (
+                <p className="text-xs text-amber-300/95" data-testid="push-to-prod-disabled-reason">
+                  ⏸ {pushDisabledReason}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <Label className="text-xs text-muted-foreground mb-1 block">Production URL (e.g. https://ebookgamez.com)</Label>
                   <Input
                     value={productionUrl}
                     onChange={e => {
                       setProductionUrl(e.target.value);
                       localStorage.setItem("ebgz_prod_url", e.target.value);
                     }}
-                    placeholder="https://your-app.replit.app"
+                    placeholder="https://ebookgamez.com"
                     className="bg-white/5 border-white/20 text-sm h-8"
                     data-testid="input-production-url"
                   />
+                  {/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(productionUrl.trim()) && (
+                    <button
+                      type="button"
+                      className="text-[10px] text-amber-400 underline mt-1"
+                      onClick={() => {
+                        setProductionUrl(DEFAULT_PRODUCTION_URL);
+                        localStorage.setItem("ebgz_prod_url", DEFAULT_PRODUCTION_URL);
+                      }}
+                    >
+                      Fix: use https://ebookgamez.com instead
+                    </button>
+                  )}
                 </div>
-                <div className="w-44">
+                <div className="w-56">
                   <Label className="text-xs text-muted-foreground mb-1 block">What to sync</Label>
                   <select
                     value={syncMode}
-                    onChange={e => setSyncMode(e.target.value as "illustrated" | "prose" | "all")}
+                    onChange={e => setSyncMode(e.target.value as typeof syncMode)}
                     className="w-full h-8 rounded-md border border-white/20 bg-background text-sm px-2"
                     data-testid="select-sync-mode"
                   >
-                    <option value="illustrated">Illustrated only (168)</option>
-                    <option value="prose">Prose / novels (468)</option>
-                    <option value="all">All published books</option>
+                    <option value="selected">Selected only ({pushToProdCounts.selected})</option>
+                    <option value="recent" disabled={pushToProdCounts.recent > PUSH_TO_PROD_MAX}>
+                      Recently published — {recentSyncDays}d ({pushToProdCounts.recent}){pushToProdCounts.recent > PUSH_TO_PROD_MAX ? " — over limit" : ""}
+                    </option>
+                    <option value="illustrated" disabled={pushToProdCounts.illustrated > PUSH_TO_PROD_MAX}>
+                      Illustrated only ({pushToProdCounts.illustrated}){pushToProdCounts.illustrated > PUSH_TO_PROD_MAX ? " — over limit" : ""}
+                    </option>
+                    <option value="prose" disabled={pushToProdCounts.prose > PUSH_TO_PROD_MAX}>
+                      Prose / novels ({pushToProdCounts.prose}){pushToProdCounts.prose > PUSH_TO_PROD_MAX ? " — over limit" : ""}
+                    </option>
+                    <option value="all" disabled={pushToProdCounts.all > PUSH_TO_PROD_MAX}>
+                      All published ({pushToProdCounts.all}){pushToProdCounts.all > PUSH_TO_PROD_MAX ? " — over limit" : ""}
+                    </option>
                   </select>
                 </div>
+                {syncMode === "recent" && (
+                  <div className="w-24">
+                    <Label className="text-xs text-muted-foreground mb-1 block">Days</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={recentSyncDays}
+                      onChange={e => setRecentSyncDays(Math.min(30, Math.max(1, parseInt(e.target.value) || 7)))}
+                      className="bg-white/5 border-white/20 text-sm h-8"
+                      data-testid="input-recent-sync-days"
+                    />
+                  </div>
+                )}
                 <Button
                   onClick={async () => {
                     if (!productionUrl.trim()) { toast({ title: "Enter your production URL first", variant: "destructive" }); return; }
+                    if (syncMode === "selected" && selectedIds.size === 0) {
+                      toast({ title: "Nothing selected", description: "Check one or more drafts in the table below, then push.", variant: "destructive" });
+                      return;
+                    }
+                    if (syncMode === "selected" && selectedIds.size > PUSH_TO_PROD_MAX) {
+                      toast({ title: "Too many selected", description: `You selected ${selectedIds.size} rows. Max ${PUSH_TO_PROD_MAX} per push.`, variant: "destructive" });
+                      return;
+                    }
+                    if (isOverPushLimit || pushCountForMode > PUSH_TO_PROD_MAX) {
+                      toast({
+                        title: "Over the limit",
+                        description: `Cannot push more than ${PUSH_TO_PROD_MAX} books at once. This mode matches ${pushCountForMode}.`,
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    if (pushCountForMode === 0) {
+                      toast({ title: "Nothing to sync", description: "No drafts match this mode.", variant: "destructive" });
+                      return;
+                    }
+                    const prod = productionUrl.trim();
+                    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(prod)) {
+                      toast({
+                        title: "Wrong production URL",
+                        description: "localhost only updates this PC. Use https://ebookgamez.com (or your Replit URL).",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
                     setIsSyncing(true);
                     setSyncResult(null);
                     try {
@@ -1866,28 +2121,54 @@ export default function ContentStudio() {
                       const resp = await fetch("/api/admin/push-to-production", {
                         method: "POST",
                         headers: { "Content-Type": "application/json", "x-admin-token": token },
-                        body: JSON.stringify({ productionUrl: productionUrl.trim(), mode: syncMode }),
+                        body: JSON.stringify({
+                          productionUrl: productionUrl.trim(),
+                          mode: syncMode,
+                          recentDays: recentSyncDays,
+                          draftIds: syncMode === "selected" ? Array.from(selectedIds) : undefined,
+                        }),
                       });
                       const data = await resp.json();
                       if (!resp.ok) throw new Error(data.error || "Sync failed");
                       setSyncResult(data);
-                      toast({ title: "Sync complete!", description: data.message });
+                      const hasProblems = !data.ok || (data.totalErrors ?? 0) > 0 || (data.warnings?.length ?? 0) > 0;
+                      toast({
+                        title: hasProblems ? "Push finished with issues" : "Push verified on production",
+                        description: data.warnings?.length
+                          ? `${data.message}\n\n${data.warnings.slice(0, 3).join("\n")}`
+                          : data.message,
+                        variant: hasProblems ? "destructive" : "default",
+                      });
                     } catch (e: any) {
                       toast({ title: "Sync failed", description: e.message, variant: "destructive" });
                     } finally {
                       setIsSyncing(false);
                     }
                   }}
-                  disabled={isSyncing || !productionUrl.trim()}
+                  disabled={!pushReady}
+                  title={pushDisabledReason ?? "Push selected books to production"}
                   className="bg-blue-600 hover:bg-blue-500 text-white h-8 px-4 text-sm whitespace-nowrap"
                   data-testid="button-push-to-production"
                 >
                   {isSyncing ? <><Loader2 className="h-3 w-3 animate-spin mr-1" />Syncing…</> : <><Upload className="h-3 w-3 mr-1" />Push to Production</>}
                 </Button>
               </div>
+              {syncMode === "selected" && selectedIds.size > 0 && (
+                <p className="text-xs text-blue-200/60">
+                  Will push draft IDs: {Array.from(selectedIds).slice(0, 12).join(", ")}{selectedIds.size > 12 ? ` … +${selectedIds.size - 12} more` : ""}
+                </p>
+              )}
               {syncResult && (
-                <div className="bg-green-900/20 border border-green-500/30 rounded px-3 py-2 text-xs text-green-300">
-                  ✅ {syncResult.message} — {syncResult.totalErrors > 0 ? `${syncResult.totalErrors} errors` : "no errors"}
+                <div className={`rounded px-3 py-2 text-xs ${syncResult.ok ? "bg-green-900/20 border border-green-500/30 text-green-300" : "bg-amber-900/20 border border-amber-500/40 text-amber-200"}`}>
+                  <p>{syncResult.ok ? "✅" : "⚠️"} {syncResult.message}</p>
+                  {syncResult.verification?.map((v) => (
+                    <p key={v.title} className="mt-1 opacity-90">
+                      • {v.title}: {v.onStorefront ? (v.hasCover ? "on storefront with cover" : "on storefront — cover missing") : "not on storefront"}
+                    </p>
+                  ))}
+                  {syncResult.warnings?.map((w, i) => (
+                    <p key={i} className="mt-1 text-amber-300/90">⚠ {w}</p>
+                  ))}
                 </div>
               )}
             </div>
@@ -2009,6 +2290,9 @@ export default function ContentStudio() {
                   <div className="flex flex-wrap items-center gap-2 p-3 bg-white/5 rounded-lg border border-white/10">
                     <span className="text-sm text-muted-foreground mr-2">
                       {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select items for bulk actions"}
+                      {selectedIds.size > PUSH_TO_PROD_MAX && (
+                        <span className="text-amber-400/90"> — Push to Production allows max {PUSH_TO_PROD_MAX}; downloads are unlimited</span>
+                      )}
                     </span>
                     <Button
                       size="sm"
@@ -2017,7 +2301,7 @@ export default function ContentStudio() {
                       className="border-white/20"
                       data-testid="button-select-all"
                     >
-                      {selectedIds.size === selectableDrafts.length && selectableDrafts.length > 0 ? "Deselect All" : `Select All (${selectableDrafts.length})`}
+                      {selectedIds.size === bulkSelectableDrafts.length && bulkSelectableDrafts.length > 0 ? "Deselect All" : `Select All (${bulkSelectableDrafts.length})`}
                     </Button>
                     {selectedIds.size > 0 && (
                       <Button
@@ -2301,12 +2585,12 @@ export default function ContentStudio() {
                       <TableRow className="border-white/10 hover:bg-transparent">
                         <TableHead className="w-10">
                           <Checkbox
-                            checked={selectedIds.size === selectableDrafts.length && selectableDrafts.length > 0}
+                            checked={selectedIds.size === bulkSelectableDrafts.length && bulkSelectableDrafts.length > 0}
                             onCheckedChange={selectAll}
                             data-testid="checkbox-select-all"
                           />
                         </TableHead>
-                        <TableHead className="w-10 text-primary font-display">ID</TableHead>
+                        <TableHead className="w-10 text-primary font-display">I.D. #</TableHead>
                         <TableHead className="text-primary font-display">Cover</TableHead>
                         <TableHead className="text-primary font-display">Title</TableHead>
                         <TableHead className="text-primary font-display">Genre</TableHead>
@@ -2343,34 +2627,32 @@ export default function ContentStudio() {
                             <Checkbox
                               checked={selectedIds.has(draft.id)}
                               onCheckedChange={() => toggleSelection(draft.id)}
-                              disabled={!(draft.coverUrl || draft.backgroundUrl) || draft.status === "generating"}
+                              disabled={!isDraftSelectable(draft)}
                               data-testid={`checkbox-draft-${draft.id}`}
                             />
                           </TableCell>
-                          <TableCell className="text-muted-foreground font-mono text-sm">
-                            {contentGenRunning && contentGenProgress.nextId === draft.id && (
-                              <span className="text-yellow-400 mr-1" title="Next in queue">★</span>
-                            )}
-                            {draft.id}
-                          </TableCell>
-                          <TableCell>
-                            <DraftCoverThumb
-                              coverUrl={draft.coverUrl}
-                              backgroundUrl={draft.backgroundUrl}
-                              alt={draft.title}
-                              className="w-12 h-16 object-cover rounded"
-                            />
-                          </TableCell>
-                          <TableCell className="font-serif max-w-[200px] truncate">
-                            <span className="flex items-center gap-1">
-                              {draft.title}
-                              {exemptSet.has(draft.id) && (
-                                <span title="Illustration-exempt — images skipped to save costs" className="inline-flex items-center ml-1">
-                                  <ImageOff className="h-3.5 w-3.5 text-red-400" />
-                                </span>
-                              )}
-                            </span>
-                          </TableCell>
+                          <DraftIdCell
+                            draftId={draft.id}
+                            queueStar={contentGenRunning && contentGenProgress.nextId === draft.id}
+                          />
+                                <TableCell>
+                                  <DraftCoverThumb
+                                    coverUrl={draft.coverUrl}
+                                    backgroundUrl={draft.backgroundUrl}
+                                    alt={draft.title}
+                                    className="w-12 h-16 object-cover rounded"
+                                  />
+                                </TableCell>
+                                <TableCell className="font-serif max-w-[200px] truncate">
+                                  <span className="flex items-center gap-1">
+                                    {draft.title}
+                                    {exemptSet.has(draft.id) && (
+                                      <span title="Illustration-exempt — images skipped to save costs" className="inline-flex items-center ml-1">
+                                        <ImageOff className="h-3.5 w-3.5 text-red-400" />
+                                      </span>
+                                    )}
+                                  </span>
+                                </TableCell>
                           <TableCell>
                             <Badge variant="outline" className="border-white/20">
                               {draft.genre}
@@ -2758,9 +3040,14 @@ export default function ContentStudio() {
                           <TableHeader>
                             <TableRow className="border-white/10 hover:bg-transparent">
                               <TableHead className="w-10">
-                                <Checkbox checked={false} disabled />
+                                <Checkbox
+                                  checked={allPublishedSelected}
+                                  onCheckedChange={toggleSelectAllPublished}
+                                  disabled={publishedSelectable.length === 0}
+                                  data-testid="checkbox-select-all-published"
+                                />
                               </TableHead>
-                              <TableHead className="w-10 text-primary font-display">ID</TableHead>
+                              <TableHead className="w-10 text-primary font-display">I.D. #</TableHead>
                               <TableHead className="text-primary font-display">Cover</TableHead>
                               <TableHead className="text-primary font-display">Title</TableHead>
                               <TableHead className="text-primary font-display">Genre</TableHead>
@@ -2777,16 +3064,14 @@ export default function ContentStudio() {
                                   <Checkbox
                                     checked={selectedIds.has(draft.id)}
                                     onCheckedChange={() => toggleSelection(draft.id)}
-                                    disabled={!(draft.coverUrl || draft.backgroundUrl)}
+                                    disabled={!isDraftSelectable(draft)}
                                     data-testid={`checkbox-draft-${draft.id}`}
                                   />
                                 </TableCell>
-                                <TableCell className="text-muted-foreground font-mono text-sm">
-                                  {contentGenRunning && contentGenProgress.nextId === draft.id && (
-                                    <span className="text-yellow-400 mr-1" title="Next in queue">★</span>
-                                  )}
-                                  {draft.id}
-                                </TableCell>
+                          <DraftIdCell
+                            draftId={draft.id}
+                            queueStar={contentGenRunning && contentGenProgress.nextId === draft.id}
+                          />
                                 <TableCell>
                                   <DraftCoverThumb
                                     coverUrl={draft.coverUrl}
@@ -2825,6 +3110,11 @@ export default function ContentStudio() {
                                 <TableCell>
                                   <div className="flex items-center gap-1 flex-wrap">
                                     {getStatusBadge(draft.status)}
+                                    {!(draft.inCatalog ?? draft.publishedBookId != null) && (
+                                      <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[10px]" title="Marked published in AI Studio but not in the storefront catalog">
+                                        Not in catalog
+                                      </Badge>
+                                    )}
                                     {illustrationNeeds.some(n => n.id === draft.id) && (
                                       <>
                                         <Button
@@ -2919,19 +3209,24 @@ export default function ContentStudio() {
                                       </Button>
                                     )}
                                     {(() => {
-                                      const isVisible = bookVisibilityOverrides.has(draft.id) ? bookVisibilityOverrides.get(draft.id)! : true;
+                                      const inCatalog = draft.inCatalog ?? draft.publishedBookId != null;
+                                      const isVisible = bookVisibilityOverrides.has(draft.id) ? bookVisibilityOverrides.get(draft.id)! : (draft.bookVisible !== false);
                                       return (
                                         <Button
                                           size="sm"
                                           variant="outline"
-                                          onClick={() => toggleBookVisibility(draft.id)}
+                                          onClick={() => toggleBookVisibility(draft)}
                                           disabled={togglingVisibility.has(draft.id)}
-                                          className={isVisible ? "border-red-500/50 text-red-400 hover:bg-red-500/10" : "border-green-500/50 text-green-400 hover:bg-green-500/10"}
+                                          className={inCatalog
+                                            ? (isVisible ? "border-red-500/50 text-red-400 hover:bg-red-500/10" : "border-green-500/50 text-green-400 hover:bg-green-500/10")
+                                            : "border-amber-500/50 text-amber-400 hover:bg-amber-500/10"}
                                           data-testid={`button-visibility-${draft.id}`}
-                                          title={isVisible ? "Hide from storefront" : "Restore to storefront"}
+                                          title={inCatalog
+                                            ? (isVisible ? "Hide from storefront" : "Restore to storefront")
+                                            : "Published in AI Studio only — add to the storefront catalog"}
                                         >
-                                          {togglingVisibility.has(draft.id) ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : isVisible ? <EyeOff className="h-4 w-4 mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
-                                          {isVisible ? "Unpublish" : "Republish"}
+                                          {togglingVisibility.has(draft.id) ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : inCatalog ? (isVisible ? <EyeOff className="h-4 w-4 mr-1" /> : <Eye className="h-4 w-4 mr-1" />) : <Upload className="h-4 w-4 mr-1" />}
+                                          {inCatalog ? (isVisible ? "Unpublish" : "Republish") : "Publish to Storefront"}
                                         </Button>
                                       );
                                     })()}

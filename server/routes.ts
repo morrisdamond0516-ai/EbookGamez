@@ -12,7 +12,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { extractCoverFromFile } from "./pdfProcessor";
-import { desc, eq, inArray, sql, isNotNull, isNull } from "drizzle-orm";
+import { desc, eq, inArray, sql, isNotNull, isNull, and } from "drizzle-orm";
 import * as contentStudio from "./contentStudio";
 import * as contentRefresh from "./contentRefresh";
 import * as subscriptionService from "./subscriptionService";
@@ -1043,13 +1043,31 @@ Allow: /
       const draftId = parseInt(req.params.id);
       const [draft] = await db.select({ title: draftEbooks.title }).from(draftEbooks).where(eq(draftEbooks.id, draftId));
       if (!draft) return res.status(404).json({ error: "Draft not found" });
-      const [book] = await db.select({ id: books.id, visible: books.visible }).from(books).where(eq(books.title, draft.title));
-      if (!book) return res.status(404).json({ error: "No published book found matching this draft title" });
+      const book = await contentStudio.findCatalogBookForDraft(draftId, draft.title);
+      if (!book) {
+        return res.status(404).json({
+          error: "No catalog book with this exact title. This draft is only marked published in AI Studio — use Move to Ready to clear that.",
+          orphanPublished: true,
+        });
+      }
       const newVisible = !book.visible;
       await db.update(books).set({ visible: newVisible }).where(eq(books.id, book.id));
       res.json({ bookId: book.id, visible: newVisible });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/content-studio/drafts/:id/reset-orphan-published", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const draftId = parseInt(req.params.id);
+      if (isNaN(draftId)) return res.status(400).json({ error: "Invalid draft ID" });
+      await contentStudio.resetOrphanPublishedDraft(draftId);
+      res.json({ success: true, message: "Draft moved to Ready — it was not in the storefront catalog." });
+    } catch (error) {
+      console.error("Error resetting orphan published draft:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to reset draft" });
     }
   });
 
@@ -1354,7 +1372,7 @@ Allow: /
 
       const isClassic = book.genre.startsWith("Classic");
 
-      if (!isClassic) {
+      if (!isClassic && !isAdminAuthenticated(req)) {
         const email = getAuthenticatedEmail(req);
 
         if (!email) return res.status(401).json({ error: "auth_required", message: "Please log in to read this book." });
@@ -1374,12 +1392,7 @@ Allow: /
         }
       }
 
-      const [draft] = await db.select({ id: draftEbooks.id })
-        .from(draftEbooks)
-        .where(
-          sql`${draftEbooks.title} = ${book.title} AND ${draftEbooks.content} IS NOT NULL AND length(${draftEbooks.content}) > 100`
-        )
-        .limit(1);
+      const draft = await contentStudio.findReadableDraftForCatalogBook(book);
       if (!draft) return res.status(404).json({ error: "No readable content found for this book" });
       res.json({ draftId: draft.id });
     } catch (error) {
@@ -2566,30 +2579,7 @@ Allow: /
           outlineChapterCount: sql<number>`0`.as('outline_chapter_count'),
           hasTBCMarker: sql<boolean>`false`.as('has_tbc_marker'),
           hasIncompleteMarker: sql<boolean>`false`.as('has_incomplete_marker'),
-          bookVisible: sql<boolean>`COALESCE((SELECT b.visible FROM books b WHERE b.title = ${draftEbooks.title} LIMIT 1), true)`.as('bookVisible'),
-          publishedBookId: sql<number | null>`(SELECT b.id FROM books b WHERE b.title = ${draftEbooks.title} LIMIT 1)`.as('publishedBookId'),
-          bookCoverUrl: sql<string | null>`(
-            SELECT b.cover_url FROM books b
-            WHERE b.cover_url IS NOT NULL AND b.cover_url != ''
-              AND (
-                LOWER(TRIM(b.title)) = LOWER(TRIM(${draftEbooks.title}))
-                OR (char_length(TRIM(${draftEbooks.title})) >= 15 AND LOWER(TRIM(b.title)) LIKE LOWER(TRIM(${draftEbooks.title})) || '%')
-                OR (char_length(TRIM(b.title)) >= 15 AND LOWER(TRIM(${draftEbooks.title})) LIKE LOWER(TRIM(b.title)) || '%')
-              )
-            ORDER BY CASE WHEN LOWER(TRIM(b.title)) = LOWER(TRIM(${draftEbooks.title})) THEN 0 ELSE 1 END, length(b.title) DESC
-            LIMIT 1
-          )`.as('bookCoverUrl'),
-          similarDraftCoverUrl: sql<string | null>`(
-            SELECT d2.cover_url FROM draft_ebooks d2
-            WHERE d2.id != ${draftEbooks.id} AND d2.cover_url IS NOT NULL AND d2.cover_url != ''
-              AND (
-                LOWER(TRIM(d2.title)) = LOWER(TRIM(${draftEbooks.title}))
-                OR (char_length(TRIM(${draftEbooks.title})) >= 15 AND LOWER(TRIM(d2.title)) LIKE LOWER(TRIM(${draftEbooks.title})) || '%')
-                OR (char_length(TRIM(d2.title)) >= 15 AND LOWER(TRIM(${draftEbooks.title})) LIKE LOWER(TRIM(d2.title)) || '%')
-              )
-            ORDER BY CASE WHEN LOWER(TRIM(d2.title)) = LOWER(TRIM(${draftEbooks.title})) THEN 0 ELSE 1 END, length(d2.content) DESC NULLS LAST
-            LIMIT 1
-          )`.as('similarDraftCoverUrl'),
+          hasIllustrations: sql<boolean>`COALESCE(${draftEbooks.content}, '') LIKE '%/objstore/illustrations/%'`.as('has_illustrations'),
         }).from(draftEbooks)
           .where(whereClause)
           .orderBy(desc(draftEbooks.createdAt));
@@ -2613,6 +2603,9 @@ Allow: /
       const CLASSIC_DRAFT_IDS = Array.from({ length: 25 }, (_, i) => 581 + i);
       const { resolveDisplayCoverUrl } = await import("./coverStorage");
 
+      const catalogIndex =
+        statusFilter === "published" ? await contentStudio.loadCatalogBookLinkIndex() : null;
+
       const enrichedDrafts = drafts.map(draft => {
         const wordCount = Number(draft.contentWordCount) || 0;
         const hasContent = (draft.contentLen || 0) > 100;
@@ -2633,10 +2626,12 @@ Allow: /
           }
         }
 
-        const bookCoverUrl = (draft as any).bookCoverUrl ?? null;
-        const similarDraftCoverUrl = (draft as any).similarDraftCoverUrl ?? null;
+        const catalogBook =
+          statusFilter === "published" && catalogIndex
+            ? contentStudio.findCatalogBookLinkForDraft(draft.id, draft.title, catalogIndex)
+            : null;
         const resolvedCoverUrl = statusFilter === "published"
-          ? resolveDisplayCoverUrl(draft.coverUrl, draft.backgroundUrl, bookCoverUrl, similarDraftCoverUrl)
+          ? resolveDisplayCoverUrl(draft.coverUrl, catalogBook?.coverUrl, draft.backgroundUrl)
           : (draft.coverUrl || draft.backgroundUrl || null);
 
         return {
@@ -2665,8 +2660,10 @@ Allow: /
           hasTBCMarker: !!draft.hasTBCMarker,
           pendingIllustrations,
           totalIllustrations: totalMarkers,
-          bookVisible: (draft as any).bookVisible !== false,
-          publishedBookId: (draft as any).publishedBookId ?? null,
+          hasIllustrations: !!(draft as { hasIllustrations?: boolean }).hasIllustrations,
+          bookVisible: catalogBook?.visible !== false,
+          publishedBookId: catalogBook?.id ?? null,
+          inCatalog: catalogBook != null,
         };
       });
       res.json(enrichedDrafts);
@@ -2830,18 +2827,15 @@ Allow: /
     }
   });
 
-  app.post("/api/content-studio/publish/:id", async (req, res) => {
+  app.post("/api/content-studio/drafts/:id/push-to-storefront", async (req, res) => {
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const draftId = parseInt(req.params.id);
-      if (isNaN(draftId)) {
-        return res.status(400).json({ error: "Invalid draft ID" });
-      }
+      if (isNaN(draftId)) return res.status(400).json({ error: "Invalid draft ID" });
+
       const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
       if (!draft) return res.status(404).json({ error: "Draft not found" });
-      if (draft.status !== "ready") {
-        return res.status(400).json({ error: `Only "ready" books can be published. This book is "${draft.status}". Run quality checks first.` });
-      }
+
       const content = draft.content || "";
       const title = draft.title || draft.topic || "Untitled";
       const genre = draft.genre || "General";
@@ -2855,10 +2849,65 @@ Allow: /
         const structScan = await contentStudio.scanContentCompleteness([draftId]);
         const structuralIssues = structScan.length > 0 ? structScan[0].issues : [];
         if (structuralIssues.length > 0) {
+          return res.status(400).json({ error: `Structural issues found: ${structuralIssues.join('; ')}`, issues: structuralIssues });
+        }
+        const dialogueResult = await contentStudio.checkDialogueQuality(content, title, genre, draft.outline || undefined);
+        if (!dialogueResult.pass) {
+          return res.status(400).json({ error: `Dialogue quality check failed: ${dialogueResult.summary}`, issues: dialogueResult.issues });
+        }
+      }
+
+      const subscriberExclusive = req.body?.subscriberExclusive === true;
+      const bookId = await contentStudio.pushPublishedDraftToStorefront(draftId, { subscriberExclusive });
+      res.json({ bookId, subscriberExclusive, message: "Draft is now on the storefront" });
+    } catch (error) {
+      console.error("Error pushing draft to storefront:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to push to storefront" });
+    }
+  });
+
+  app.post("/api/content-studio/publish/:id", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const draftId = parseInt(req.params.id);
+      if (isNaN(draftId)) {
+        return res.status(400).json({ error: "Invalid draft ID" });
+      }
+      const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+      if (!draft) return res.status(404).json({ error: "Draft not found" });
+      if (draft.status === "published") {
+        const catalogBook = await contentStudio.findCatalogBookForDraft(draftId, draft.title);
+        if (catalogBook) {
+          return res.status(400).json({
+            error: `Already in the catalog as book #${catalogBook.id}. Use Unpublish to hide from the storefront.`,
+          });
+        }
+        await contentStudio.resetOrphanPublishedDraft(draftId);
+      }
+      const [draftAfterReset] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+      if (!draftAfterReset) return res.status(404).json({ error: "Draft not found" });
+      if (draftAfterReset.status !== "ready") {
+        return res.status(400).json({
+          error: `Only "ready" books can be published. This book is "${draftAfterReset.status}". Run quality checks first.`,
+        });
+      }
+      const content = draftAfterReset.content || "";
+      const title = draftAfterReset.title || draftAfterReset.topic || "Untitled";
+      const genre = draftAfterReset.genre || "General";
+      const words = content.split(/\s+/).length;
+      const isColoringBook = genre.toLowerCase().includes("coloring");
+      const minWords = isColoringBook ? 100 : 5000;
+      if (words < minWords) {
+        return res.status(400).json({ error: `Word count ${words} is below minimum ${minWords}. Cannot publish.` });
+      }
+      if (!isColoringBook) {
+        const structScan = await contentStudio.scanContentCompleteness([draftId]);
+        const structuralIssues = structScan.length > 0 ? structScan[0].issues : [];
+        if (structuralIssues.length > 0) {
           await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
           return res.status(400).json({ error: `Structural issues found: ${structuralIssues.join('; ')}. Demoted to draft.`, issues: structuralIssues });
         }
-        const dialogueResult = await contentStudio.checkDialogueQuality(content, title, genre, draft.outline || undefined);
+        const dialogueResult = await contentStudio.checkDialogueQuality(content, title, genre, draftAfterReset.outline || undefined);
         if (!dialogueResult.pass) {
           await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
           return res.status(400).json({ error: `Dialogue quality check failed: ${dialogueResult.summary}. Demoted to draft.`, issues: dialogueResult.issues });
@@ -2901,19 +2950,13 @@ Allow: /
       } else if (isAdmin) {
         // Admin: full access to any draft
       } else {
-        // Derive the canonical book from the draft's title (server-side only; client input
-        // is not used for authorization to prevent bookId spoofing).
-        const [canonicalBook] = await db.select({ id: books.id })
-          .from(books)
-          .where(eq(books.title, draft.title))
-          .limit(1);
+        const catalogBook = await contentStudio.findCatalogBookForDraft(draftId, draft.title);
 
-        if (!canonicalBook) {
-          // Draft not published — non-admin access denied
+        if (!catalogBook) {
           return res.status(403).json({ error: "access_denied" });
         }
 
-        const canonicalBookId = canonicalBook.id;
+        const canonicalBookId = catalogBook.id;
         const email = getAuthenticatedEmail(req);
         if (!email) return res.status(401).json({ error: "auth_required" });
 
@@ -4746,7 +4789,23 @@ Respond in JSON format only:
         drafts = await db.select(selectFields).from(draftEbooks)
           .orderBy(desc(draftEbooks.id));
       }
-      res.json(drafts);
+      const { resolveDisplayCoverUrl } = await import("./coverStorage");
+      const catalogIndex = await contentStudio.loadCatalogBookLinkIndex();
+      const enriched = drafts.map((draft) => {
+        const catalogBook = contentStudio.findCatalogBookLinkForDraft(draft.id, draft.title, catalogIndex);
+        const resolvedCoverUrl = resolveDisplayCoverUrl(
+          draft.coverUrl,
+          catalogBook?.coverUrl,
+          draft.backgroundUrl,
+        );
+        return {
+          ...draft,
+          coverUrl: resolvedCoverUrl,
+          inCatalog: catalogBook != null,
+          publishedBookId: catalogBook?.id ?? null,
+        };
+      });
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching drafts for review:", error);
       res.status(500).json({ error: "Failed to fetch drafts" });
@@ -4777,7 +4836,7 @@ Respond in JSON format only:
       let updatedCount = 0;
       for (const book of matchingBooks) {
         await db.update(books)
-          .set({ coverUrl })
+          .set({ coverUrl, sourceDraftId: draftId, visible: true })
           .where(eq(books.id, book.id));
         updatedCount++;
       }
@@ -6429,7 +6488,9 @@ Respond in JSON format only:
         const ids = idsParam.split(",").map(id => parseInt(id.trim())).filter(id => !isNaN(id));
         drafts = await db.select().from(draftEbooks).where(inArray(draftEbooks.id, ids));
       } else {
-        drafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+        drafts = await db.select().from(draftEbooks).where(
+          sql`${draftEbooks.content} IS NOT NULL AND length(${draftEbooks.content}) > 100`,
+        );
       }
       
       const draftsWithContent = drafts.filter(d => d.content && d.content.length > 100);
@@ -8334,6 +8395,28 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
     res.json({ success: true });
   });
 
+  // POST /api/admin/receive-cover-file
+  // Receives a cover image from dev push-to-production and stores it on this server.
+  app.post("/api/admin/receive-cover-file", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { filename, dataBase64 } = req.body;
+      if (!filename || typeof filename !== "string" || !dataBase64) {
+        return res.status(400).json({ error: "filename and dataBase64 required" });
+      }
+      const safeName = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, "_");
+      if (!safeName) return res.status(400).json({ error: "Invalid filename" });
+      const buffer = Buffer.from(dataBase64, "base64");
+      if (buffer.length === 0) return res.status(400).json({ error: "Empty image data" });
+      const { saveCoverFile } = await import("./coverStorage");
+      const url = await saveCoverFile(buffer, safeName);
+      res.json({ url, filename: safeName });
+    } catch (err: any) {
+      console.error("[SyncReceive] Cover file error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/admin/receive-draft-sync
   // Receives batches of draft content from the dev environment and upserts them into this
   // database. Matches by title — updates if found, inserts if not.
@@ -8362,70 +8445,98 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
           if (!d.title || !d.content) { errors++; continue; }
           const title = clean(d.title) as string;
           const content = clean(d.content) as string;
-          const coverUrl = clean(d.coverUrl);
-          const backgroundUrl = clean(d.backgroundUrl);
+          let coverUrl = clean(d.coverUrl);
+          let backgroundUrl = clean(d.backgroundUrl);
           const description = clean(d.description);
           const topic = clean(d.topic) || title;
+          const status = d.status ?? "published";
 
           const [existing] = await db.select({ id: draftEbooks.id })
             .from(draftEbooks)
             .where(eq(draftEbooks.title, title))
             .limit(1);
 
+          let draftId: number;
           if (existing) {
-            const patch: Record<string, any> = { content };
+            const patch: Record<string, any> = { content, status };
             if (coverUrl) patch.coverUrl = coverUrl;
             if (backgroundUrl) patch.backgroundUrl = backgroundUrl;
-            if (d.status) patch.status = d.status;
             if (description) patch.description = description;
             if (d.suggestedPrice != null) patch.suggestedPrice = d.suggestedPrice;
+            if (status === "published") {
+              patch.publishedAt = d.publishedAt ? new Date(d.publishedAt) : sql`COALESCE(${draftEbooks.publishedAt}, NOW())`;
+            }
             await db.update(draftEbooks).set(patch).where(eq(draftEbooks.id, existing.id));
+            draftId = existing.id;
             updated++;
           } else {
-            await db.insert(draftEbooks).values({
+            const [newDraft] = await db.insert(draftEbooks).values({
               title,
               genre: d.genre || "Fiction",
               topic,
               content,
               coverUrl: coverUrl ?? null,
               backgroundUrl: backgroundUrl ?? null,
-              status: d.status ?? "published",
+              status,
               description: description ?? null,
               suggestedPrice: d.suggestedPrice ?? null,
-            });
+              publishedAt: status === "published" ? (d.publishedAt ? new Date(d.publishedAt) : new Date()) : null,
+            }).returning({ id: draftEbooks.id });
+            draftId = newDraft.id;
             inserted++;
           }
 
-          // Also upsert the books table so published drafts appear in the catalog
-          if ((d.status ?? "published") === "published") {
-            const genre = d.genre || "Fiction";
-            const category = contentStudio.mapGenreToCategory(genre);
-            const price = d.suggestedPrice ?? "9.99";
-            const bookCoverUrl = coverUrl || backgroundUrl || "";
-            const bookDesc = description || `An AI-generated ebook about ${topic}`;
-            const [existingBook] = await db.select({ id: books.id })
-              .from(books)
-              .where(sql`LOWER(${books.title}) = LOWER(${title})`)
-              .limit(1);
-            if (existingBook) {
-              await db.update(books).set({
+          // Upsert catalog row so published drafts appear on the storefront (not only AI Studio).
+          if (status === "published") {
+            try {
+              const genre = d.genre || "Fiction";
+              const category = contentStudio.mapGenreToCategory(genre);
+              const price = d.suggestedPrice ?? "9.99";
+              const bookCoverUrl = coverUrl || backgroundUrl || "";
+              const bookDesc = description || `An AI-generated ebook about ${topic}`;
+              const [existingBook] = await db.select({ id: books.id })
+                .from(books)
+                .where(sql`LOWER(${books.title}) = LOWER(${title})`)
+                .limit(1);
+              const bookPatch = {
                 genre,
                 category,
                 price,
+                visible: true,
+                sourceDraftId: draftId,
                 ...(bookCoverUrl ? { coverUrl: bookCoverUrl } : {}),
                 description: bookDesc,
-              }).where(eq(books.id, existingBook.id));
-            } else {
-              await db.insert(books).values({
-                title,
-                author: "EbookGamez",
-                genre,
-                category,
-                price,
-                rating: "4.5",
-                coverUrl: bookCoverUrl,
-                description: bookDesc,
-              });
+              };
+              if (existingBook) {
+                await db.update(books).set(bookPatch).where(eq(books.id, existingBook.id));
+              } else {
+                try {
+                  await db.insert(books).values({
+                    title,
+                    author: "EbookGamez",
+                    rating: "4.5",
+                    coverUrl: bookCoverUrl,
+                    ...bookPatch,
+                  });
+                } catch (insertErr: any) {
+                  const msg = insertErr?.message || "";
+                  if (msg.includes("source_draft_id")) {
+                    const { sourceDraftId: _omit, ...withoutLink } = bookPatch;
+                    await db.insert(books).values({
+                      title,
+                      author: "EbookGamez",
+                      rating: "4.5",
+                      coverUrl: bookCoverUrl,
+                      ...withoutLink,
+                    });
+                  } else {
+                    throw insertErr;
+                  }
+                }
+              }
+            } catch (catalogErr: any) {
+              console.error(`[SyncReceive] Catalog upsert failed for "${title}":`, catalogErr.message?.slice(0, 300));
+              errors++;
             }
           }
         } catch (err: any) {
@@ -8445,22 +8556,65 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
   });
 
   // POST /api/admin/push-to-production
-  // Pushes dev draft content (illustrated or all published) to a production server
-  // by calling that server's /api/admin/receive-draft-sync endpoint.
+  // Pushes dev draft content to a production server (small batches only — avoids OOM).
+  const PUSH_TO_PROD_MAX_DRAFTS = 25;
+
+  function isLocalDevUrl(raw: string): boolean {
+    try {
+      const u = new URL(raw.trim());
+      return u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "::1";
+    } catch {
+      return false;
+    }
+  }
+
   app.post("/api/admin/push-to-production", async (req, res) => {
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const { productionUrl, mode = "illustrated" } = req.body;
+      const { productionUrl, mode = "illustrated", draftIds, recentDays = 7 } = req.body;
       if (!productionUrl || typeof productionUrl !== "string") {
         return res.status(400).json({ error: "productionUrl required" });
       }
       const url = productionUrl.trim().replace(/\/$/, "");
 
-      const whereClause = mode === "all"
-        ? sql`${draftEbooks.content} IS NOT NULL AND ${draftEbooks.status} = 'published'`
-        : mode === "prose"
-        ? sql`${draftEbooks.content} IS NOT NULL AND ${draftEbooks.status} = 'published' AND ${draftEbooks.content} NOT LIKE '%/objstore/illustrations/%'`
-        : sql`${draftEbooks.content} LIKE '%/objstore/illustrations/%' AND ${draftEbooks.status} = 'published'`;
+      if (isLocalDevUrl(url)) {
+        return res.status(400).json({
+          error: `Production URL is local (${url}). That only updates this computer — it does NOT change ebookgamez.com. Use https://ebookgamez.com (or your Replit deploy URL).`,
+        });
+      }
+
+      let whereClause;
+      if (mode === "selected") {
+        if (!Array.isArray(draftIds) || draftIds.length === 0) {
+          return res.status(400).json({ error: "Select at least one draft in the table, then choose “Selected only”." });
+        }
+        const ids = [...new Set(draftIds.map((id: unknown) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+        if (ids.length === 0) {
+          return res.status(400).json({ error: "No valid draft IDs in selection." });
+        }
+        if (ids.length > PUSH_TO_PROD_MAX_DRAFTS) {
+          return res.status(400).json({
+            error: `Too many selected (${ids.length}). Maximum ${PUSH_TO_PROD_MAX_DRAFTS} per push — deselect some rows first.`,
+          });
+        }
+        whereClause = and(
+          inArray(draftEbooks.id, ids),
+          eq(draftEbooks.status, "published"),
+          isNotNull(draftEbooks.content),
+        );
+      } else if (mode === "recent") {
+        const days = Math.min(30, Math.max(1, Number(recentDays) || 7));
+        whereClause = sql`${draftEbooks.content} IS NOT NULL
+          AND ${draftEbooks.status} = 'published'
+          AND ${draftEbooks.publishedAt} IS NOT NULL
+          AND ${draftEbooks.publishedAt} >= NOW() - (${days}::text || ' days')::interval`;
+      } else if (mode === "all") {
+        whereClause = sql`${draftEbooks.content} IS NOT NULL AND ${draftEbooks.status} = 'published'`;
+      } else if (mode === "prose") {
+        whereClause = sql`${draftEbooks.content} IS NOT NULL AND ${draftEbooks.status} = 'published' AND ${draftEbooks.content} NOT LIKE '%/objstore/illustrations/%'`;
+      } else {
+        whereClause = sql`${draftEbooks.content} LIKE '%/objstore/illustrations/%' AND ${draftEbooks.status} = 'published'`;
+      }
 
       const allDrafts = await db.select({
         id: draftEbooks.id,
@@ -8473,7 +8627,17 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         status: draftEbooks.status,
         description: draftEbooks.description,
         suggestedPrice: draftEbooks.suggestedPrice,
+        publishedAt: draftEbooks.publishedAt,
       }).from(draftEbooks).where(whereClause);
+
+      if (allDrafts.length === 0) {
+        return res.status(400).json({ error: "No drafts matched this sync mode." });
+      }
+      if (allDrafts.length > PUSH_TO_PROD_MAX_DRAFTS) {
+        return res.status(400).json({
+          error: `This push would sync ${allDrafts.length} books (max ${PUSH_TO_PROD_MAX_DRAFTS}). Select ${PUSH_TO_PROD_MAX_DRAFTS} or fewer and try again.`,
+        });
+      }
 
       // Log in to the production server first — dev session tokens don't work there
       // because sessions are in-memory per process.
@@ -8500,6 +8664,66 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         throw new Error(`Cannot log in to production server at ${url}: ${loginErr.message}`);
       }
 
+      const warnings: string[] = [];
+      try {
+        const probe = await fetch(`${url}/api/admin/receive-cover-file`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-admin-token": prodToken },
+          body: JSON.stringify({}),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (probe.status === 404) {
+          warnings.push(
+            "Production is missing the new sync endpoints (404 on receive-cover-file). Push code to GitHub, then git pull + deploy on Replit before pushing again.",
+          );
+        }
+      } catch {
+        warnings.push("Could not verify production sync endpoints — deploy latest code if covers/catalog do not update.");
+      }
+
+      const { readCoverBytesForSync, toObjstoreCoverUrl } = await import("./coverStorage");
+      const uploadedCoverFiles = new Set<string>();
+      let coversUploaded = 0;
+      let coversMissing = 0;
+
+      for (const draft of allDrafts) {
+        if (!draft.coverUrl && !draft.backgroundUrl) {
+          coversMissing++;
+          continue;
+        }
+        let hadCoverFile = false;
+        for (const coverSrc of [draft.coverUrl, draft.backgroundUrl]) {
+          if (!coverSrc) continue;
+          const file = await readCoverBytesForSync(coverSrc);
+          if (!file || uploadedCoverFiles.has(file.filename)) {
+            if (file) hadCoverFile = true;
+            continue;
+          }
+          uploadedCoverFiles.add(file.filename);
+          hadCoverFile = true;
+          try {
+            const coverResp = await fetch(`${url}/api/admin/receive-cover-file`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-admin-token": prodToken },
+              body: JSON.stringify({
+                filename: file.filename,
+                dataBase64: file.buffer.toString("base64"),
+              }),
+              signal: AbortSignal.timeout(120000),
+            });
+            if (coverResp.ok) {
+              coversUploaded++;
+            } else {
+              const errText = await coverResp.text().catch(() => "");
+              console.warn(`[PushToProd] Cover upload failed for ${file.filename}: ${errText.slice(0, 120)}`);
+            }
+          } catch (coverErr: any) {
+            console.warn(`[PushToProd] Cover upload error for ${file.filename}: ${coverErr.message}`);
+          }
+        }
+        if (!hadCoverFile) coversMissing++;
+      }
+
       const BATCH_SIZE = 5;
       let totalUpdated = 0, totalInserted = 0, totalErrors = 0;
 
@@ -8513,7 +8737,13 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
           response = await fetch(`${url}/api/admin/receive-draft-sync`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-admin-token": prodToken },
-            body: JSON.stringify({ drafts: batch }),
+            body: JSON.stringify({
+              drafts: batch.map((d) => ({
+                ...d,
+                coverUrl: d.coverUrl ? toObjstoreCoverUrl(d.coverUrl) : null,
+                backgroundUrl: d.backgroundUrl ? toObjstoreCoverUrl(d.backgroundUrl) : null,
+              })),
+            }),
             signal: AbortSignal.timeout(120000),
           });
         } catch (fetchErr: any) {
@@ -8529,12 +8759,59 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         totalUpdated += result.updated ?? 0;
         totalInserted += result.inserted ?? 0;
         totalErrors += result.errors ?? 0;
-        console.log(`[PushToProd] Batch ${batchNum}/${totalBatches}: +${result.updated} updated, +${result.inserted} inserted`);
+        if ((result.errors ?? 0) > 0) {
+          warnings.push(`Batch ${batchNum}: ${result.errors} draft(s) failed on production (check production server logs for [SyncReceive]).`);
+        }
+        console.log(`[PushToProd] Batch ${batchNum}/${totalBatches}: +${result.updated} updated, +${result.inserted} inserted, ${result.errors ?? 0} errors`);
       }
 
-      const message = `Synced ${allDrafts.length} books to production (${totalUpdated} updated, ${totalInserted} new)`;
+      const verification: { title: string; onStorefront: boolean; hasCover: boolean }[] = [];
+      for (const draft of allDrafts) {
+        let onStorefront = false;
+        let hasCover = false;
+        try {
+          const vResp = await fetch(
+            `${url}/api/books?search=${encodeURIComponent(draft.title)}&limit=20`,
+            { signal: AbortSignal.timeout(15000) },
+          );
+          if (vResp.ok) {
+            const vData = await vResp.json() as { books?: { title: string; coverUrl?: string }[] } | { title: string; coverUrl?: string }[];
+            const list = Array.isArray(vData) ? vData : vData.books ?? [];
+            const match = list.find(
+              (b) => b.title.trim().toLowerCase() === draft.title.trim().toLowerCase(),
+            );
+            if (match) {
+              onStorefront = true;
+              hasCover = !!(match.coverUrl && match.coverUrl.length > 5);
+            }
+          }
+        } catch {
+          warnings.push(`Could not verify "${draft.title}" on production storefront.`);
+        }
+        verification.push({ title: draft.title, onStorefront, hasCover });
+        if (!onStorefront) {
+          warnings.push(`"${draft.title}" is NOT on the production storefront yet — run db:push on production, redeploy, then push again or use Publish to Storefront on production.`);
+        } else if (!hasCover) {
+          warnings.push(`"${draft.title}" is on the storefront but has no cover URL on production.`);
+        }
+      }
+
+      const verifiedOnStorefront = verification.filter((v) => v.onStorefront).length;
+      const message = `Synced ${allDrafts.length} book(s) (${totalUpdated} draft rows updated, ${totalInserted} new, ${coversUploaded} covers uploaded, ${verifiedOnStorefront}/${allDrafts.length} verified on storefront${totalErrors > 0 ? `, ${totalErrors} sync errors` : ""})`;
       console.log(`[PushToProd] Complete: ${message}`);
-      res.json({ totalDrafts: allDrafts.length, totalUpdated, totalInserted, totalErrors, message });
+      if (warnings.length) console.warn("[PushToProd] Warnings:", warnings.join(" | "));
+      res.json({
+        totalDrafts: allDrafts.length,
+        totalUpdated,
+        totalInserted,
+        totalErrors,
+        coversUploaded,
+        coversMissing,
+        verification,
+        warnings,
+        message,
+        ok: totalErrors === 0 && verifiedOnStorefront === allDrafts.length && warnings.length === 0,
+      });
     } catch (err: any) {
       console.error("[PushToProd] Error:", err.message);
       res.status(500).json({ error: err.message });

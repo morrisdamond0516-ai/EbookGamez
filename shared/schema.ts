@@ -29,6 +29,7 @@ export const books = pgTable("books", {
   description: text("description"),
   visible: boolean("visible").default(true).notNull(),
   coverFit: text("cover_fit").notNull().default("cover"),
+  sourceDraftId: integer("source_draft_id"),
   subscriberExclusiveUntil: timestamp("subscriber_exclusive_until"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

@@ -10506,6 +10506,187 @@ export function areTitlesSimilar(titleA: string, titleB: string): { similar: boo
   return { similar: false, matchType: '' };
 }
 
+/** Catalog book with the same title (exact match only — not prefix/similar). */
+export async function findExactCatalogBookForDraftTitle(
+  draftTitle: string,
+): Promise<{ id: number; title: string; visible: boolean } | null> {
+  const [book] = await db
+    .select({ id: books.id, title: books.title, visible: books.visible })
+    .from(books)
+    .where(sql`LOWER(TRIM(${books.title})) = LOWER(TRIM(${draftTitle}))`);
+  return book ?? null;
+}
+
+/** Catalog book created from a specific AI Studio draft. */
+export async function findCatalogBookBySourceDraftId(
+  draftId: number,
+): Promise<{ id: number; title: string; visible: boolean } | null> {
+  const [book] = await db
+    .select({ id: books.id, title: books.title, visible: books.visible })
+    .from(books)
+    .where(eq(books.sourceDraftId, draftId));
+  return book ?? null;
+}
+
+export async function findCatalogBookForDraft(
+  draftId: number,
+  draftTitle: string,
+): Promise<{ id: number; title: string; visible: boolean } | null> {
+  const byDraft = await findCatalogBookBySourceDraftId(draftId);
+  if (byDraft) return byDraft;
+  return findExactCatalogBookForDraftTitle(draftTitle);
+}
+
+export type CatalogBookLink = {
+  id: number;
+  title: string;
+  visible: boolean;
+  coverUrl: string | null;
+};
+
+/** In-memory index for matching drafts to catalog books without broken SQL subqueries. */
+export async function loadCatalogBookLinkIndex(): Promise<{
+  bySourceDraftId: Map<number, CatalogBookLink>;
+  byExactTitle: Map<string, CatalogBookLink>;
+}> {
+  const rows = await db
+    .select({
+      id: books.id,
+      title: books.title,
+      visible: books.visible,
+      coverUrl: books.coverUrl,
+      sourceDraftId: books.sourceDraftId,
+    })
+    .from(books);
+
+  const bySourceDraftId = new Map<number, CatalogBookLink>();
+  const byExactTitle = new Map<string, CatalogBookLink>();
+  for (const row of rows) {
+    const link: CatalogBookLink = {
+      id: row.id,
+      title: row.title,
+      visible: row.visible,
+      coverUrl: row.coverUrl,
+    };
+    if (row.sourceDraftId) bySourceDraftId.set(row.sourceDraftId, link);
+    byExactTitle.set(row.title.trim().toLowerCase(), link);
+  }
+  return { bySourceDraftId, byExactTitle };
+}
+
+export function findCatalogBookLinkForDraft(
+  draftId: number,
+  draftTitle: string,
+  index: { bySourceDraftId: Map<number, CatalogBookLink>; byExactTitle: Map<string, CatalogBookLink> },
+): CatalogBookLink | null {
+  return index.bySourceDraftId.get(draftId) ?? index.byExactTitle.get(draftTitle.trim().toLowerCase()) ?? null;
+}
+
+export async function findReadableDraftForCatalogBook(
+  book: { id: number; title: string; sourceDraftId?: number | null },
+): Promise<{ id: number } | null> {
+  if (book.sourceDraftId) {
+    const [byLink] = await db
+      .select({ id: draftEbooks.id })
+      .from(draftEbooks)
+      .where(
+        sql`${draftEbooks.id} = ${book.sourceDraftId}
+          AND ${draftEbooks.content} IS NOT NULL
+          AND length(${draftEbooks.content}) > 100`,
+      )
+      .limit(1);
+    if (byLink) return byLink;
+  }
+
+  const [byTitle] = await db
+    .select({ id: draftEbooks.id })
+    .from(draftEbooks)
+    .where(
+      sql`${draftEbooks.title} = ${book.title}
+        AND ${draftEbooks.content} IS NOT NULL
+        AND length(${draftEbooks.content}) > 100`,
+    )
+    .limit(1);
+  return byTitle ?? null;
+}
+
+/** Draft marked published in AI Studio but never created a matching catalog row. */
+export async function resetOrphanPublishedDraft(draftId: number): Promise<void> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  if (draft.status !== "published") {
+    throw new Error(`Draft is "${draft.status}" — only published drafts can be reset.`);
+  }
+  const catalogBook = await findCatalogBookForDraft(draftId, draft.title);
+  if (catalogBook) {
+    throw new Error(
+      `This draft is in the catalog as book #${catalogBook.id}. Use Unpublish to hide it from the storefront.`,
+    );
+  }
+  await db
+    .update(draftEbooks)
+    .set({ status: "ready", publishedAt: null })
+    .where(eq(draftEbooks.id, draftId));
+}
+
+/** Published in AI Studio but missing from storefront — create catalog row without demoting status. */
+export async function pushPublishedDraftToStorefront(
+  draftId: number,
+  options?: { subscriberExclusive?: boolean },
+): Promise<number> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft) throw new Error("Draft not found");
+  if (draft.status !== "published") {
+    throw new Error(
+      `Draft is "${draft.status}". Use Publish for ready drafts, or Publish to Storefront only when AI Studio already shows Published.`,
+    );
+  }
+  if (!draft.content || draft.content.trim().length < 100) {
+    throw new Error("Draft has no content — write content before publishing to the storefront");
+  }
+
+  const existingByDraft = await findCatalogBookBySourceDraftId(draftId);
+  if (existingByDraft) {
+    throw new Error(`Already in the catalog as book #${existingByDraft.id}.`);
+  }
+  const existingByTitle = await findExactCatalogBookForDraftTitle(draft.title);
+  if (existingByTitle) {
+    await db.update(books).set({ sourceDraftId: draftId }).where(eq(books.id, existingByTitle.id));
+    return existingByTitle.id;
+  }
+
+  const smartPrice = calculateEbookPrice({
+    content: draft.content,
+    genre: draft.genre,
+    outline: draft.outline,
+    title: draft.title,
+  });
+
+  const subscriberExclusiveUntil = options?.subscriberExclusive
+    ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    : undefined;
+
+  const [book] = await db.insert(books).values({
+    title: draft.title,
+    author: "EbookGamez",
+    genre: draft.genre,
+    category: mapGenreToCategory(draft.genre),
+    price: smartPrice,
+    rating: "4.5",
+    coverUrl: draft.coverUrl || draft.backgroundUrl || "",
+    description: draft.description || `An AI-generated ebook about ${draft.topic}`,
+    sourceDraftId: draftId,
+    ...(subscriberExclusiveUntil ? { subscriberExclusiveUntil } : {}),
+  }).returning();
+
+  await db.update(draftEbooks).set({
+    publishedAt: new Date(),
+    suggestedPrice: smartPrice,
+  }).where(eq(draftEbooks.id, draftId));
+
+  return book.id;
+}
+
 export async function publishDraft(draftId: number, options?: { subscriberExclusive?: boolean }): Promise<number> {
   const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
   if (!draft) throw new Error("Draft not found");
@@ -10517,7 +10698,9 @@ export async function publishDraft(draftId: number, options?: { subscriberExclus
   }
 
   const existingBooks = await db.select({ id: books.id, title: books.title }).from(books).where(eq(books.visible, true));
-  const duplicateBook = existingBooks.find(b => areTitlesSimilar(b.title, draft.title).similar);
+  const duplicateBook = existingBooks.find(
+    b => b.title.trim().toLowerCase() === draft.title.trim().toLowerCase(),
+  );
   
   const smartPrice = calculateEbookPrice({
     content: draft.content,
@@ -10527,26 +10710,23 @@ export async function publishDraft(draftId: number, options?: { subscriberExclus
   });
 
   if (duplicateBook) {
-    const exactMatch = duplicateBook.title.trim().toLowerCase() === draft.title.trim().toLowerCase();
-    if (exactMatch) {
-      console.log(`[Publish] Exact title match — updating existing Book #${duplicateBook.id} with improved content from Draft #${draftId}`);
-      await db.update(books).set({
-        genre: draft.genre,
-        category: mapGenreToCategory(draft.genre),
-        price: smartPrice,
-        coverUrl: draft.coverUrl || draft.backgroundUrl || undefined,
-        description: draft.description || undefined,
-      }).where(eq(books.id, duplicateBook.id));
+    console.log(`[Publish] Exact title match — updating existing Book #${duplicateBook.id} with improved content from Draft #${draftId}`);
+    await db.update(books).set({
+      genre: draft.genre,
+      category: mapGenreToCategory(draft.genre),
+      price: smartPrice,
+      coverUrl: draft.coverUrl || draft.backgroundUrl || undefined,
+      description: draft.description || undefined,
+      sourceDraftId: draftId,
+    }).where(eq(books.id, duplicateBook.id));
 
-      await db.update(draftEbooks).set({
-        status: "published",
-        publishedAt: new Date(),
-        suggestedPrice: smartPrice,
-      }).where(eq(draftEbooks.id, draftId));
+    await db.update(draftEbooks).set({
+      status: "published",
+      publishedAt: new Date(),
+      suggestedPrice: smartPrice,
+    }).where(eq(draftEbooks.id, draftId));
 
-      return duplicateBook.id;
-    }
-    throw new Error(`Cannot publish: a book with a similar title already exists (Book #${duplicateBook.id}: "${duplicateBook.title}"). This draft's title is "${draft.title}". Resolve the duplicate before publishing.`);
+    return duplicateBook.id;
   }
 
   const subscriberExclusiveUntil = options?.subscriberExclusive
@@ -10562,6 +10742,7 @@ export async function publishDraft(draftId: number, options?: { subscriberExclus
     rating: "4.5",
     coverUrl: draft.coverUrl || draft.backgroundUrl || "",
     description: draft.description || `An AI-generated ebook about ${draft.topic}`,
+    sourceDraftId: draftId,
     ...(subscriberExclusiveUntil ? { subscriberExclusiveUntil } : {}),
   }).returning();
 
@@ -11268,10 +11449,12 @@ export async function regenerateBackgroundOnly(draftId: number): Promise<{ backg
   const bgFilename = `bg-${draftId}-${Date.now()}.png`;
   const backgroundUrl = await saveCoverFile(backgroundBuffer, bgFilename);
   
-  // Update draft with new background (but keep existing coverUrl until finalized)
+  // Clear stale overlay URL so Cover Review shows the new background (old dead coverUrl blocked the UI)
   await db.update(draftEbooks).set({ 
     backgroundUrl,
-    title: cleanTitle 
+    coverUrl: null,
+    overlayApproved: false,
+    title: cleanTitle,
   }).where(eq(draftEbooks.id, draftId));
   
   return { backgroundUrl, title: cleanTitle };
@@ -15080,7 +15263,8 @@ export async function regenerateSelectedBackgrounds(draftIds: number[], useOrigi
         .set({ 
           backgroundUrl, 
           coverUrl: hasTitleOverlay ? backgroundUrl : null, 
-          coverStyleId: modelStyleId 
+          coverStyleId: modelStyleId,
+          ...(hasTitleOverlay ? {} : { overlayApproved: false }),
         })
         .where(eq(draftEbooks.id, draftId));
       
