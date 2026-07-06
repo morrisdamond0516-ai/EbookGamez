@@ -896,6 +896,8 @@ export default function BookReader() {
     if (subToken) headers["X-Subscription-Token"] = subToken;
     const orderToken = localStorage.getItem("ebgz_order_token");
     if (orderToken) headers["x-order-token"] = orderToken;
+    const adminToken = localStorage.getItem("ebgz_admin_token");
+    if (adminToken) headers["x-admin-token"] = adminToken;
     return headers;
   }
 

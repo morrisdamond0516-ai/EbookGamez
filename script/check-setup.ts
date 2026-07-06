@@ -1,6 +1,7 @@
 /**
  * Validates local dev prerequisites and prints next steps.
  */
+import "./load-env.ts";
 import pg from "pg";
 
 const required = ["DATABASE_URL", "ADMIN_PASSWORD", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY"] as const;

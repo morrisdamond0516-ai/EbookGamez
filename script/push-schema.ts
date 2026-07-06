@@ -2,6 +2,7 @@
  * Non-interactive schema push for local setup.
  * Use when `drizzle-kit push` cannot run in a TTY (CI, IDE terminals).
  */
+import "./load-env.ts";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { pushSchema } from "drizzle-kit/api";
 import pg from "pg";

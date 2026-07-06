@@ -62,15 +62,14 @@ export async function ensureCoverPersisted(url: string | null | undefined): Prom
   return null;
 }
 
-/** Pick the best cover URL for UI display (draft → background → catalog → similar draft). */
+/** Pick the best cover URL for UI display (draft → catalog → background). */
 export function resolveDisplayCoverUrl(
   coverUrl: string | null | undefined,
-  backgroundUrl: string | null | undefined,
-  bookCoverUrl?: string | null,
-  similarDraftCoverUrl?: string | null,
+  catalogCoverUrl: string | null | undefined,
+  backgroundUrl?: string | null,
 ): string | null {
   const useObjstore = !!process.env.PUBLIC_OBJECT_SEARCH_PATHS?.trim();
-  for (const raw of [coverUrl, backgroundUrl, bookCoverUrl, similarDraftCoverUrl]) {
+  for (const raw of [coverUrl, catalogCoverUrl, backgroundUrl]) {
     if (!raw?.trim()) continue;
     if (useObjstore) return toObjstoreCoverUrl(raw);
     // Local dev: serve via /uploads/covers/ (production proxy fills missing files)
@@ -87,4 +86,32 @@ export function coverFileExistsLocally(url: string | null | undefined): boolean 
   if (!filename) return false;
   const localPath = localCoverPath(filename);
   return fs.existsSync(localPath) && fs.statSync(localPath).size > 0;
+}
+
+/** Read cover bytes from local disk, GCS, or production fallback — for push-to-production. */
+export async function readCoverBytesForSync(
+  url: string | null | undefined,
+): Promise<{ buffer: Buffer; filename: string } | null> {
+  if (!url?.trim()) return null;
+  const filename = coverFilenameFromUrl(url);
+  if (!filename) return null;
+
+  const localPath = localCoverPath(filename);
+  if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) {
+    return { buffer: fs.readFileSync(localPath), filename };
+  }
+
+  const { downloadBufferFromObjStore } = await import("./objectStorage");
+  const fromGcs = await downloadBufferFromObjStore(url);
+  if (fromGcs && fromGcs.length > 0) {
+    return { buffer: fromGcs, filename };
+  }
+
+  const { fetchCoverFromProduction } = await import("./coverProxy");
+  const fromProd = await fetchCoverFromProduction(filename, false);
+  if (fromProd && fromProd.length > 0) {
+    return { buffer: fromProd, filename };
+  }
+
+  return null;
 }

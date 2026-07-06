@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RequireAdminToken } from "@/components/require-admin-token";
 import { AreaChart, Area, BarChart, Bar, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 // Mock AI categories and pricing logic
@@ -47,11 +48,14 @@ interface EditingBook {
 }
 
 export default function AdminDashboard() {
-  const hasToken = typeof window !== "undefined" && !!localStorage.getItem("ebgz_admin_token");
-  if (!hasToken) {
-    window.location.href = "/";
-    return null;
-  }
+  return (
+    <RequireAdminToken>
+      <AdminDashboardMain />
+    </RequireAdminToken>
+  );
+}
+
+function AdminDashboardMain() {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
