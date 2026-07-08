@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import rateLimit from "express-rate-limit";
 import { storage, db } from "./storage";
-import { insertBookSchema, type InsertOrderItem, draftEbooks, generationJobs, books, bookReviews, readingAccess, pageViews, promoUsages, authorSubmissions, insertAuthorSubmissionSchema, affiliateApplications, insertAffiliateApplicationSchema, customers, orders, orderItems, subscriptions, activeCheckouts } from "@shared/schema";
+import { insertBookSchema, type InsertOrderItem, draftEbooks, generationJobs, books, bookReviews, readingAccess, pageViews, promoUsages, authorSubmissions, insertAuthorSubmissionSchema, affiliateApplications, insertAffiliateApplicationSchema, customers, orders, orderItems, subscriptions, activeCheckouts, bookRequests, insertBookRequestSchema } from "@shared/schema";
 import bcrypt from "bcryptjs";
 import { sendPasswordResetEmail, sendWelcomeEmail, sendPurchaseThankYouEmail, sendSubscriptionOTPEmail, sendPlanChangeEmail } from "./emailService";
 import { generateOTP, verifyOTP, requireSubscriptionAuth, subscriptionRateLimit, otpRateLimit, sensitiveActionRateLimit, validateSession } from "./subscriptionAuth";
@@ -26,6 +26,7 @@ import sharp from "sharp";
 import epubGenMemory from "epub-gen-memory";
 import { generateDistributionEpub } from "./epubGenerator";
 import subscriptionSessionRouter from "./subscriptionSessionRoute";
+import { registerNewsletterRoutes } from "./newsletter";
 const epub = (epubGenMemory as any).default || epubGenMemory;
 
 // Ensure upload directories exist
@@ -575,6 +576,8 @@ Allow: /
     if (token) adminSessions.delete(token);
     return res.json({ success: true });
   });
+
+  registerNewsletterRoutes(app, isAdminAuthenticated);
 
   app.post("/api/track", async (req, res) => {
     try {
@@ -2736,6 +2739,83 @@ Allow: /
     }
   });
 
+  // POST /api/content-studio/research-titles - AI market research → cover-first draft placers
+  app.post("/api/content-studio/research-titles", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { count = 5, includeCustomerRequests = true, focusNotes } = req.body;
+      const result = await contentStudio.researchAndCreateTitlePlacers({
+        count: Number(count) || 5,
+        includeCustomerRequests: includeCustomerRequests !== false,
+        focusNotes,
+      });
+      res.json({
+        ...result,
+        message: `Created ${result.createdDraftIds.length} new title placers for Cover Review`,
+      });
+    } catch (error) {
+      console.error("Error researching titles:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to research titles",
+      });
+    }
+  });
+
+  // GET /api/content-studio/book-requests - List customer book request pool (admin)
+  app.get("/api/content-studio/book-requests", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const requests = await contentStudio.listBookRequests(status);
+      res.json({ requests });
+    } catch (error) {
+      console.error("Error listing book requests:", error);
+      res.status(500).json({ error: "Failed to list book requests" });
+    }
+  });
+
+  // PATCH /api/content-studio/book-requests/:id - Approve or reject a customer request
+  app.patch("/api/content-studio/book-requests/:id", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { status, adminNotes } = req.body;
+      if (!["pending", "approved", "rejected"].includes(status)) {
+        return res.status(400).json({ error: "Status must be pending, approved, or rejected" });
+      }
+      const updated = await contentStudio.updateBookRequestStatus(id, status, adminNotes);
+      if (!updated) return res.status(404).json({ error: "Request not found" });
+      res.json({ request: updated });
+    } catch (error) {
+      console.error("Error updating book request:", error);
+      res.status(500).json({ error: "Failed to update book request" });
+    }
+  });
+
+  const bookRequestRateLimit = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    message: { error: "Too many book requests. Please try again later." },
+  });
+
+  // POST /api/book-requests - Customer suggests a book idea (goes to request pool)
+  app.post("/api/book-requests", bookRequestRateLimit, async (req, res) => {
+    try {
+      const parsed = insertBookRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Request text is required (max 2000 characters)" });
+      }
+      if (parsed.data.requestText.length > 2000) {
+        return res.status(400).json({ error: "Request is too long (max 2000 characters)" });
+      }
+      const id = await contentStudio.submitBookRequest(parsed.data);
+      res.json({ id, message: "Thanks! We'll review your suggestion." });
+    } catch (error) {
+      console.error("Error submitting book request:", error);
+      res.status(500).json({ error: "Failed to submit request" });
+    }
+  });
+
   app.get("/api/content-studio/validate-genre/:genre", async (req, res) => {
     try {
       const result = contentStudio.validateGenreForGeneration(decodeURIComponent(req.params.genre));
@@ -4865,27 +4945,50 @@ Respond in JSON format only:
       console.log("=== REGENERATION REQUEST RECEIVED ===");
       console.log("Request body:", JSON.stringify(req.body));
       
-      const { draftIds, useOriginalStyle, modelStyleId, titleEmbedSync } = req.body;
+      const { draftIds, useOriginalStyle, modelStyleId, modelStyleIds, titleEmbedSync } = req.body;
       if (!draftIds || !Array.isArray(draftIds) || draftIds.length === 0) {
         console.log("ERROR: No draft IDs provided");
         return res.status(400).json({ error: "No draft IDs provided" });
       }
-      
-      // Determine which model to use based on modelStyleId or legacy useOriginalStyle
-      // Now supports three styles: "replit-cinematic", "dalle3-vivid", "cinematic-openai"
-      let finalModelStyleId = modelStyleId;
-      if (!finalModelStyleId) {
-        // Legacy fallback
-        finalModelStyleId = useOriginalStyle === true ? "replit-cinematic" : "dalle3-vivid";
+
+      if (regenerationStatus.running) {
+        console.log("ERROR: Regeneration already in progress");
+        return res.status(409).json({
+          error: "Cover regeneration is already running. Wait for it to finish before starting another batch.",
+          progress: regenerationStatus.progress,
+        });
       }
       
+      const poolFromBody = Array.isArray(modelStyleIds)
+        ? modelStyleIds.filter((id: string) => id && id !== "full-ai-auto")
+        : [];
+      let finalStyleSelection: string | string[];
+      if (poolFromBody.length > 1) {
+        finalStyleSelection = poolFromBody;
+      } else if (poolFromBody.length === 1) {
+        finalStyleSelection = poolFromBody[0];
+      } else if (modelStyleId) {
+        finalStyleSelection = modelStyleId;
+      } else if (useOriginalStyle === true) {
+        finalStyleSelection = "replit-cinematic";
+      } else if (useOriginalStyle === false) {
+        finalStyleSelection = "dalle3-vivid";
+      } else {
+        console.log("ERROR: No cover style selected");
+        return res.status(400).json({
+          error: "No cover style selected. Check at least one AI style in Cover Review before regenerating.",
+        });
+      }
+
       const styleNames: Record<string, string> = {
         "replit-cinematic": "Replit Cinematic (gpt-image-1)",
         "dalle3-vivid": "DALL-E 3 Vivid",
         "cinematic-openai": "Cinematic via OpenAI (DALL-E 3)"
       };
-      const styleName = styleNames[finalModelStyleId] || finalModelStyleId;
-      console.log(`Model style: ${styleName}`);
+      const styleLabel = Array.isArray(finalStyleSelection)
+        ? `AI smart pick from ${finalStyleSelection.length} styles (${finalStyleSelection.join(", ")})`
+        : (styleNames[finalStyleSelection] || finalStyleSelection);
+      console.log(`Model style: ${styleLabel}`);
       
       regenerationStatus = { running: true, startedAt: new Date().toISOString(), progress: `0/${draftIds.length}`, errorDetails: [] };
       
@@ -4897,7 +5000,7 @@ Respond in JSON format only:
         }
       };
       
-      contentStudio.regenerateSelectedBackgrounds(draftIds, finalModelStyleId, titleEmbedSync === true, onProgress)
+      contentStudio.regenerateSelectedBackgrounds(draftIds, finalStyleSelection as any, titleEmbedSync === true, onProgress)
         .then(result => {
           console.log("Batch regeneration complete:", result);
           regenerationStatus = { 
@@ -4914,7 +5017,7 @@ Respond in JSON format only:
         });
       
       res.json({ 
-        message: `Starting regeneration of ${draftIds.length} covers with ${styleName} style`,
+        message: `Starting regeneration of ${draftIds.length} covers with ${styleLabel}`,
         total: draftIds.length 
       });
     } catch (error) {

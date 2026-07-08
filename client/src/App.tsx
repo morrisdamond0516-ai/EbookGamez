@@ -34,6 +34,7 @@ const Subscription = lazy(() => import("@/pages/subscription"));
 const SubscriptionSuccess = lazy(() => import("@/pages/subscription-success"));
 const OrphanCoverReview = lazy(() => import("@/pages/orphan-cover-review"));
 const SiteAnalytics = lazy(() => import("@/pages/site-analytics"));
+const AdminOutreach = lazy(() => import("@/pages/admin-outreach"));
 const Authors = lazy(() => import("@/pages/authors"));
 const Affiliates = lazy(() => import("@/pages/affiliates"));
 const AuthorLibrary = lazy(() => import("@/pages/author-library"));
@@ -93,6 +94,7 @@ function Router() {
         <Route path="/subscription/success" component={SubscriptionSuccess} />
         <Route path="/admin/orphan-covers" component={OrphanCoverReview} />
         <Route path="/admin/analytics" component={SiteAnalytics} />
+        <Route path="/admin/outreach" component={AdminOutreach} />
         <Route path="/authors" component={Authors} />
         <Route path="/affiliates" component={Affiliates} />
         <Route path="/admin/author-library" component={AuthorLibrary} />

@@ -54,7 +54,7 @@ const emailWrapper = (content: string) => `
       <p style="color: #555; font-size: 11px; margin: 0; line-height: 1.6;">
         EbookGamez — P.O. Box 1181, Las Vegas, NV 89125<br/>
         <a href="https://ebookgamez.com" style="color: #c4a35a; text-decoration: none;">ebookgamez.com</a> |
-        <a href="mailto:ebookgamez@yahoo.com" style="color: #c4a35a; text-decoration: none;">Contact Us</a>
+        <a href="mailto:ebookgames@yahoo.com" style="color: #c4a35a; text-decoration: none;">Contact Us</a>
       </p>
     </div>
   </div>

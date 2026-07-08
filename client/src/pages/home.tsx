@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { Gamepad2, Download, BookOpen, ShoppingBag, ArrowRight, Sparkles, ExternalLink, X } from "lucide-react";
 import { trackAddToCart } from "@/lib/analytics";
+import { NewsletterSignup } from "@/components/newsletter-signup";
 const heroBg = "/hero.webp";
 
 interface Book {
@@ -670,14 +671,7 @@ export default function Home() {
 
       <section className="py-24 bg-white/5 border-t border-white/10">
         <div className="container mx-auto px-4 text-center">
-          <h2 className="text-3xl font-display text-primary mb-6">Join the Literary Club</h2>
-          <p className="text-muted-foreground max-w-xl mx-auto mb-8 font-serif">
-            Receive exclusive updates on new additions to our collection and curated reading lists inspired by classic cinema.
-          </p>
-          <div className="flex max-w-md mx-auto gap-2">
-            <Input placeholder="Your email address" className="bg-black/30 border-white/10 font-serif" data-testid="input-newsletter-email" />
-            <Button className="bg-primary text-black font-serif" data-testid="button-subscribe">Subscribe</Button>
-          </div>
+          <NewsletterSignup source="ebookgamez-home" />
         </div>
       </section>
 

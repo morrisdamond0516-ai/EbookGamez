@@ -1,0 +1,46 @@
+---
+description: Partnership email defaults — Gmail draft-only, CC Yahoo, EbookGamez + LearnForge
+alwaysApply: true
+---
+
+# Outreach & email (EbookGamez / LearnForge)
+
+## Partnership mail (SCORE, SBDC, nonprofits)
+
+- **Never auto-send** partnership emails without explicit user approval.
+- Default workflow: **create a Gmail draft** (via Gmail MCP), not send.
+- Always **CC `ebookgames@yahoo.com`**.
+- Optional Reply-To: `ebookgames@yahoo.com`.
+
+## Signature block
+
+```
+Damond Morris
+702-379-0396
+ebookgames@yahoo.com
+```
+
+## Channel split
+
+| Task | Tool |
+|------|------|
+| SCORE / SBDC / partner outreach | Gmail (draft → user sends) |
+| Literary Club / subscriber welcome | Resend (`server/newsletter.ts`) |
+| Replies & CC archive | Yahoo inbox |
+
+## Reference files
+
+- `docs/partnership-outreach-emails.md`
+- `docs/email-setup-guide.md`
+- `client/src/pages/admin-outreach.tsx` — in-app hub (`/admin/outreach`, admin token required)
+
+## EbookGamez vs LearnForge
+
+- **EbookGamez**: admin password → `x-admin-token` → `/admin/outreach`
+- **LearnForge**: Clerk owner email → `/owner/outreach`
+- Share the same Resend audience ID for one subscriber list across both sites.
+
+## Constraints
+
+- No auto-send to SCORE/SBDC without approval.
+- Resend free tier / Replit connector OK; avoid paid marketing SaaS lock-in.

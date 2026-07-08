@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, CheckCircle, Loader2, DollarSign, Tag, BookOpen, Search, Package, ArrowUpRight, ArrowUp, ArrowDown, Edit, Trash2, X, Copy, BarChart3, Users, TrendingUp, AlertTriangle, CreditCard, HardDrive, RefreshCw, Wrench, Library, Lock, Unlock, Clock, Download, ShieldCheck, Shield, XCircle, Info, AlertCircle } from "lucide-react";
+import { Upload, FileText, CheckCircle, Loader2, DollarSign, Tag, BookOpen, Search, Package, ArrowUpRight, ArrowUp, ArrowDown, Edit, Trash2, X, Copy, BarChart3, Users, TrendingUp, AlertTriangle, CreditCard, HardDrive, RefreshCw, Wrench, Library, Lock, Unlock, Clock, Download, ShieldCheck, Shield, XCircle, Info, AlertCircle, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -480,6 +480,12 @@ function AdminDashboardMain() {
               <Button variant="outline" className="border-green-500/30 hover:bg-green-500/10 text-green-300 font-serif">
                 <BarChart3 className="mr-2 h-4 w-4" />
                 Site Analytics
+              </Button>
+            </a>
+            <a href="/admin/outreach" data-testid="link-admin-outreach">
+              <Button variant="outline" className="border-sky-500/30 hover:bg-sky-500/10 text-sky-300 font-serif">
+                <Mail className="mr-2 h-4 w-4" />
+                Outreach &amp; Email
               </Button>
             </a>
             <a href="/admin/author-library" data-testid="link-author-library">

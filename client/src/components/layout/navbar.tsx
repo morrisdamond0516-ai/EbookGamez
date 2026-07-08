@@ -158,6 +158,7 @@ export function Navbar() {
             {showAdmin && (
               <>
                 <Link href="/admin" className="text-primary/70 hover:text-primary transition-colors font-serif border border-primary/30 px-3 py-1 rounded-sm text-sm hover:bg-primary/10">Admin</Link>
+                <Link href="/admin/outreach" className="text-primary/70 hover:text-primary transition-colors font-serif border border-primary/30 px-3 py-1 rounded-sm text-sm hover:bg-primary/10">Outreach</Link>
                 <Link href="/content-studio" className="text-primary/70 hover:text-primary transition-colors font-serif border border-primary/30 px-3 py-1 rounded-sm text-sm hover:bg-primary/10">AI Studio</Link>
                 <button onClick={handleLogout} className="text-stone-500 hover:text-red-400 transition-colors" aria-label="Logout">
                   <LogOut className="h-4 w-4" aria-hidden="true" />
