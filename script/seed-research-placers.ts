@@ -1,0 +1,366 @@
+/**
+ * Seeds the 22 researched title placers (cover-first workflow).
+ * Writing briefs are stored hidden in description for the story pipeline.
+ *
+ * Usage: npx tsx --import ./script/load-env.ts script/seed-research-placers.ts
+ */
+import "./load-env.ts";
+import { bulkCreateTitlePlacers, type ResearchWritingBrief } from "../server/contentStudio";
+
+function brief(
+  partial: ResearchWritingBrief,
+): ResearchWritingBrief {
+  return partial;
+}
+
+const PLACERS = [
+  {
+    title: "The Ember Bond",
+    genre: "Fantasy",
+    topic: "Scholarship student bonds with a forbidden ember dragon while a rival heir hides a deadly court secret.",
+    description: "A dragon-rider academy romance where forbidden magic and political intrigue collide.",
+    writingBrief: brief({
+      targetAudience: "Romantasy readers 18–35, BookTok fantasy romance fans",
+      marketRationale: "Romantasy is the fastest-growing fiction segment; academy + forbidden bond is a proven hook",
+      toneAndVoice: "Lush third-person, emotional intensity, cinematic action, slow-burn romance",
+      dialogueGuidance: "Snappy banter between rivals; formal court speech vs raw honesty when alone; subtext in every exchange",
+      characterVoices: [
+        "Mira (scholarship rider): quick, defensive wit, hides vulnerability behind sarcasm",
+        "Kael (rival heir): polished, controlled, cracks into dry humor when trust forms",
+        "The ember dragon: nonverbal bond conveyed through shared sensation, not exposition",
+      ],
+      narrativeBeats: [
+        "Opening: failed bonding ceremony humiliation",
+        "Midpoint: forbidden flight that exposes court conspiracy",
+        "Climax: choose dragon or dynasty",
+      ],
+      themes: ["forbidden desire", "class inequality", "found family"],
+    }),
+  },
+  {
+    title: "The Neighbor's Lie",
+    genre: "Mystery / Thriller",
+    topic: "A suburban mom realizes her friendly neighbor's stories don't add up after a child goes missing.",
+    description: "A domestic thriller about the perfect neighbor who knows too much.",
+    writingBrief: brief({
+      targetAudience: "Women 25–54 who read Reese's Book Club and domestic suspense",
+      marketRationale: "Domestic thrillers with unreliable neighbors dominate bestseller lists",
+      toneAndVoice: "Tight first-person present, mounting dread, ordinary details turned sinister",
+      dialogueGuidance: "Pleasant surface politeness masking threats; kids' dialogue innocent and revealing",
+      characterVoices: ["Narrator: observant, increasingly paranoid", "Neighbor: warm, rehearsed, deflects with questions"],
+      narrativeBeats: ["Coffee-table small talk with wrong detail", "Discovery in the garage", "Confrontation at the block party"],
+      themes: ["trust", "suburban performance", "maternal fear"],
+    }),
+  },
+  {
+    title: "The Last Upload",
+    genre: "Science Fiction",
+    topic: "A dying streamer's final broadcast traps viewers inside a game world that rewrites their memories.",
+    description: "Lit-adjacent sci-fi thriller where parasocial fandom becomes a prison.",
+    writingBrief: brief({
+      targetAudience: "YA/crossover sci-fi readers, gaming culture fans 16–35",
+      marketRationale: "AI/gaming anxiety + creator culture is highly searched in 2025–2026",
+      toneAndVoice: "Fast-paced, neon-drenched, ironic humor under existential horror",
+      dialogueGuidance: "Streamer slang mixed with genuine terror; chat messages as Greek chorus",
+      characterVoices: ["Jax: charismatic online, hollow offline", "Mod 'Pixel': loyal, code-speak", "Viewer POV chapters: distinct fan voices"],
+      narrativeBeats: ["Final stream countdown", "First player can't log out", "Reveal the upload was intentional"],
+      themes: ["identity online vs off", "memory", "parasocial grief"],
+    }),
+  },
+  {
+    title: "Murder at the Maple Inn",
+    genre: "Mystery / Thriller",
+    topic: "A burned-out chef inherits a Vermont B&B where the first guest is murdered before check-in ends.",
+    description: "Cozy mystery with sharp edges — small town, big secrets, maple syrup alibis.",
+    writingBrief: brief({
+      targetAudience: "Cozy mystery readers who want warmth with real stakes",
+      marketRationale: "Cozy mystery + culinary hook is evergreen on KU",
+      toneAndVoice: "Warm sensory prose, gentle humor, fair-play clues",
+      dialogueGuidance: "Town gossip as weapon; chef narrates with food metaphors",
+      characterVoices: ["Chef narrator: weary, kind, sharp-eyed", "Sheriff: dry Vermont deadpan"],
+      narrativeBeats: ["Murder in the maple suite", "Recipe clue in the kitchen", "Reveal at harvest festival"],
+      themes: ["second chances", "community", "hidden pasts"],
+    }),
+  },
+  {
+    title: "Love in Extra Innings",
+    genre: "Romance",
+    topic: "A retired pro pitcher coaches a women's league team and falls for the catcher who still blames him for a career-ending call.",
+    description: "Sports romance with forgiveness, second chances, and late-inning heat.",
+    writingBrief: brief({
+      targetAudience: "Romance readers 25–45, sports romance and second-chance trope fans",
+      marketRationale: "Sports romance resurgence; women's athletics angle feels fresh",
+      toneAndVoice: "Sunny with emotional depth, banter-forward, sensory game scenes",
+      dialogueGuidance: "Locker-room brevity vs vulnerable late-night confessions; sports jargon sparingly",
+      characterVoices: ["Catcher: fierce, clipped, softens slowly", "Coach: self-deprecating charm, owns mistakes"],
+      narrativeBeats: ["Forced partnership", "Rain-delay confession", "Championship pitch for relationship"],
+      themes: ["forgiveness", "legacy", "proving doubters wrong"],
+    }),
+  },
+  {
+    title: "Secrets of Hollowmere Hall",
+    genre: "Horror",
+    topic: "An archivist cataloguing a decaying manor finds journals that predict visitors' deaths — including her own.",
+    description: "Gothic horror where the house remembers every sin.",
+    writingBrief: brief({
+      targetAudience: "Horror readers who love haunted house + literary gothic",
+      marketRationale: "Gothic horror trending on BookTok; isolated manor is cover-friendly",
+      toneAndVoice: "Atmospheric, slow dread, rich sensory decay, literary restraint",
+      dialogueGuidance: "Sparse; when characters speak, formality breaks under fear",
+      characterVoices: ["Archivist: precise, scholarly, unraveling", "House (indirect): through journal entries"],
+      narrativeBeats: ["First journal prediction comes true", "Night in the east wing", "Choice to burn or preserve the hall"],
+      themes: ["memory", "class guilt", "archival truth"],
+    }),
+  },
+  {
+    title: "Shadows of the Fae Court",
+    genre: "Fantasy",
+    topic: "A human lawyer must broker a treaty between warring fae courts while her own bloodline is the loophole.",
+    description: "Political fae fantasy with legal intrigue and dangerous glamour.",
+    writingBrief: brief({
+      targetAudience: "Romantasy/fae fantasy readers, ACOTAR-adjacent audience",
+      marketRationale: "Fae courts remain top fantasy subgenre; legal twist differentiates",
+      toneAndVoice: "Elegant, dangerous beauty; political tension; sensual but not explicit",
+      dialogueGuidance: "Double meanings in every fae promise; human directness vs fae riddles",
+      characterVoices: ["Lawyer: blunt, procedural humor", "Seelie envoy: honeyed threats", "Unseelie prince: brutal honesty"],
+      narrativeBeats: ["Summons to the border court", "Bloodline revelation", "Treaty signing with a hidden clause"],
+      themes: ["bargains", "identity", "power"],
+    }),
+  },
+  {
+    title: "The Midnight Librarian",
+    genre: "Fantasy",
+    topic: "A librarian tends a hidden archive where books rewrite themselves based on who reads them — and someone is stealing endings.",
+    description: "Whimsical fantasy mystery for readers who love books about books.",
+    writingBrief: brief({
+      targetAudience: "Book lovers, cozy fantasy fans, readers of The Invisible Library",
+      marketRationale: "Bibliophile fantasy has loyal niche; strong cover potential",
+      toneAndVoice: "Warm, wonder-filled, mystery pacing, lyrical but accessible",
+      dialogueGuidance: "Literary references as inside jokes; patrons each have distinct speech",
+      characterVoices: ["Librarian: dry wit, reverent about stories", "Thief: charming, quotes wrong books deliberately"],
+      narrativeBeats: ["Missing final chapter", "After-hours chase through stacks", "Reader chooses the ending"],
+      themes: ["storytelling power", "loneliness", "choice"],
+    }),
+  },
+  {
+    title: "Code Black: Silicon Valley",
+    genre: "Thriller",
+    topic: "A hospital CIO discovers an AI triage system is quietly deprioritizing patients to protect a tech IPO.",
+    description: "Medical-tech thriller ripped from tomorrow's headlines.",
+    writingBrief: brief({
+      targetAudience: "Thriller readers interested in tech ethics, 25–55",
+      marketRationale: "AI accountability is peak cultural anxiety",
+      toneAndVoice: "Urgent, clinical precision, moral outrage under surface",
+      dialogueGuidance: "Boardroom euphemisms vs ER bluntness; jargon explained through action",
+      characterVoices: ["CIO: exhausted idealist", "CEO: charismatic sociopath", "Nurse ally: no-nonsense"],
+      narrativeBeats: ["Anomaly in triage logs", "Whistleblower threatened", "Code black during demo day"],
+      themes: ["ethics", "profit vs life", "algorithmic bias"],
+    }),
+  },
+  {
+    title: "When the Stars Go Dark",
+    genre: "Science Fiction",
+    topic: "An astronaut returns from a mission to find every star in the sky vanished — only Earth remembers them.",
+    description: "Existential sci-fi about memory, grief, and cosmic isolation.",
+    writingBrief: brief({
+      targetAudience: "Literary sci-fi readers, Project Hail Mary fans",
+      marketRationale: "High-concept 'what if' hooks perform well in sci-fi",
+      toneAndVoice: "Contemplative, awe and grief, hard science grounded in emotion",
+      dialogueGuidance: "Mission control chaos vs astronaut's internal monologue calm",
+      characterVoices: ["Astronaut: precise, poetic under stress", "Partner on Earth: fragmented grief"],
+      narrativeBeats: ["Return to black sky", "Global amnesia debate", "Decision to launch back"],
+      themes: ["memory", "love", "cosmic scale"],
+    }),
+  },
+  {
+    title: "One More Chapter",
+    genre: "Romance",
+    topic: "Rival bookstore owners share a wall and a feud — until a viral readathon forces them to co-host.",
+    description: "Enemies-to-lovers bookshop romance with community heart.",
+    writingBrief: brief({
+      targetAudience: "Romance readers, BookTok shop romcom fans",
+      marketRationale: "Bookstore romance is perennial; enemies-to-lovers is top trope",
+      toneAndVoice: "Charming, witty, bookish references, small-town warmth",
+      dialogueGuidance: "Snark in public, softness in accidental closeness; customers comic relief",
+      characterVoices: ["Owner A: passionate, disorganized", "Owner B: meticulous, secretly romantic"],
+      narrativeBeats: ["Shared-wall noise war", "Readathon partnership", "Joint midnight release kiss"],
+      themes: ["community", "competition vs collaboration", "literary love"],
+    }),
+  },
+  {
+    title: "The House on Briar Lane",
+    genre: "Romance",
+    topic: "A woman inherits a fixer-upper only to learn the contractor is her ex — and the house won't stay renovated.",
+    description: "Paranormal-leaning romance: home, healing, and second chances.",
+    writingBrief: brief({
+      targetAudience: "Romance readers who like light paranormal / cozy ghost elements",
+      marketRationale: "Renovation + ghost lightly trending; emotional renovation parallel",
+      toneAndVoice: "Cozy, humorous haunting, emotional honesty",
+      dialogueGuidance: "Exes unfinished sentences; ghost communicates through DIY mishaps",
+      characterVoices: ["Her: practical, afraid of settling", "Ex: skilled, regretful", "Ghost: old letters only"],
+      narrativeBeats: ["Keys handed over", "Wall that won't stay painted", "Choosing to stay"],
+      themes: ["home", "forgiveness", "roots"],
+    }),
+  },
+  {
+    title: "The Forgotten Kingdom",
+    genre: "Adventure",
+    topic: "A map dealer finds a chart to a kingdom erased from history — and mercenaries want it burned.",
+    description: "Pulp adventure with historical mystery and global chase.",
+    writingBrief: brief({
+      targetAudience: "Adventure readers, Indiana Jones / Da Vinci Code fans",
+      marketRationale: "Lost civilization adventures always sell in ebook impulse buys",
+      toneAndVoice: "Propulsive, globe-trotting, cliffhanger chapters",
+      dialogueGuidance: "Rapid-fire negotiations; villains eloquent; hero self-deprecating",
+      characterVoices: ["Map dealer: curious, moral", "Mercenary leader: cultured menace"],
+      narrativeBeats: ["Map authenticated", "Temple in the clouds", "Kingdom's reason for erasure revealed"],
+      themes: ["history", "colonialism", "discovery"],
+    }),
+  },
+  {
+    title: "The 5-Minute Reset",
+    genre: "Self-Help / Personal Development",
+    topic: "Micro-habits and breathwork routines for overwhelmed professionals who can't find an hour to meditate.",
+    description: "Practical wellness for busy lives — science-backed, no fluff.",
+    writingBrief: brief({
+      targetAudience: "Burned-out professionals 28–50, wellness nonfiction buyers",
+      marketRationale: "Micro-habits and anxiety tools are top nonfiction searches",
+      toneAndVoice: "Warm coach, evidence-cited, actionable, no toxic positivity",
+      dialogueGuidance: "Use brief client vignettes in dialogue form; therapist-style Q&A sections",
+      characterVoices: ["Narrator: empathetic expert", "Composite clients: relatable stress voices"],
+      narrativeBeats: ["Morning reset", "Meeting panic protocol", "Evening shutdown ritual"],
+      themes: ["sustainability", "nervous system", "boundaries"],
+    }),
+  },
+  {
+    title: "The Anxiety Toolkit",
+    genre: "Health & Wellness",
+    topic: "CBT-based exercises, grounding scripts, and worksheets for managing anxiety without shame.",
+    description: "A hands-on guide readers can use in the moment.",
+    writingBrief: brief({
+      targetAudience: "Readers seeking practical mental health tools, 18–45",
+      marketRationale: "Anxiety nonfiction perennial bestseller category",
+      toneAndVoice: "Compassionate, clinical accuracy, workbook-style clarity",
+      dialogueGuidance: "Sample self-talk scripts; therapist-patient example dialogues kept anonymous",
+      characterVoices: ["Guide voice: calm, normalizing", "Anxious inner voice: acknowledged not mocked"],
+      narrativeBeats: ["Identify trigger", "Tool selection flowchart", "Relapse plan without shame"],
+      themes: ["self-compassion", "CBT", "agency"],
+    }),
+  },
+  {
+    title: "Mind Like Water",
+    genre: "Mindfulness",
+    topic: "Stoic and mindfulness practices adapted for digital distraction and notification overload.",
+    description: "Calm in the age of pings — philosophy made practical.",
+    writingBrief: brief({
+      targetAudience: "Mindfulness curious readers, productivity burnout crowd",
+      marketRationale: "Digital detox + mindfulness crossover trending",
+      toneAndVoice: "Serene, metaphor-rich, short chapters, reflective exercises",
+      dialogueGuidance: "Minimal; use internal monologue examples and Socratic self-questions",
+      characterVoices: ["Teacher voice: gentle, firm"],
+      narrativeBeats: ["Notification fast", "Single-tasking day experiment", "Water metaphor payoff"],
+      themes: ["attention", "stoicism", "presence"],
+    }),
+  },
+  {
+    title: "The Clockwork Forest",
+    genre: "Children's Fiction",
+    topic: "A tinkerer child repairs clockwork animals in a forest where time is literally running down.",
+    description: "Middle-grade adventure about ingenuity, friendship, and time.",
+    writingBrief: brief({
+      targetAudience: "Readers ages 8–12, parents buying STEM-leaning fiction",
+      marketRationale: "STEM + whimsical fantasy strong in kids ebook market",
+      toneAndVoice: "Wonder, humor, clear prose, chapter cliffhangers, age-safe stakes",
+      dialogueGuidance: "Kids sound like kids; wonder in short sentences; no talking down",
+      characterVoices: ["Protagonist: curious, talks to machines", "Best friend: skeptical, loyal"],
+      narrativeBeats: ["Broken clockwork fox", "Forest heart winding down", "Community rebuild"],
+      themes: ["ingenuity", "time", "friendship"],
+    }),
+  },
+  {
+    title: "Luna and the Starwhale",
+    genre: "Children's Fiction",
+    topic: "A girl who fears the dark sails with a gentle starwhale to return stolen constellations.",
+    description: "Bedtime-friendly adventure about courage and night skies.",
+    writingBrief: brief({
+      targetAudience: "Ages 6–10, bedtime read-aloud market",
+      marketRationale: "Gentle fantasy with emotional lesson — parent purchase driver",
+      toneAndVoice: "Lyrical, reassuring, vivid night imagery, hopeful",
+      dialogueGuidance: "Simple, musical; starwhale speaks in soft metaphors",
+      characterVoices: ["Luna: brave but honest about fear", "Starwhale: ancient, kind"],
+      narrativeBeats: ["Dark room fear", "Voyage through sky ocean", "Constellation restored"],
+      themes: ["courage", "night", "wonder"],
+    }),
+  },
+  {
+    title: "Captain Whiskers and the Pirate Moon",
+    genre: "Children's Fiction",
+    topic: "A cat pirate crew searches for cheese treasure on the moon — silliness with heart.",
+    description: "Humorous illustrated-leaning chapter book for young readers.",
+    writingBrief: brief({
+      targetAudience: "Ages 6–9, humor-forward kids books",
+      marketRationale: "Animal adventure humor is evergreen for kids ebooks",
+      toneAndVoice: "Silly, pun-friendly, fast scenes, warm ending",
+      dialogueGuidance: "Broad pirate puns; cat personalities distinct",
+      characterVoices: ["Captain Whiskers: dramatic", "First Mate Mittens: deadpan"],
+      narrativeBeats: ["Moon launch in bathtub ship", "Cheese crater trap", "Share treasure with port cats"],
+      themes: ["teamwork", "sharing", "imagination"],
+    }),
+  },
+  {
+    title: "The Dragon Academy Trials",
+    genre: "Young Adult Fiction",
+    topic: "Outcast students face trials to bond dragons — but the academy hides why bonds are failing.",
+    description: "YA fantasy with competition, secrets, and dragon heart.",
+    writingBrief: brief({
+      targetAudience: "YA readers 13–18, dragon academy fans",
+      marketRationale: "Dragon school trope proven; mystery layer adds freshness",
+      toneAndVoice: "Fast YA pacing, emotional stakes, diverse ensemble",
+      dialogueGuidance: "Teen banter authentic; authority figures evasive",
+      characterVoices: ["Protagonist: underestimated", "Rival: secretly allied", "Instructor: cryptic"],
+      narrativeBeats: ["Failed first trial", "Forbidden stable visit", "Expose academy's lie"],
+      themes: ["belonging", "truth", "bonds"],
+    }),
+  },
+  {
+    title: "Brain Busters: Space Edition",
+    genre: "Activity Books",
+    topic: "100+ space-themed puzzles, mazes, and logic games for kids who love rockets and planets.",
+    description: "Printable-feel activity book — puzzles with light space story framing.",
+    writingBrief: brief({
+      targetAudience: "Kids 7–12, parents seeking screen-free activities",
+      marketRationale: "Activity books strong on digital download / print-at-home",
+      toneAndVoice: "Encouraging host voice, clear instructions, celebratory tone",
+      dialogueGuidance: "Mission control briefings as short intro to each puzzle section",
+      characterVoices: ["Commander Zee: enthusiastic guide"],
+      narrativeBeats: ["Launch pad mazes", "Asteroid math", "Captain's certificate finale"],
+      themes: ["curiosity", "space", "persistence"],
+    }),
+  },
+  {
+    title: "Puzzle Planet: Dinosaur Detectives",
+    genre: "Activity Books",
+    topic: "Dino-themed mysteries solved through puzzles, codes, and spot-the-difference on every page.",
+    description: "Detective narrative woven through puzzle pages for kids.",
+    writingBrief: brief({
+      targetAudience: "Kids 6–10, dinosaur + mystery crossover",
+      marketRationale: "Dinosaurs + puzzles = parent-friendly impulse buy",
+      toneAndVoice: "Playful detective noir for kids, clue recaps, victory cheers",
+      dialogueGuidance: "Detective duo banter between puzzles",
+      characterVoices: ["Detective Rex: logical", "Partner Pip: enthusiastic"],
+      narrativeBeats: ["Stolen egg case", "Footprint cipher", "Reveal friendly prankster dino"],
+      themes: ["observation", "teamwork", "dinosaurs"],
+    }),
+  },
+];
+
+const result = await bulkCreateTitlePlacers(
+  PLACERS.map((p) => ({ ...p, source: "trending" as const, rationale: p.writingBrief.marketRationale })),
+);
+
+console.log(`\nDone. Created ${result.createdDraftIds.length} placers. Skipped duplicates: ${result.skippedDuplicates}.`);
+if (result.createdDraftIds.length) {
+  console.log("Draft IDs:", result.createdDraftIds.join(", "));
+  console.log("\nOpen Cover Review → scroll to 'Awaiting AI Style & Cover' at the bottom.");
+}
+process.exit(0);

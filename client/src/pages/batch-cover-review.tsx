@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, RefreshCw, CheckCircle, Image, Type, ArrowLeft, Eye, Palette, Check, Square, CheckSquare, Home, BookOpen, Download, Upload, Sparkles, ChevronLeft, ChevronRight, ChevronDown, Trash2, Replace, Wand2, ArrowRight, Search, X, Maximize2, Minimize2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, RefreshCw, CheckCircle, Image, Type, ArrowLeft, Eye, Palette, Check, Square, CheckSquare, Home, BookOpen, Download, Upload, Sparkles, ChevronLeft, ChevronRight, ChevronDown, Trash2, Replace, Wand2, ArrowRight, Search, X, Maximize2, Minimize2, Lightbulb, Users, TrendingUp } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Link } from "wouter";
@@ -59,6 +61,30 @@ interface AIModelStylesResponse {
   defaultStyleId: string;
 }
 
+interface BookRequestRow {
+  id: number;
+  customerEmail: string | null;
+  requestText: string;
+  suggestedTitle: string | null;
+  suggestedGenre: string | null;
+  status: string;
+  createdAt: string;
+}
+
+interface ResearchTitlesResult {
+  ideas: Array<{
+    title: string;
+    genre: string;
+    topic: string;
+    source: string;
+    rationale: string;
+  }>;
+  createdDraftIds: number[];
+  usedRequestIds: number[];
+  skippedDuplicates: number;
+  message: string;
+}
+
 // AI Cover Analysis Result
 interface CoverAnalysisResult {
   hasExistingText: boolean;
@@ -98,6 +124,11 @@ function normalizeLocalCoverUrl(url: string | null | undefined): string {
 
 function coverReviewHasImage(draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl">): boolean {
   return !!(draft.coverUrl || draft.backgroundUrl);
+}
+
+/** Research / idea placers: title + genre only — no AI style or cover yet. */
+function isTitlePlacerDraft(draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl" | "coverStyleId">): boolean {
+  return !draft.coverStyleId && !coverReviewHasImage(draft);
 }
 
 function coverReviewPrimaryUrl(
@@ -358,6 +389,14 @@ export default function BatchCoverReview() {
   const [aiTitleSuggestingId, setAiTitleSuggestingId] = useState<number | null>(null);
   const [aiTitleSuggestions, setAiTitleSuggestions] = useState<Map<number, { title: string; genre: string; reason: string }[]>>(new Map());
   const [applyingTitleId, setApplyingTitleId] = useState<number | null>(null);
+
+  // AI market research → new title placers (cover-first workflow)
+  const [showResearchDialog, setShowResearchDialog] = useState(false);
+  const [showRequestPool, setShowRequestPool] = useState(false);
+  const [researchCount, setResearchCount] = useState(8);
+  const [researchFocusNotes, setResearchFocusNotes] = useState("");
+  const [includeCustomerRequests, setIncludeCustomerRequests] = useState(true);
+  const [lastResearchResult, setLastResearchResult] = useState<ResearchTitlesResult | null>(null);
   
   // Text preview mode: show title/author text overlay on covers
   const [showTextPreview, setShowTextPreview] = useState(false);
@@ -1058,6 +1097,63 @@ export default function BatchCoverReview() {
     refetchInterval: autoRefresh ? 5000 : false,
   });
 
+  const { data: bookRequestsData, refetch: refetchBookRequests } = useQuery<{ requests: BookRequestRow[] }>({
+    queryKey: ["/api/content-studio/book-requests"],
+    enabled: showResearchDialog,
+  });
+  const bookRequests = bookRequestsData?.requests ?? [];
+  const pendingRequests = bookRequests.filter((r) => r.status === "pending");
+  const approvedRequests = bookRequests.filter((r) => r.status === "approved");
+
+  const researchTitlesMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/content-studio/research-titles", {
+        count: researchCount,
+        includeCustomerRequests,
+        focusNotes: researchFocusNotes.trim() || undefined,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Research failed");
+      }
+      return res.json() as Promise<ResearchTitlesResult>;
+    },
+    onSuccess: (data) => {
+      setLastResearchResult(data);
+      setExpandedSections((prev) => new Set([...prev, "__placers__"]));
+      queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+      refetchBookRequests();
+      toast({
+        title: "New title placers ready",
+        description: `Created ${data.createdDraftIds.length} drafts — scroll to the bottom of Cover Review, section "Awaiting AI Style & Cover".`,
+      });
+      setTimeout(() => {
+        document.getElementById("section-title-placers")?.scrollIntoView({ behavior: "smooth", block: "end" });
+      }, 400);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Research failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateRequestMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: "approved" | "rejected" | "pending" }) => {
+      const res = await apiRequest("PATCH", `/api/content-studio/book-requests/${id}`, { status });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Update failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchBookRequests();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not update request", description: error.message, variant: "destructive" });
+    },
+  });
+
   
   // Sort drafts to show priority covers at the top (The Inkborn Chronicles, The Forgotten Pantheon, The Shadow Algorithm)
   const priorityIds = [275, 272, 269]; // IDs of the gold standard covers
@@ -1347,35 +1443,27 @@ export default function BatchCoverReview() {
           totalGenerated += data.total || draftIds.length;
         }
       } else {
-        const styleAssignments: Record<string, number[]> = {};
-        styleIds.forEach(id => { styleAssignments[id] = []; });
-        draftIds.forEach((draftId, index) => {
-          const assignedStyle = styleIds[index % styleIds.length];
-          styleAssignments[assignedStyle].push(draftId);
-        });
-        
-        for (const [styleId, assignedDraftIds] of Object.entries(styleAssignments)) {
-          if (assignedDraftIds.length === 0) continue;
-          if (styleId === "full-ai-auto") {
-            console.log("Using Full AI Auto mode for", assignedDraftIds.length, "drafts");
-            await apiRequest("POST", "/api/content-studio/bulk-full-ai-auto", { draftIds: assignedDraftIds });
-          } else {
-            console.log(`Sending ${assignedDraftIds.length} drafts to style ${styleId}`);
-            await apiRequest("POST", "/api/content-studio/regenerate-selected-backgrounds", {
-              draftIds: assignedDraftIds,
-              modelStyleId: styleId,
-              titleEmbedSync
-            });
-          }
-          totalGenerated += assignedDraftIds.length;
+        const stylePool = styleIds.filter((id) => id !== "full-ai-auto");
+        if (stylePool.length === 0) {
+          toast({ title: "No styles selected", description: "Choose at least one cover style", variant: "destructive" });
+          setIsRegeneratingSelected(false);
+          return;
         }
+        console.log("AI smart style selection from pool:", stylePool, "for", draftIds.length, "drafts");
+        const response = await apiRequest("POST", "/api/content-studio/regenerate-selected-backgrounds", {
+          draftIds,
+          modelStyleIds: stylePool,
+          titleEmbedSync,
+        });
+        const data = await response.json();
+        totalGenerated += data.total || draftIds.length;
       }
       
       const selectedNames = styleIds.map(id => styleNames[id] || id).join(", ");
       toast({ 
         title: "Regeneration Started", 
         description: styleIds.length > 1 
-          ? `Distributing ${draftIds.length} covers across ${styleIds.length} styles (${selectedNames})` 
+          ? `AI picking the best style per book from ${styleIds.filter(id => id !== "full-ai-auto").length} options for ${draftIds.length} covers` 
           : `Regenerating ${totalGenerated} covers with ${selectedNames} style`
       });
       clearSelection();
@@ -1433,8 +1521,13 @@ export default function BatchCoverReview() {
         queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
       };
       pollStatus();
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to start regeneration", variant: "destructive" });
+    } catch (error: any) {
+      const message = error?.message || "Failed to start regeneration";
+      toast({
+        title: message.includes("already running") ? "Batch In Progress" : "Error",
+        description: message,
+        variant: "destructive",
+      });
       setIsRegeneratingSelected(false);
     }
   };
@@ -1773,8 +1866,9 @@ export default function BatchCoverReview() {
     return dupes;
   }, [drafts, publishedBooks]);
   
-  // Count missing covers
-  const missingCoverCount = drafts.filter(d => !d.coverUrl && !d.backgroundUrl).length;
+  // Count missing covers (includes title placers)
+  const missingCoverCount = drafts.filter(d => !coverReviewHasImage(d)).length;
+  const titlePlacerCount = drafts.filter(isTitlePlacerDraft).length;
 
   const classicGenres = ["Classic Literature", "Classic Adventure", "Classic Drama", "Classic Epic", "Classic Fantasy", "Classic Horror", "Classic Mystery", "Classic Philosophy", "Classic Romance", "Classic Science Fiction"];
   
@@ -1791,7 +1885,7 @@ export default function BatchCoverReview() {
       filtered = filtered.filter(d => !d.publishedAt);
     }
     if (showMissingCovers) {
-      filtered = filtered.filter(d => !d.coverUrl && !d.backgroundUrl);
+      filtered = filtered.filter(d => !coverReviewHasImage(d));
     }
     return filtered;
   }, [drafts, showMissingCovers, coverFilter, showClassics]);
@@ -1977,6 +2071,33 @@ export default function BatchCoverReview() {
               <RefreshCw className="w-4 h-4 mr-1" />
               Refresh
             </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => { setShowResearchDialog(true); setLastResearchResult(null); }}
+              className="bg-violet-600 hover:bg-violet-700"
+              data-testid="button-ai-research-titles"
+            >
+              <Lightbulb className="w-4 h-4 mr-1" />
+              AI Research Titles
+            </Button>
+            {titlePlacerCount > 0 && !showMissingCovers && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setExpandedSections((prev) => new Set([...prev, "__placers__"]));
+                  setTimeout(() => {
+                    document.getElementById("section-title-placers")?.scrollIntoView({ behavior: "smooth", block: "end" });
+                  }, 100);
+                }}
+                className="border-violet-400 text-violet-700 hover:bg-violet-50"
+                data-testid="button-jump-to-placers"
+              >
+                <Lightbulb className="w-4 h-4 mr-1" />
+                Title Placers ({titlePlacerCount})
+              </Button>
+            )}
             {missingCoverCount > 0 && (
               <Button
                 variant={showMissingCovers ? "default" : "outline"}
@@ -3340,7 +3461,53 @@ export default function BatchCoverReview() {
                       </div>
                     )}
                   </div>
-                ) : groupedDrafts ? (
+                ) : showMissingCovers ? (
+                  <div>
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
+                      <p className="text-sm text-orange-800">
+                        These {missingCoverCount} ebooks have no cover image yet. Select them, pick an AI style above, then use Generate.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                      {draftsForReview.map((draft) => (
+                        <div
+                          key={draft.id}
+                          className={`relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
+                            selectedDraftIds.has(draft.id) 
+                              ? "border-blue-500 ring-2 ring-blue-200" 
+                              : "border-orange-300 hover:border-orange-400"
+                          }`}
+                          onClick={() => {
+                            setSelectedDraftIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(draft.id)) next.delete(draft.id);
+                              else next.add(draft.id);
+                              return next;
+                            });
+                            setSelectedDraftId(draft.id);
+                          }}
+                          data-testid={`card-missing-${draft.id}`}
+                        >
+                          <div className="relative w-full aspect-[2/3] bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
+                            <div className="text-center px-2">
+                              <Image className="w-6 h-6 text-orange-400 mx-auto mb-1" />
+                              <span className="text-orange-400 text-xs">No cover</span>
+                            </div>
+                            {selectedDraftIds.has(draft.id) && (
+                              <div className="absolute top-1 left-1 bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
+                                <Check className="w-3 h-3" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-1.5">
+                            <p className="text-[10px] text-white font-medium truncate">{draft.title}</p>
+                            <p className="text-[9px] text-gray-400">ID: {draft.id} · {draft.genre}{draft.publishedAt ? " · Published" : ""}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
                   /* Grouped by Style View */
                   <div className="space-y-4">
                     {/* Render each style group */}
@@ -3834,8 +4001,11 @@ export default function BatchCoverReview() {
 
                     {/* Ungrouped covers (no style assigned yet) */}
                     {groupedDrafts.ungrouped.length > 0 && (() => {
-                      const pendingOverlay = groupedDrafts.ungrouped.filter(d => !d.overlayApproved);
-                      const approvedOverlay = groupedDrafts.ungrouped.filter(d => d.overlayApproved);
+                      const titlePlacers = groupedDrafts.ungrouped
+                        .filter(isTitlePlacerDraft)
+                        .sort((a, b) => a.id - b.id);
+                      const pendingOverlay = groupedDrafts.ungrouped.filter(d => coverReviewHasImage(d) && !d.overlayApproved);
+                      const approvedOverlay = groupedDrafts.ungrouped.filter(d => coverReviewHasImage(d) && d.overlayApproved);
                       const selectedPendingIds = pendingOverlay.filter(d => selectedDraftIds.has(d.id)).map(d => d.id);
                       const selectedApprovedIds = approvedOverlay.filter(d => selectedDraftIds.has(d.id)).map(d => d.id);
                       return (
@@ -4214,144 +4384,83 @@ export default function BatchCoverReview() {
                         )}
                       </div>
                     )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                ) : showMissingCovers ? (
-                  /* Missing Covers View */
-                  <div>
-                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
-                      <p className="text-sm text-orange-800">
-                        These {missingCoverCount} ebooks have no cover image yet. Select them and use the Regenerate button to generate covers.
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                      {draftsForReview.map((draft) => (
+
+                    {titlePlacers.length > 0 && (
+                      <div id="section-title-placers" className="border-2 border-dashed border-violet-400 rounded-lg overflow-hidden bg-violet-50/80">
                         <div
-                          key={draft.id}
-                          className={`relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
-                            selectedDraftIds.has(draft.id) 
-                              ? "border-blue-500 ring-2 ring-blue-200" 
-                              : "border-orange-300 hover:border-orange-400"
-                          }`}
-                          onClick={() => {
-                            setSelectedDraftIds(prev => {
-                              const next = new Set(prev);
-                              if (next.has(draft.id)) next.delete(draft.id);
-                              else next.add(draft.id);
-                              return next;
-                            });
-                            setSelectedDraftId(draft.id);
-                          }}
-                          data-testid={`card-missing-${draft.id}`}
+                          className="flex items-center justify-between p-3 cursor-pointer"
+                          onClick={() => toggleSectionExpanded("__placers__")}
                         >
-                          <div className="relative w-full aspect-[2/3] bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
-                            <div className="text-center px-2">
-                              <Image className="w-6 h-6 text-orange-400 mx-auto mb-1" />
-                              <span className="text-orange-400 text-xs">No cover</span>
-                            </div>
-                            {selectedDraftIds.has(draft.id) && (
-                              <div className="absolute top-1 left-1 bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
-                                <Check className="w-3 h-3" />
-                              </div>
-                            )}
+                          <div className="flex items-center gap-2">
+                            <ChevronDown className={`w-5 h-5 text-violet-600 transition-transform duration-200 ${expandedSections.has("__placers__") ? "" : "-rotate-90"}`} />
+                            <Lightbulb className="w-4 h-4 text-violet-600" />
+                            <span className="text-sm font-medium text-violet-900">
+                              Awaiting AI Style &amp; Cover
+                            </span>
+                            <span className="text-sm text-violet-700">({titlePlacers.length} title placers)</span>
                           </div>
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-1.5">
-                            <p className="text-[10px] text-white font-medium truncate">{draft.title}</p>
-                            <p className="text-[9px] text-gray-400">ID: {draft.id} · {draft.genre}{draft.publishedAt ? " · Published" : ""}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  /* Flat View (not grouped) */
-                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {draftsForReview.map((draft) => (
-                      <div
-                        key={draft.id}
-                        className={`relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
-                          selectedDraftId === draft.id
-                            ? "border-green-500 ring-2 ring-green-200" 
-                            : selectedDraftIds.has(draft.id) 
-                              ? "border-blue-500 ring-2 ring-blue-200" 
-                              : "border-transparent hover:border-gray-300"
-                        }`}
-                        onClick={() => {
-                          setSelectedDraftIds(prev => {
-                            const next = new Set(prev);
-                            if (next.has(draft.id)) {
-                              next.delete(draft.id);
-                            } else {
-                              next.add(draft.id);
-                            }
-                            return next;
-                          });
-                          setSelectedDraftId(draft.id);
-                        }}
-                        data-testid={`card-draft-${draft.id}`}
-                      >
-                        <div className="relative w-full aspect-[2/3] bg-black">
-                          {coverReviewHasImage(draft) ? (
-                            <CoverReviewImage
-                              draft={draft}
-                              showCleanBackgrounds={showCleanBackgrounds}
-                              className={`w-full h-full ${(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "contain" ? "object-contain" : "object-cover"}`}
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
-                              <span className="text-gray-500 text-xs text-center px-2">No cover yet</span>
-                            </div>
-                          )}
-                          <button
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-violet-800 hover:text-violet-900"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setCoverFitOverrides(prev => {
-                                const next = new Map(prev);
-                                const current = next.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover");
-                                next.set(draft.id, current === "cover" ? "contain" : "cover");
+                              const ids = titlePlacers.map(d => d.id);
+                              setSelectedDraftIds(prev => {
+                                const next = new Set(prev);
+                                ids.forEach(id => next.add(id));
                                 return next;
                               });
                             }}
-                            className="absolute bottom-8 right-1 bg-black/60 backdrop-blur border border-white/10 text-white rounded w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-20"
-                            title="Toggle fit mode"
+                            data-testid="select-title-placers"
                           >
-                            {(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "cover" ? (
-                              <Minimize2 className="w-3 h-3" />
-                            ) : (
-                              <Maximize2 className="w-3 h-3" />
-                            )}
-                          </button>
-                          {analyzingIds.has(draft.id) && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                              <div className="text-white text-xs flex items-center gap-2">
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                Analyzing...
-                              </div>
+                            Select All
+                          </Button>
+                        </div>
+                        {expandedSections.has("__placers__") && (
+                          <>
+                            <p className="text-xs text-violet-800 mb-3 px-3">
+                              New research ideas land here first. Pick an AI style in the sections above, select placers, then Generate backgrounds.
+                            </p>
+                            <div className="px-3 pb-3 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                              {titlePlacers.map((draft) => (
+                                <div
+                                  key={draft.id}
+                                  className={`relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
+                                    selectedDraftIds.has(draft.id)
+                                      ? "border-blue-500 ring-2 ring-blue-200"
+                                      : "border-violet-300 hover:border-violet-500"
+                                  }`}
+                                  onClick={() => {
+                                    setSelectedDraftIds(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(draft.id)) next.delete(draft.id);
+                                      else next.add(draft.id);
+                                      return next;
+                                    });
+                                    setSelectedDraftId(draft.id);
+                                  }}
+                                  data-testid={`card-placer-${draft.id}`}
+                                >
+                                  <div className="relative w-full aspect-[2/3] bg-gradient-to-br from-violet-900/40 to-gray-900 flex flex-col items-center justify-center gap-2 px-2">
+                                    <Lightbulb className="w-7 h-7 text-violet-300" />
+                                    <span className="text-violet-200 text-[10px] text-center font-medium">Title placer</span>
+                                    <span className="text-violet-400/80 text-[9px] text-center">No style yet</span>
+                                  </div>
+                                  <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-1.5">
+                                    <p className="text-[10px] text-white font-medium truncate">{draft.title}</p>
+                                    <p className="text-[9px] text-gray-400">ID: {draft.id} · {draft.genre}</p>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          )}
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] p-1 text-center truncate">
-                            {draft.title} {draft.coverStyleId && <span className="text-blue-300">({allStyleNames[draft.coverStyleId] || draft.coverStyleId})</span>}
-                          </div>
-                        </div>
-                        {selectedDraftIds.has(draft.id) && (
-                          <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full p-1">
-                            <Check className="w-3 h-3" />
-                          </div>
+                          </>
                         )}
-                        {selectedDraftId === draft.id && (
-                          <div className="absolute top-2 left-2 bg-green-500 text-white text-[9px] px-1.5 py-0.5 rounded">
-                            Editing
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
-                          <span className="text-white text-xs bg-black/50 px-2 py-1 rounded">
-                            Click to edit
-                          </span>
-                        </div>
                       </div>
-                    ))}
+                    )}
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
               </CardContent>
@@ -5088,6 +5197,166 @@ export default function BatchCoverReview() {
               )}
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showResearchDialog} onOpenChange={(open) => { setShowResearchDialog(open); if (!open) setShowRequestPool(false); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-gray-950 border-gray-700 text-gray-100">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <Lightbulb className="h-5 w-5 text-violet-400" />
+              AI Research &amp; Create Titles
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Researches today's audience, blends approved customer requests, and creates placers with a writing brief that guides outline, dialogue, and the Story Architect when you run content later.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="research-count" className="text-gray-300">How many titles?</Label>
+                <Input
+                  id="research-count"
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={researchCount}
+                  onChange={(e) => setResearchCount(Math.min(30, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                  className="bg-gray-900 border-gray-600 text-white"
+                  data-testid="input-research-count"
+                />
+              </div>
+              <div className="flex items-end pb-2">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="include-requests"
+                    checked={includeCustomerRequests}
+                    onCheckedChange={setIncludeCustomerRequests}
+                    data-testid="switch-include-requests"
+                  />
+                  <Label htmlFor="include-requests" className="text-gray-300 cursor-pointer">
+                    Include approved requests ({approvedRequests.length})
+                  </Label>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="research-focus" className="text-gray-300">Optional focus (genre, season, audience)</Label>
+              <Textarea
+                id="research-focus"
+                placeholder="e.g. BookTok romance, kids puzzle books, anxiety nonfiction for millennials..."
+                value={researchFocusNotes}
+                onChange={(e) => setResearchFocusNotes(e.target.value)}
+                className="bg-gray-900 border-gray-600 text-white min-h-[72px]"
+                data-testid="input-research-focus"
+              />
+            </div>
+
+            <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3 space-y-2">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between text-sm font-medium text-gray-200"
+                onClick={() => setShowRequestPool(!showRequestPool)}
+                data-testid="button-toggle-request-pool"
+              >
+                <span className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-amber-400" />
+                  Customer Request Pool
+                  {pendingRequests.length > 0 && (
+                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-300">
+                      {pendingRequests.length} pending
+                    </span>
+                  )}
+                </span>
+                <ChevronDown className={`h-4 w-4 transition-transform ${showRequestPool ? "" : "-rotate-90"}`} />
+              </button>
+              {showRequestPool && (
+                <div className="space-y-2 max-h-48 overflow-y-auto pt-1">
+                  {bookRequests.length === 0 ? (
+                    <p className="text-xs text-gray-500">No customer requests yet. They can submit ideas from the storefront.</p>
+                  ) : (
+                    bookRequests.slice(0, 20).map((req) => (
+                      <div key={req.id} className="rounded border border-gray-700 bg-gray-950 p-2 text-xs">
+                        <p className="text-gray-200">{req.requestText}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-gray-500">
+                          <span className={`rounded px-1.5 py-0.5 ${
+                            req.status === "approved" ? "bg-emerald-500/20 text-emerald-300" :
+                            req.status === "rejected" ? "bg-red-500/20 text-red-300" :
+                            req.status === "fulfilled" ? "bg-blue-500/20 text-blue-300" :
+                            "bg-amber-500/20 text-amber-300"
+                          }`}>{req.status}</span>
+                          {req.suggestedGenre && <span>{req.suggestedGenre}</span>}
+                          {req.customerEmail && <span>{req.customerEmail}</span>}
+                        </div>
+                        {req.status === "pending" && (
+                          <div className="mt-2 flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs border-emerald-500/40 text-emerald-400"
+                              disabled={updateRequestMutation.isPending}
+                              onClick={() => updateRequestMutation.mutate({ id: req.id, status: "approved" })}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs border-red-500/40 text-red-400"
+                              disabled={updateRequestMutation.isPending}
+                              onClick={() => updateRequestMutation.mutate({ id: req.id, status: "rejected" })}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {lastResearchResult && lastResearchResult.ideas.length > 0 && (
+              <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-3 space-y-2">
+                <p className="text-sm font-medium text-violet-200 flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" />
+                  Latest batch ({lastResearchResult.createdDraftIds.length} created)
+                </p>
+                <ul className="space-y-1 max-h-40 overflow-y-auto text-xs">
+                  {lastResearchResult.ideas.slice(0, 12).map((idea, i) => (
+                    <li key={i} className="text-gray-300">
+                      <span className="text-white font-medium">{idea.title}</span>
+                      <span className="text-gray-500"> — {idea.genre}</span>
+                      {idea.source === "customer_request" && (
+                        <span className="text-amber-400 ml-1">(customer)</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowResearchDialog(false)} className="border-gray-600">
+              Close
+            </Button>
+            <Button
+              onClick={() => researchTitlesMutation.mutate()}
+              disabled={researchTitlesMutation.isPending}
+              className="bg-violet-600 hover:bg-violet-700"
+              data-testid="button-run-research-titles"
+            >
+              {researchTitlesMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Researching...</>
+              ) : (
+                <><Sparkles className="h-4 w-4 mr-2" /> Research &amp; Create {researchCount} Titles</>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -1,7 +1,7 @@
 import OpenAI, { toFile } from "openai";
 import { db } from "./storage";
-import { draftEbooks, generationJobs, books } from "@shared/schema";
-import { eq, sql, inArray } from "drizzle-orm";
+import { draftEbooks, generationJobs, books, bookRequests, type BookRequest } from "@shared/schema";
+import { eq, sql, inArray, and, desc } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -1809,7 +1809,8 @@ async function generateStoryArchitectPlan(
   genre: string,
   title: string,
   fiction: boolean,
-  totalChapters?: number
+  totalChapters?: number,
+  creativeDirection?: string,
 ): Promise<StoryArchitectPlan | null> {
   const { authors, genreLabel } = getGenreAuthorList(genre);
 
@@ -1825,12 +1826,16 @@ async function generateStoryArchitectPlan(
     return `Chapter ${i + 1}: ${preview}`;
   }).join("\n\n");
 
+  const directionBlock = creativeDirection?.trim()
+    ? `\nAUTHOR CREATIVE DIRECTION (honor this when assigning dialogue-heavy vs introspective techniques):\n${creativeDirection.trim()}\n`
+    : "";
+
   const prompt = fiction
     ? `You are the AI Story Architect — a master literary strategist who understands how bestselling authors craft their magic. Your job is to analyze a book outline and strategically assign which author technique(s) should drive each chapter.
 
 BOOK: "${title}" (${genreLabel})
 ${totalChapters ? `TOTAL CHAPTERS TO PLAN: ${totalChapters} (you MUST assign techniques for chapters 1 through ${totalChapters})` : ''}
-
+${directionBlock}
 AVAILABLE AUTHORS AND THEIR SIGNATURE TECHNIQUES:
 ${authorMenu}
 
@@ -1869,7 +1874,7 @@ Respond with ONLY a valid JSON object (no markdown, no code fences):
 
 BOOK: "${title}" (${genreLabel})
 ${totalChapters ? `TOTAL CHAPTERS TO PLAN: ${totalChapters} (you MUST assign techniques for chapters 1 through ${totalChapters})` : ''}
-
+${directionBlock}
 AVAILABLE AUTHORS AND THEIR SIGNATURE TECHNIQUES:
 ${authorMenu}
 
@@ -2824,8 +2829,9 @@ Be specific and vivid. These details will be used to ensure the book's content m
   }
 }
 
-export async function generateEbookOutline(topic: string, genre: string, title?: string, coverAnalysis?: string): Promise<string> {
+export async function generateEbookOutline(topic: string, genre: string, title?: string, coverAnalysis?: string, creativeDirection?: string): Promise<string> {
   const bookTitle = title || topic;
+  const direction = creativeDirection?.trim() || topic;
   const fiction = isFictionGenre(genre);
   const coverContext = getCoverImageryDescription(bookTitle, genre, coverAnalysis);
   const genreTechniques = getGenreWritingTechniques(genre);
@@ -2857,7 +2863,7 @@ export async function generateEbookOutline(topic: string, genre: string, title?:
   const userPrompt = isCollectionGenre
     ? `Create a detailed outline for a ${genre} titled "${bookTitle}".
 CREATIVE DIRECTION (internal use only — use it to shape the tone, themes, and variety of stories. Do NOT copy this text into the outline or book):
-${topic}
+${direction}
 
 ${genreTechniques}
 
@@ -2887,8 +2893,8 @@ Include:
 Format as a structured outline an AI can use to write each story as a complete, standalone piece of literary fiction.`
     : fiction
     ? `Create a detailed story outline for a ${genre} novel titled "${bookTitle}".
-CREATIVE DIRECTION (internal use only — this is the author's vision for the story. Use it to shape characters, plot, themes, and tone. Do NOT copy this text into the outline or book. Do NOT include it in any "About this Book" section. Transform these ideas into compelling fiction):
-${topic}
+CREATIVE DIRECTION (internal use only — this is the author's vision for the story. Use it to shape characters, plot, themes, tone, and dialogue. Do NOT copy this text into the outline or book. Do NOT include it in any "About this Book" section. Transform these ideas into compelling fiction):
+${direction}
 
 MANDATORY COMPLIANCE: The Creative Direction above is NOT a suggestion — it is the author's binding requirement. You MUST:
 - Use the EXACT character demographics specified (race, ethnicity, gender, background). Do NOT substitute, diversify, or change the demographics the author specified.
@@ -2928,8 +2934,8 @@ Include:
 
 Format as a structured outline an AI can use to write rich, literary prose that reads like a published bestseller.`
     : `Create a comprehensive outline for a ${genre} book titled "${bookTitle}".
-CREATIVE DIRECTION (internal use only — this is the author's vision. Use it to shape the book's structure, tone, and depth. Do NOT copy this text into the outline or book. Transform these ideas into expert-level content):
-${topic}
+CREATIVE DIRECTION (internal use only — this is the author's vision. Use it to shape the book's structure, tone, depth, and voice. Do NOT copy this text into the outline or book. Transform these ideas into expert-level content):
+${direction}
 
 ${genreTechniques}
 
@@ -3091,8 +3097,12 @@ function getGenreChapterSpec(genre: string): { minWordsPerChapter: number; maxWo
   return { minWordsPerChapter: 2000, maxWordsPerChapter: 3500, targetChapters: { min: 8, max: 12 }, pacing: "Clear, structured chapters with comprehensive coverage. Each chapter should fully address its topic with examples and takeaways." };
 }
 
-export async function generateEbookContent(outline: string, topic: string, genre?: string, title?: string, coverAnalysis?: string, onChapterComplete?: (contentSoFar: string) => Promise<void>, existingContent?: string, storedChapterCount?: number, stopEpochAtStart?: number): Promise<string> {
+export async function generateEbookContent(outline: string, topic: string, genre?: string, title?: string, coverAnalysis?: string, onChapterComplete?: (contentSoFar: string) => Promise<void>, existingContent?: string, storedChapterCount?: number, stopEpochAtStart?: number, creativeDirection?: string): Promise<string> {
   const bookTitle = title || topic;
+  const direction = creativeDirection?.trim() || topic;
+  const creativeDirectionBlock = direction
+    ? `\n\nAUTHOR CREATIVE DIRECTION (binding — tone, dialogue, character voices, and themes must follow this):\n${direction}\n`
+    : "";
   const fiction = isFictionGenre(genre || "");
   const coverContext = getCoverImageryDescription(bookTitle, genre || "General", coverAnalysis);
   const genreTechniques = getGenreWritingTechniques(genre || "General");
@@ -3168,7 +3178,7 @@ export async function generateEbookContent(outline: string, topic: string, genre
   
   console.log(`[Content Gen] Writing "${bookTitle}" (${genre}): ${totalChapters} chapters, ~${wordsPerChapter} words each (range: ${chapterSpec.minWordsPerChapter}-${chapterSpec.maxWordsPerChapter}), target: ${targetTotalWords} total`);
 
-  const storyArchitectPlan = await generateStoryArchitectPlan(outline, genre || "General", bookTitle, fiction, totalChapters);
+  const storyArchitectPlan = await generateStoryArchitectPlan(outline, genre || "General", bookTitle, fiction, totalChapters, direction);
   if (storyArchitectPlan) {
     console.log(`[Story Architect] Technique map ready — ${storyArchitectPlan.chapters.length} chapters mapped with strategic author assignments`);
   } else {
@@ -3404,6 +3414,7 @@ THIS STORY'S OUTLINE:
 ${chapterOutline}
 
 ${coverContext}
+${creativeDirectionBlock}
 
 GENRE PACING: ${chapterSpec.pacing}
 
@@ -3440,6 +3451,7 @@ ${chapterOutline}
 ${continuityContext}
 
 ${coverContext}
+${creativeDirectionBlock}
 
 GENRE PACING: ${chapterSpec.pacing}
 ${chapterVisualInstructions}
@@ -3470,6 +3482,7 @@ ${chapterOutline}
 ${continuityContext}
 
 ${coverContext}
+${creativeDirectionBlock}
 
 GENRE PACING: ${chapterSpec.pacing}
 ${chapterVisualInstructions}
@@ -4654,6 +4667,10 @@ export async function generateContentForDraft(draftId: number): Promise<string> 
   const topic = draft.topic || draft.title || "Untitled";
   const genre = draft.genre || "General";
   const title = draft.title || topic;
+  const creativeDirection = getCreativeDirectionForDraft(draft);
+  if (parseWritingBriefFromDescription(draft.description)) {
+    console.log(`[Content Gen] "${title}" — using market research writing brief for outline, dialogue, and Story Architect`);
+  }
 
   if (isColoringBookGenre(genre)) {
     console.log(`[Content Gen] "${title}" is a Coloring Book — routing to coloring page generator`);
@@ -4706,7 +4723,7 @@ export async function generateContentForDraft(draftId: number): Promise<string> 
     }
 
     const existingOutline = hasMultiAuthorOutline && draft.outline && draft.outline.trim().length > 100 ? draft.outline : null;
-    const outline = existingOutline || await generateEbookOutline(topic, genre, title, coverAnalysis);
+    const outline = existingOutline || await generateEbookOutline(topic, genre, title, coverAnalysis, creativeDirection);
     if (!existingOutline) {
       const markedOutline = outline + `\n\n<!-- Story Architect Multi-Author Pipeline -->`;
       await db.update(draftEbooks).set({ outline: markedOutline }).where(eq(draftEbooks.id, draftId));
@@ -4731,7 +4748,7 @@ export async function generateContentForDraft(draftId: number): Promise<string> 
 
     let content = await generateEbookContent(outline, topic, genre, title, coverAnalysis, async (contentSoFar) => {
       await db.update(draftEbooks).set({ content: contentSoFar }).where(eq(draftEbooks.id, draftId));
-    }, existingContent || undefined, draft.outlineChapterCount || undefined, myEpoch);
+    }, existingContent || undefined, draft.outlineChapterCount || undefined, myEpoch, creativeDirection);
     let wordCount = content.split(/\s+/).length;
     
     if (wordCount < 50) {
@@ -4892,6 +4909,7 @@ export async function appendConcludingChapter(draftId: number): Promise<string> 
   const topic = draft.topic || draft.title || "Untitled";
   const genre = draft.genre || "General";
   const title = draft.title || topic;
+  const creativeDirection = getCreativeDirectionForDraft(draft);
   const existingContent = draft.content || "";
   const outline = draft.outline || "";
   const fiction = isFictionGenre(genre);
@@ -4922,6 +4940,9 @@ export async function appendConcludingChapter(draftId: number): Promise<string> 
 
 OUTLINE SUMMARY:
 ${outlineSummary}
+
+AUTHOR CREATIVE DIRECTION (binding — tone and dialogue must follow this):
+${creativeDirection}
 
 RECENT CONTEXT (end of the previous chapter):
 ${recentContext}
@@ -6053,6 +6074,7 @@ export async function continueWritingForDraft(draftId: number): Promise<string> 
   const topic = draft.topic || draft.title || "Untitled";
   const genre = draft.genre || "General";
   const title = draft.title || topic;
+  const creativeDirection = getCreativeDirectionForDraft(draft);
   const existingContent = draft.content || "";
   const existingChapterCount = (existingContent.match(/##\s*Chapter\s+\d+/gi) || []).length;
   const existingWords = existingContent.trim() ? existingContent.split(/\s+/).length : 0;
@@ -6119,7 +6141,7 @@ export async function continueWritingForDraft(draftId: number): Promise<string> 
   try {
     let outline = draft.outline || "";
     if (!outline || outline.trim().length < 100) {
-      outline = await generateEbookOutline(topic, genre, title);
+      outline = await generateEbookOutline(topic, genre, title, "", creativeDirection);
       await db.update(draftEbooks).set({ outline }).where(eq(draftEbooks.id, draftId));
     } else {
       console.log(`[Continue Writing] Reusing existing outline for "${title}" (${outline.split(/\s+/).length} words)`);
@@ -6127,7 +6149,7 @@ export async function continueWritingForDraft(draftId: number): Promise<string> 
 
     const content = await generateEbookContent(outline, topic, genre, title, "", async (contentSoFar) => {
       await db.update(draftEbooks).set({ content: contentSoFar }).where(eq(draftEbooks.id, draftId));
-    }, existingContent, draft.outlineChapterCount || undefined);
+    }, existingContent, draft.outlineChapterCount || undefined, undefined, creativeDirection);
 
     const wordCount = content.split(/\s+/).length;
 
@@ -9787,6 +9809,386 @@ Be creative — take the seed idea and develop it into something a reader would 
   return draft.id;
 }
 
+export type ResearchedTitleIdea = {
+  title: string;
+  genre: string;
+  topic: string;
+  description: string;
+  source: "trending" | "customer_request";
+  requestId?: number;
+  rationale: string;
+  writingBrief?: ResearchWritingBrief;
+};
+
+export type ResearchWritingBrief = {
+  targetAudience: string;
+  marketRationale: string;
+  toneAndVoice: string;
+  dialogueGuidance: string;
+  characterVoices: string[];
+  narrativeBeats: string[];
+  themes: string[];
+};
+
+const WRITING_BRIEF_START = "---WRITING_BRIEF_START---";
+const WRITING_BRIEF_END = "---WRITING_BRIEF_END---";
+
+export function formatDescriptionWithWritingBrief(brief: ResearchWritingBrief, catalogDescription: string): string {
+  return `${WRITING_BRIEF_START}\n${JSON.stringify(brief)}\n${WRITING_BRIEF_END}\n\n${catalogDescription.trim()}`;
+}
+
+export function parseWritingBriefFromDescription(description: string | null | undefined): ResearchWritingBrief | null {
+  if (!description) return null;
+  const match = description.match(/---WRITING_BRIEF_START---\s*([\s\S]*?)\s*---WRITING_BRIEF_END---/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]) as ResearchWritingBrief;
+  } catch {
+    return null;
+  }
+}
+
+/** Rich creative direction for outline + multi-author story pipeline (includes research brief when present). */
+export function getCreativeDirectionForDraft(draft: {
+  topic: string;
+  description?: string | null;
+  title?: string | null;
+}): string {
+  const brief = parseWritingBriefFromDescription(draft.description);
+  const baseTopic = draft.topic?.trim() || draft.title?.trim() || "";
+  if (!brief) return baseTopic;
+
+  return [
+    baseTopic,
+    "",
+    "MARKET RESEARCH & AUTHOR BRIEF (binding for outline, prose, dialogue, and character voice):",
+    `Target audience: ${brief.targetAudience}`,
+    `Why this book now: ${brief.marketRationale}`,
+    `Tone & narrative voice: ${brief.toneAndVoice}`,
+    `Dialogue guidance: ${brief.dialogueGuidance}`,
+    brief.characterVoices?.length
+      ? `Character voices:\n${brief.characterVoices.map((v) => `- ${v}`).join("\n")}`
+      : "",
+    brief.narrativeBeats?.length
+      ? `Key story beats to hit:\n${brief.narrativeBeats.map((b) => `- ${b}`).join("\n")}`
+      : "",
+    brief.themes?.length ? `Themes to weave throughout: ${brief.themes.join("; ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Strip internal writing brief — use for storefront catalog descriptions only. */
+export function getCatalogDescriptionFromDraft(description: string | null | undefined, fallback: string): string {
+  if (!description) return fallback;
+  const withoutBrief = description
+    .replace(/---WRITING_BRIEF_START---[\s\S]*?---WRITING_BRIEF_END---\s*/g, "")
+    .trim();
+  return withoutBrief || fallback;
+}
+
+export type ResearchTitlesOptions = {
+  count: number;
+  includeCustomerRequests?: boolean;
+  focusNotes?: string;
+};
+
+export type ResearchTitlesResult = {
+  ideas: ResearchedTitleIdea[];
+  createdDraftIds: number[];
+  usedRequestIds: number[];
+  skippedDuplicates: number;
+};
+
+async function getExistingTitleSet(): Promise<Set<string>> {
+  const [draftRows, bookRows] = await Promise.all([
+    db.select({ title: draftEbooks.title }).from(draftEbooks),
+    db.select({ title: books.title }).from(books),
+  ]);
+  const titles = new Set<string>();
+  for (const row of [...draftRows, ...bookRows]) {
+    const t = row.title?.trim();
+    if (t) titles.add(t.toLowerCase());
+  }
+  return titles;
+}
+
+function isDuplicateTitle(candidate: string, existing: Set<string>): boolean {
+  const normalized = candidate.trim().toLowerCase();
+  if (existing.has(normalized)) return true;
+  for (const existingTitle of Array.from(existing)) {
+    if (areTitlesSimilar(candidate, existingTitle).similar) return true;
+  }
+  return false;
+}
+
+export async function listBookRequests(status?: string) {
+  if (status) {
+    return db.select().from(bookRequests).where(eq(bookRequests.status, status)).orderBy(desc(bookRequests.createdAt));
+  }
+  return db.select().from(bookRequests).orderBy(desc(bookRequests.createdAt));
+}
+
+export async function updateBookRequestStatus(
+  requestId: number,
+  status: "pending" | "approved" | "rejected",
+  adminNotes?: string,
+): Promise<BookRequest | null> {
+  const [updated] = await db
+    .update(bookRequests)
+    .set({ status, adminNotes: adminNotes ?? null })
+    .where(eq(bookRequests.id, requestId))
+    .returning();
+  return updated ?? null;
+}
+
+export async function submitBookRequest(input: {
+  requestText: string;
+  customerEmail?: string;
+  suggestedTitle?: string;
+  suggestedGenre?: string;
+}): Promise<number> {
+  const [row] = await db
+    .insert(bookRequests)
+    .values({
+      requestText: input.requestText.trim(),
+      customerEmail: input.customerEmail?.trim() || null,
+      suggestedTitle: input.suggestedTitle?.trim() || null,
+      suggestedGenre: input.suggestedGenre?.trim() || null,
+      status: "pending",
+      source: "customer",
+    })
+    .returning();
+  return row.id;
+}
+
+/** Cover-first workflow: AI researches trending titles + approved customer requests, then creates draft placers. */
+export async function researchAndCreateTitlePlacers(options: ResearchTitlesOptions): Promise<ResearchTitlesResult> {
+  const count = Math.min(Math.max(options.count || 5, 1), 30);
+  const includeCustomerRequests = options.includeCustomerRequests !== false;
+  const focusNotes = options.focusNotes?.trim() || "";
+  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+  const approvedRequests = includeCustomerRequests
+    ? await db
+        .select()
+        .from(bookRequests)
+        .where(eq(bookRequests.status, "approved"))
+        .orderBy(desc(bookRequests.createdAt))
+    : [];
+
+  const existingTitles = await getExistingTitleSet();
+  const existingSample = [...existingTitles].slice(0, 120);
+
+  const genres = getAvailableGenres();
+  const requestSlots = Math.min(approvedRequests.length, count);
+  const trendingSlots = count - requestSlots;
+
+  const requestBlock =
+    approvedRequests.length > 0
+      ? `\nAPPROVED CUSTOMER REQUESTS (you MUST turn the first ${requestSlots} into book ideas — source "customer_request", include requestId):\n${approvedRequests
+          .slice(0, requestSlots)
+          .map(
+            (r) =>
+              `- requestId ${r.id}: "${r.requestText}"${r.suggestedTitle ? ` (customer title hint: ${r.suggestedTitle})` : ""}${r.suggestedGenre ? ` (genre hint: ${r.suggestedGenre})` : ""}`,
+          )
+          .join("\n")}`
+      : "";
+
+  const response = await getContentClient().chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `You are an expert ebook market researcher and acquisitions editor for EbookGamez (fiction, nonfiction, kids, YA). Today is ${today}.
+
+Research what readers are buying and searching for RIGHT NOW: Amazon/KU trends, BookTok, seasonal hooks, evergreen niches with fresh angles, and underserved gaps.
+
+Return ONLY valid JSON:
+{
+  "ideas": [
+    {
+      "title": "Bookstore-ready title",
+      "genre": "one of our genres",
+      "topic": "One-line hook for cover/content",
+      "description": "2-3 sentence catalog blurb for the storefront",
+      "source": "trending" or "customer_request",
+      "requestId": number or null,
+      "rationale": "Why this fits today's audience",
+      "writingBrief": {
+        "targetAudience": "Who will buy this and why",
+        "marketRationale": "Trend/search data hook — why NOW",
+        "toneAndVoice": "Narrative voice, POV, pacing feel",
+        "dialogueGuidance": "How characters should speak — register, subtext, banter vs sparse, etc.",
+        "characterVoices": ["Name/role: speech pattern hint", "..."],
+        "narrativeBeats": ["Key plot/teaching beat 1", "beat 2", "..."],
+        "themes": ["theme 1", "theme 2"]
+      }
+    }
+  ]
+}
+
+Rules:
+- Generate exactly ${count} unique ideas (${requestSlots} from approved customer requests if provided, ${trendingSlots} trending originals).
+- Genres must be from: ${genres.join(", ")}
+- Titles must be original — do NOT duplicate or closely resemble existing catalog titles.
+- No trademarked IP (Marvel, Harry Potter, etc.).
+- Mix fiction, nonfiction, and children's when trending slots allow.
+- Cover-first pipeline: ideas need strong visual cover potential and clear genre signals.
+- writingBrief is CRITICAL — it will guide the full Story Architect pipeline (outline, dialogue, multi-author chapter writing). Be specific about dialogue style and distinct character voices for fiction; for nonfiction, specify teaching voice and example dialogue if used.`,
+      },
+      {
+        role: "user",
+        content: `Generate ${count} new ebook placers for Cover Review.${requestBlock}
+${focusNotes ? `\nEditor focus: ${focusNotes}` : ""}
+${existingSample.length ? `\nAVOID titles similar to these existing books:\n${existingSample.slice(0, 80).join("\n")}` : ""}`,
+      },
+    ],
+    temperature: 0.85,
+    max_tokens: 4000,
+    response_format: { type: "json_object" },
+  });
+
+  let parsedIdeas: ResearchedTitleIdea[] = [];
+  try {
+    const raw = response.choices[0]?.message?.content?.trim() || "{}";
+    const parsed = JSON.parse(raw);
+    parsedIdeas = (parsed.ideas || []).map((idea: ResearchedTitleIdea) => ({
+      title: extractCleanTitle(idea.title || ""),
+      genre: idea.genre || "Fiction",
+      topic: idea.topic || idea.description || idea.title,
+      description: idea.description || idea.topic || "",
+      source: idea.source === "customer_request" ? "customer_request" : "trending",
+      requestId: idea.requestId ?? undefined,
+      rationale: idea.rationale || "",
+      writingBrief: idea.writingBrief
+        ? {
+            targetAudience: idea.writingBrief.targetAudience || idea.rationale || "General readers",
+            marketRationale: idea.writingBrief.marketRationale || idea.rationale || "",
+            toneAndVoice: idea.writingBrief.toneAndVoice || "",
+            dialogueGuidance: idea.writingBrief.dialogueGuidance || "",
+            characterVoices: Array.isArray(idea.writingBrief.characterVoices) ? idea.writingBrief.characterVoices : [],
+            narrativeBeats: Array.isArray(idea.writingBrief.narrativeBeats) ? idea.writingBrief.narrativeBeats : [],
+            themes: Array.isArray(idea.writingBrief.themes) ? idea.writingBrief.themes : [],
+          }
+        : {
+            targetAudience: idea.rationale || "Today's ebook readers",
+            marketRationale: idea.rationale || "",
+            toneAndVoice: `Compelling ${idea.genre || "fiction"} voice suited for digital readers`,
+            dialogueGuidance: "Natural, distinct character voices; dialogue reveals personality and advances plot",
+            characterVoices: [],
+            narrativeBeats: [idea.topic || idea.description].filter(Boolean),
+            themes: [],
+          },
+    }));
+  } catch (err) {
+    console.error("[Research Titles] Failed to parse AI response:", err);
+    throw new Error("AI could not generate title ideas. Please try again.");
+  }
+
+  const createdDraftIds: number[] = [];
+  const usedRequestIds: number[] = [];
+  let skippedDuplicates = 0;
+  const seenThisBatch = new Set<string>();
+
+  for (const idea of parsedIdeas) {
+    if (!idea.title || idea.title.length < 3) continue;
+    const key = idea.title.trim().toLowerCase();
+    if (seenThisBatch.has(key)) continue;
+    if (isDuplicateTitle(idea.title, existingTitles)) {
+      skippedDuplicates++;
+      continue;
+    }
+
+    seenThisBatch.add(key);
+    existingTitles.add(key);
+
+    const topic = idea.topic.includes(idea.title) ? idea.topic : `${idea.title}: ${idea.topic}`;
+    const brief = idea.writingBrief!;
+    const storedDescription = formatDescriptionWithWritingBrief(brief, idea.description || idea.topic);
+
+    const [draft] = await db
+      .insert(draftEbooks)
+      .values({
+        title: idea.title,
+        genre: idea.genre,
+        topic,
+        description: storedDescription,
+        suggestedPrice: "12.99",
+        status: "draft",
+      })
+      .returning();
+
+    createdDraftIds.push(draft.id);
+    console.log(
+      `[Research Titles] Placer #${draft.id}: "${idea.title}" (${idea.genre}) — ${idea.source}${idea.requestId ? ` from request #${idea.requestId}` : ""} [writing brief stored for story pipeline]`,
+    );
+
+    if (idea.source === "customer_request" && idea.requestId) {
+      const [fulfilled] = await db
+        .update(bookRequests)
+        .set({ status: "fulfilled", draftId: draft.id, fulfilledAt: new Date() })
+        .where(and(eq(bookRequests.id, idea.requestId), eq(bookRequests.status, "approved")))
+        .returning();
+      if (fulfilled) usedRequestIds.push(idea.requestId);
+    }
+  }
+
+  return {
+    ideas: parsedIdeas,
+    createdDraftIds,
+    usedRequestIds,
+    skippedDuplicates,
+  };
+}
+
+/** Insert cover-first placers with hidden writing briefs (no AI call). Skips duplicate titles. */
+export async function bulkCreateTitlePlacers(
+  ideas: Array<Omit<ResearchedTitleIdea, "source" | "requestId" | "rationale"> & { source?: ResearchedTitleIdea["source"] }>,
+): Promise<{ createdDraftIds: number[]; skippedDuplicates: number }> {
+  const existingTitles = await getExistingTitleSet();
+  const createdDraftIds: number[] = [];
+  let skippedDuplicates = 0;
+
+  for (const idea of ideas) {
+    if (!idea.title || idea.title.length < 3) continue;
+    if (isDuplicateTitle(idea.title, existingTitles)) {
+      skippedDuplicates++;
+      continue;
+    }
+    existingTitles.add(idea.title.trim().toLowerCase());
+
+    const topic = idea.topic.includes(idea.title) ? idea.topic : `${idea.title}: ${idea.topic}`;
+    const brief: ResearchWritingBrief = idea.writingBrief ?? {
+      targetAudience: "Today's ebook readers",
+      marketRationale: idea.description || idea.topic,
+      toneAndVoice: `Compelling ${idea.genre} voice for digital readers`,
+      dialogueGuidance: "Natural, distinct voices; dialogue reveals character and advances plot",
+      characterVoices: [],
+      narrativeBeats: [idea.topic],
+      themes: [],
+    };
+    const storedDescription = formatDescriptionWithWritingBrief(brief, idea.description || idea.topic);
+
+    const [draft] = await db
+      .insert(draftEbooks)
+      .values({
+        title: idea.title,
+        genre: idea.genre,
+        topic,
+        description: storedDescription,
+        suggestedPrice: "12.99",
+        status: "draft",
+      })
+      .returning();
+
+    createdDraftIds.push(draft.id);
+    console.log(`[Title Placer] #${draft.id}: "${idea.title}" (${idea.genre}) [writing brief stored]`);
+  }
+
+  return { createdDraftIds, skippedDuplicates };
+}
+
 export async function regenerateDraftTitle(draftId: number): Promise<{ title: string }> {
   const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
   if (!draft) throw new Error("Draft not found");
@@ -10787,7 +11189,7 @@ export async function pushPublishedDraftToStorefront(
     price: smartPrice,
     rating: "4.5",
     coverUrl: draft.coverUrl || draft.backgroundUrl || "",
-    description: draft.description || `An AI-generated ebook about ${draft.topic}`,
+    description: getCatalogDescriptionFromDraft(draft.description, `An AI-generated ebook about ${draft.topic}`),
     sourceDraftId: draftId,
     ...(subscriberExclusiveUntil ? { subscriberExclusiveUntil } : {}),
   }).returning();
@@ -10824,12 +11226,13 @@ export async function publishDraft(draftId: number, options?: { subscriberExclus
 
   if (duplicateBook) {
     console.log(`[Publish] Exact title match — updating existing Book #${duplicateBook.id} with improved content from Draft #${draftId}`);
+    const catalogDesc = getCatalogDescriptionFromDraft(draft.description, "");
     await db.update(books).set({
       genre: draft.genre,
       category: mapGenreToCategory(draft.genre),
       price: smartPrice,
       coverUrl: draft.coverUrl || draft.backgroundUrl || undefined,
-      description: draft.description || undefined,
+      description: catalogDesc || undefined,
       sourceDraftId: draftId,
     }).where(eq(books.id, duplicateBook.id));
 
@@ -10854,7 +11257,7 @@ export async function publishDraft(draftId: number, options?: { subscriberExclus
     price: smartPrice,
     rating: "4.5",
     coverUrl: draft.coverUrl || draft.backgroundUrl || "",
-    description: draft.description || `An AI-generated ebook about ${draft.topic}`,
+    description: getCatalogDescriptionFromDraft(draft.description, `An AI-generated ebook about ${draft.topic}`),
     sourceDraftId: draftId,
     ...(subscriberExclusiveUntil ? { subscriberExclusiveUntil } : {}),
   }).returning();
@@ -11762,12 +12165,14 @@ export async function completeEbookContent(draftId: number): Promise<{ success: 
   try {
     const topic = draft.topic || draft.title || "Untitled";
     const genre = draft.genre || "Fiction";
+    const creativeDirection = getCreativeDirectionForDraft(draft);
+    let title = draft.title || topic;
 
     // Generate outline if missing
     let outline = draft.outline;
     if (!outline || outline.trim().length < 100) {
       console.log(`Generating outline for draft ${draftId}...`);
-      outline = await generateEbookOutline(topic, genre);
+      outline = await generateEbookOutline(topic, genre, title, "", creativeDirection);
       await db.update(draftEbooks).set({ outline }).where(eq(draftEbooks.id, draftId));
     }
 
@@ -11775,14 +12180,14 @@ export async function completeEbookContent(draftId: number): Promise<{ success: 
     let content = draft.content;
     if (!content || content.trim().length < 500) {
       console.log(`Generating content for draft ${draftId}...`);
-      content = await generateEbookContent(outline, topic);
+      content = await generateEbookContent(outline, topic, genre, title, "", undefined, undefined, undefined, undefined, creativeDirection);
       await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
     }
 
     // Extract clean title
     const titleMatch = outline.match(/Title[:\s]+["']?([^"\n]+)["']?/i);
     const rawTitle = titleMatch ? titleMatch[1].trim() : topic;
-    const title = extractCleanTitle(rawTitle);
+    title = extractCleanTitle(rawTitle);
 
     // Generate cover if missing
     let coverUrl = draft.coverUrl;
@@ -14604,52 +15009,96 @@ Respond with ONLY this JSON (no markdown):
   }
 }
 
-// AI STYLE SELECTOR - Uses GPT-4 to recommend the best cover generation style for a book
+// AI STYLE SELECTOR - Uses GPT to recommend the best cover generation style for a book
 interface StyleRecommendation {
   recommendedStyle: ModelStyleId;
   reasoning: string;
   alternativeStyle: ModelStyleId;
 }
 
-async function getAIStyleRecommendation(title: string, genre: string, description: string = ""): Promise<StyleRecommendation | null> {
+const COVER_STYLE_SELECTOR_CATALOG: Record<ModelStyleId, string> = {
+  "vivid-painterly-pro": "DALL-E 3 vivid painterly art with AI Creative Director. Best for: fantasy, mythology, epic adventure, magical creatures, colorful dramatic scenes",
+  "atmospheric-cinema": "gpt-image-1 cinematic photorealism with AI Creative Director. Best for: drama, thriller, mystery, moody atmospheric scenes, emotional depth",
+  "cinematic-openai": "gpt-image-1 classic cinematic CGI. Best for: literary fiction, historical, romance, elegant literary covers, human-centered stories",
+  "dalle3-vivid": "DALL-E 3 modern vivid. Best for: contemporary fiction, sci-fi, technology, bold modern designs",
+  "artistic-painterly": "DALL-E 3 rich painterly prompts. Best for: fantasy, adventure, mythic worlds, ornate illustration feel",
+  "artistic-compact": "DALL-E 3 concise artistic prompts. Best for: clean genre covers when a simpler composition is better",
+  "vivid-atmospheric": "gpt-image-1 vivid atmospheric scenes. Best for: immersive genre worlds, symbolic landscapes, high-color drama",
+  "standalone-scenes": "gpt-image-1 pure cinematic scenes without book-design language. Best for: striking standalone imagery, literary or conceptual titles",
+  "experimental-239": "Reverse-engineered 239-253 style with literal title imagery. Best for: bold symbolic covers, genre fiction with strong title metaphors",
+  "classic-239": "Classic Replit CGI/glowing bright style. Best for: premium commercial fiction, high-impact bestseller look",
+  "classic-library-239": "Original Classic Library 239-253 look. Best for: proven library aesthetic, traditional ebook store covers",
+  "replit-cinematic": "Replit cinematic gpt-image-1. Best for: classic cinematic library covers with proven composition",
+  "reference-inspired": "Reference-image-inspired generation. Best for: matching a stored reference aesthetic",
+  "test-style-a": "Test style A",
+  "test-style-b": "Test style B",
+  "test-style-c": "Test style C",
+  "test-style-d": "Test style D",
+  "test-style-e": "Test style E",
+  "test-style-f": "Test style F with title bar overlay",
+  "test-style-g": "Test style G",
+  "test-style-h": "Test style H",
+};
+
+const DEFAULT_FULL_AI_STYLE_POOL: ModelStyleId[] = [
+  "vivid-painterly-pro",
+  "atmospheric-cinema",
+  "cinematic-openai",
+  "dalle3-vivid",
+];
+
+async function getAIStyleRecommendation(
+  title: string,
+  genre: string,
+  description: string = "",
+  allowedStyles: ModelStyleId[] = DEFAULT_FULL_AI_STYLE_POOL,
+): Promise<StyleRecommendation | null> {
   try {
-    console.log(`[AI Style Selector] Analyzing best style for "${title}"...`);
-    
-    const prompt = `You are an expert book cover designer. Analyze this ebook and recommend the BEST cover generation style.
+    const pool = allowedStyles.length > 0 ? allowedStyles : DEFAULT_FULL_AI_STYLE_POOL;
+    console.log(`[AI Style Selector] Analyzing best style for "${title}" from pool: ${pool.join(", ")}`);
+
+    const styleList = pool
+      .map((id, i) => `${i + 1}. "${id}" - ${COVER_STYLE_SELECTOR_CATALOG[id] || id}`)
+      .join("\n");
+
+    const prompt = `You are an expert book cover designer. Analyze this ebook and recommend the BEST cover generation style from the user's selected options ONLY.
 
 TITLE: "${title}"
 GENRE: ${genre}
-${description ? `DESCRIPTION: ${description.substring(0, 300)}` : ""}
+${description ? `DESCRIPTION / CREATIVE BRIEF: ${description.substring(0, 600)}` : ""}
 
-AVAILABLE STYLES:
-1. "vivid-painterly-pro" - DALL-E 3 with vivid painterly art. Best for: Fantasy, mythology, epic adventure, magical creatures, mystical themes, colorful dramatic scenes
-2. "atmospheric-cinema" - gpt-image-1 with cinematic quality. Best for: Drama, thriller, mystery, human stories, silhouettes, moody atmospheric scenes, emotional depth
-3. "cinematic-openai" - DALL-E 3 classic cinematic. Best for: Literary fiction, historical, romance, elegant subdued covers, classic book aesthetic
-4. "dalle3-vivid" - DALL-E 3 modern vivid. Best for: Contemporary fiction, sci-fi, technology themes, bold modern designs
+AVAILABLE STYLES (choose ONLY from this list):
+${styleList}
 
-Choose the style that will create the most STUNNING, APPROPRIATE cover for this specific book.
+Pick the single style from this list that will create the most stunning, genre-appropriate cover for this specific title. Consider title imagery, audience, tone, and market positioning.
 
 Respond with ONLY this JSON (no markdown):
 {
-  "recommendedStyle": "style-id-here",
+  "recommendedStyle": "style-id-from-list-above",
   "reasoning": "Brief explanation of why this style fits the book",
-  "alternativeStyle": "backup-style-id"
+  "alternativeStyle": "backup-style-id-from-list-above"
 }`;
 
     const response = await openaiDalle3.chat.completions.create({
-      model: "gpt-5.2",
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
-      max_completion_tokens: 300,
+      max_tokens: 300,
     });
 
     const content = response.choices[0]?.message?.content;
     if (!content) return null;
-    
+
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
-    
+
     const recommendation = JSON.parse(jsonMatch[0]) as StyleRecommendation;
+    if (!pool.includes(recommendation.recommendedStyle)) {
+      recommendation.recommendedStyle = pool[0];
+    }
+    if (!pool.includes(recommendation.alternativeStyle)) {
+      recommendation.alternativeStyle = pool[1] || pool[0];
+    }
     console.log(`[AI Style Selector] Recommended: ${recommendation.recommendedStyle} - ${recommendation.reasoning}`);
     return recommendation;
   } catch (error: any) {
@@ -15228,16 +15677,23 @@ COMPOSITION: The entire cover design including all artwork and title text must f
 // "atmospheric-cinema" - Enhanced gpt-image-1 with proven cinematic elements from covers 243-253
 export type ModelStyleId = "replit-cinematic" | "dalle3-vivid" | "cinematic-openai" | "artistic-painterly" | "artistic-compact" | "vivid-atmospheric" | "standalone-scenes" | "reference-inspired" | "vivid-painterly-pro" | "atmospheric-cinema" | "experimental-239" | "classic-239" | "classic-library-239" | "test-style-a" | "test-style-b" | "test-style-c" | "test-style-d" | "test-style-e" | "test-style-f" | "test-style-g" | "test-style-h";
 
-// Regenerate backgrounds for selected ebooks with style option
-// Now accepts modelStyleId parameter for the three-option style system
-export async function regenerateSelectedBackgrounds(draftIds: number[], useOriginalStyleOrModelId: boolean | ModelStyleId, titleEmbedSync: boolean = false, onProgress?: (current: number, total: number, draftTitle: string, success: boolean, errorMsg?: string) => void): Promise<{ total: number; generated: number; errors: number; lastError?: string }> {
-  // Handle both legacy boolean and new string parameter
-  let modelStyleId: ModelStyleId;
+// Regenerate backgrounds for selected ebooks with style option.
+// Pass a single ModelStyleId to use that style for every draft, or an array to let AI pick the best style per draft from that pool.
+export async function regenerateSelectedBackgrounds(draftIds: number[], useOriginalStyleOrModelId: boolean | ModelStyleId | ModelStyleId[], titleEmbedSync: boolean = false, onProgress?: (current: number, total: number, draftTitle: string, success: boolean, errorMsg?: string) => void): Promise<{ total: number; generated: number; errors: number; lastError?: string }> {
+  let allowedStyles: ModelStyleId[];
+  let smartStyleSelection = false;
   if (typeof useOriginalStyleOrModelId === "boolean") {
-    modelStyleId = useOriginalStyleOrModelId ? "replit-cinematic" : "dalle3-vivid";
+    allowedStyles = [useOriginalStyleOrModelId ? "replit-cinematic" : "dalle3-vivid"];
+  } else if (Array.isArray(useOriginalStyleOrModelId)) {
+    if (useOriginalStyleOrModelId.length === 0) {
+      throw new Error("No cover styles in selection pool — cannot regenerate.");
+    }
+    allowedStyles = useOriginalStyleOrModelId;
+    smartStyleSelection = allowedStyles.length > 1;
   } else {
-    modelStyleId = useOriginalStyleOrModelId;
+    allowedStyles = [useOriginalStyleOrModelId];
   }
+  const defaultModelStyleId = allowedStyles[0];
   
   const styleNames: Record<string, string> = {
     "replit-cinematic": "Replit Cinematic (gpt-image-1)",
@@ -15263,7 +15719,11 @@ export async function regenerateSelectedBackgrounds(draftIds: number[], useOrigi
     "test-style-h": "Test H"
   };
   
-  console.log(`Starting regeneration for ${draftIds.length} selected ebooks with ${styleNames[modelStyleId]} style...`);
+  console.log(
+    smartStyleSelection
+      ? `Starting regeneration for ${draftIds.length} selected ebooks — AI will pick the best style per book from: ${allowedStyles.join(", ")}`
+      : `Starting regeneration for ${draftIds.length} selected ebooks with ${styleNames[defaultModelStyleId]} style...`,
+  );
   
   let generated = 0;
   let errors = 0;
@@ -15285,84 +15745,88 @@ export async function regenerateSelectedBackgrounds(draftIds: number[], useOrigi
       const title = draft.title || draft.topic || "Untitled";
       draftTitle = title;
       const genre = draft.genre || "Fiction";
-      const description = draft.topic || draft.outline?.substring(0, 500) || "";
-      
+      const description = getCreativeDirectionForDraft(draft) || draft.topic || draft.outline?.substring(0, 500) || "";
+
+      let modelStyleId = defaultModelStyleId;
+      if (smartStyleSelection) {
+        const styleRec = await getAIStyleRecommendation(title, genre, description, allowedStyles);
+        modelStyleId = styleRec?.recommendedStyle || allowedStyles[0];
+        if (styleRec?.reasoning) {
+          console.log(`[AI Style Selector] "${title}" → ${modelStyleId}: ${styleRec.reasoning}`);
+        }
+      }
+
       console.log(`[${generated + errors + 1}/${total}] Regenerating: ${title} (ID: ${draftId}) with ${styleNames[modelStyleId]}${titleEmbedSync ? ' + Title Embed Sync' : ''}`);
       
       let bgBuffer: Buffer;
-      
-      if (titleEmbedSync) {
-        bgBuffer = await generateWithTitleEmbedSync(title, genre, draftId, modelStyleId, description);
-      } else
-      switch (modelStyleId) {
+      const generateWithoutTitleEmbed = async (): Promise<Buffer> => {
+        switch (modelStyleId) {
         case "replit-cinematic":
-          bgBuffer = await generateAIBackgroundOriginalStyle(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundOriginalStyle(title, genre, draftId, description);
         case "cinematic-openai":
-          bgBuffer = await generateAIBackgroundCinematicOpenAI(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundCinematicOpenAI(title, genre, draftId, description);
         case "artistic-painterly":
-          bgBuffer = await generateAIBackgroundArtisticPainterly(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundArtisticPainterly(title, genre, draftId, description);
         case "artistic-compact":
-          bgBuffer = await generateAIBackgroundArtisticCompact(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundArtisticCompact(title, genre, draftId, description);
         case "vivid-atmospheric":
-          bgBuffer = await generateAIBackgroundVividAtmospheric(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundVividAtmospheric(title, genre, draftId, description);
         case "standalone-scenes":
-          bgBuffer = await generateAIBackgroundStandaloneScenes(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundStandaloneScenes(title, genre, draftId, description);
         case "reference-inspired":
           const refAnalysis = getStoredReferenceAnalysis();
           if (refAnalysis) {
-            bgBuffer = await generateCoverFromReference(title, genre, refAnalysis, draftId, description);
+            return generateCoverFromReference(title, genre, refAnalysis, draftId, description);
           } else {
             console.log("No reference image stored, falling back to vivid-atmospheric");
-            bgBuffer = await generateAIBackgroundVividAtmospheric(title, genre, draftId, description);
+            return generateAIBackgroundVividAtmospheric(title, genre, draftId, description);
           }
-          break;
         case "vivid-painterly-pro":
-          bgBuffer = await generateAIBackgroundVividPainterlyPro(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundVividPainterlyPro(title, genre, draftId, description);
         case "atmospheric-cinema":
-          bgBuffer = await generateAIBackgroundAtmosphericCinema(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundAtmosphericCinema(title, genre, draftId, description);
         case "experimental-239":
-          bgBuffer = await generateAIBackgroundExperimental239(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundExperimental239(title, genre, draftId, description);
         case "classic-library-239":
-          bgBuffer = await generateAIBackgroundClassicLibrary239(title, genre, draftId);
-          break;
+          return generateAIBackgroundClassicLibrary239(title, genre, draftId);
         case "test-style-a":
-          bgBuffer = await generateTestStyleA(title, genre, draftId);
-          break;
+          return generateTestStyleA(title, genre, draftId);
         case "test-style-c":
-          bgBuffer = await generateTestStyleC(title, genre, draftId);
-          break;
+          return generateTestStyleC(title, genre, draftId);
         case "test-style-e":
-          bgBuffer = await generateTestStyleE(title, genre, draftId);
-          break;
+          return generateTestStyleE(title, genre, draftId);
         case "test-style-h":
-          bgBuffer = await generateTestStyleH(title, genre, draftId);
-          break;
+          return generateTestStyleH(title, genre, draftId);
         case "test-style-b":
-          bgBuffer = await generateTestStyleB(title, genre, draftId, description);
-          break;
+          return generateTestStyleB(title, genre, draftId, description);
         case "test-style-d":
-          bgBuffer = await generateTestStyleD(title, genre, draftId, description);
-          break;
+          return generateTestStyleD(title, genre, draftId, description);
         case "test-style-f":
-          bgBuffer = await generateTestStyleF(title, genre, draftId, description);
-          break;
+          return generateTestStyleF(title, genre, draftId, description);
         case "test-style-g":
-          bgBuffer = await generateTestStyleG(title, genre, draftId, description);
-          break;
+          return generateTestStyleG(title, genre, draftId, description);
         case "classic-239":
         case "dalle3-vivid":
         default:
-          bgBuffer = await generateAIBackgroundOnly(title, genre, draftId, description);
-          break;
+          return generateAIBackgroundOnly(title, genre, draftId, description);
+        }
+      };
+      
+      if (titleEmbedSync) {
+        try {
+          bgBuffer = await generateWithTitleEmbedSync(title, genre, draftId, modelStyleId, description);
+        } catch (embedError: any) {
+          const embedMsg = embedError?.message || String(embedError);
+          const isConnectionIssue =
+            /connection error|ECONNRESET|ETIMEDOUT|network|fetch failed/i.test(embedMsg);
+          if (!isConnectionIssue) throw embedError;
+          console.warn(
+            `[Title-Embed-Sync Fallback] "${title}" failed with "${embedMsg}". Falling back to non-embedded generation for style ${modelStyleId}.`,
+          );
+          bgBuffer = await generateWithoutTitleEmbed();
+        }
+      } else {
+        bgBuffer = await generateWithoutTitleEmbed();
       }
       
       const timestamp = Date.now();

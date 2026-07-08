@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { CATALOG_CATEGORIES, type Book } from "@/lib/catalog-data";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { BookRequestBanner } from "@/components/book-request-form";
 
 interface ApiBook {
   id: number;
@@ -420,6 +421,7 @@ export default function Catalog() {
         )}
       </div>
 
+      <BookRequestBanner />
       <Footer />
     </div>
   );

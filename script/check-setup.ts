@@ -35,6 +35,30 @@ if (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.includes("localhost:1106") && p
   );
 }
 
+if (process.env.OPENAI_API_KEY) {
+  try {
+    const probe = await fetch("https://api.openai.com/v1/models", {
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    });
+    if (probe.status === 401 || probe.status === 200) {
+      console.log("✓ OpenAI API reachable");
+    } else {
+      console.warn(`! OpenAI API returned HTTP ${probe.status}`);
+    }
+  } catch (err: any) {
+    const tlsIssue = /certificate|UNABLE_TO_VERIFY/i.test(err?.message || "") || err?.cause?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE";
+    if (tlsIssue) {
+      console.error(
+        "✗ OpenAI API blocked by Windows TLS certificate verification. " +
+          "Run dev with: npm run dev (uses NODE_OPTIONS=--use-system-ca).",
+      );
+      ok = false;
+    } else {
+      console.warn(`! OpenAI API probe failed: ${err?.message || err}`);
+    }
+  }
+}
+
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error("\nCannot check database without DATABASE_URL.");

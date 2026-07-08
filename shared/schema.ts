@@ -386,3 +386,29 @@ export const affiliateApplications = pgTable("affiliate_applications", {
 export const insertAffiliateApplicationSchema = createInsertSchema(affiliateApplications).omit({ id: true, status: true, referralCode: true, adminNotes: true, createdAt: true });
 export type InsertAffiliateApplication = z.infer<typeof insertAffiliateApplicationSchema>;
 export type AffiliateApplication = typeof affiliateApplications.$inferSelect;
+
+/** Customer-suggested book ideas awaiting admin approval before AI can use them. */
+export const bookRequests = pgTable("book_requests", {
+  id: serial("id").primaryKey(),
+  customerEmail: text("customer_email"),
+  requestText: text("request_text").notNull(),
+  suggestedTitle: text("suggested_title"),
+  suggestedGenre: text("suggested_genre"),
+  status: text("status").notNull().default("pending"),
+  source: text("source").notNull().default("customer"),
+  draftId: integer("draft_id"),
+  adminNotes: text("admin_notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  fulfilledAt: timestamp("fulfilled_at"),
+});
+
+export const insertBookRequestSchema = createInsertSchema(bookRequests).omit({
+  id: true,
+  status: true,
+  draftId: true,
+  adminNotes: true,
+  createdAt: true,
+  fulfilledAt: true,
+});
+export type InsertBookRequest = z.infer<typeof insertBookRequestSchema>;
+export type BookRequest = typeof bookRequests.$inferSelect;
