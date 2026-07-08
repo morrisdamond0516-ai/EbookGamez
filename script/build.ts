@@ -3,6 +3,26 @@ import { build as viteBuild } from "vite";
 import { rm, readFile, copyFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 
+/** CJS bundles cannot use import.meta.url — strip the ESM dirname shim (esbuild injects __dirname). */
+function cjsImportMetaDirnamePlugin() {
+  return {
+    name: "cjs-import-meta-dirname",
+    setup(build: import("esbuild").PluginBuild) {
+      build.onLoad({ filter: /\.ts$/ }, async (args) => {
+        let contents = await readFile(args.path, "utf8");
+        if (!contents.includes("import.meta.url")) {
+          return null;
+        }
+        contents = contents.replace(
+          /const __dirname = path\.dirname\(fileURLToPath\(import\.meta\.url\)\);\r?\n/g,
+          "// __dirname provided by esbuild CJS bundle\n",
+        );
+        return { contents, loader: "ts" as const };
+      });
+    },
+  };
+}
+
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
 const allowlist = [
@@ -56,6 +76,7 @@ async function buildAll() {
     define: {
       "process.env.NODE_ENV": '"production"',
     },
+    plugins: [cjsImportMetaDirnamePlugin()],
     minify: true,
     external: externals,
     logLevel: "info",
