@@ -555,10 +555,22 @@ function ContentStudioMain() {
   const pushToProdCounts = useMemo(() => {
     const published = drafts.filter(d => d.status === "published" && (d.content === "has_content" || (d.content && d.content.length > 100)));
     const selected = published.filter(d => selectedIds.has(d.id));
-    const pending = published.filter(d => d.needsProdPush);
+    const pendingDrafts = published
+      .filter(d => d.needsProdPush)
+      .sort((a, b) => {
+        const aNew = a.prodSyncReason === "never_pushed" ? 0 : 1;
+        const bNew = b.prodSyncReason === "never_pushed" ? 0 : 1;
+        if (aNew !== bNew) return aNew - bNew;
+        return a.title.localeCompare(b.title);
+      });
+    const neverPushed = pendingDrafts.filter(d => d.prodSyncReason === "never_pushed").length;
+    const localChanges = pendingDrafts.filter(d => d.prodSyncReason === "local_changes").length;
     return {
       selected: selected.length,
-      pending: pending.length,
+      pending: pendingDrafts.length,
+      neverPushed,
+      localChanges,
+      pendingDrafts,
     };
   }, [drafts, selectedIds]);
 
@@ -621,7 +633,7 @@ function ContentStudioMain() {
     return data as NonNullable<typeof syncResult>;
   }
 
-  /** Auto-push pending books in batches of 20 to one target URL. */
+  /** Auto-push pending books in batches of 20 to one target URL until the queue is empty or a batch fails storefront checks. */
   async function autoPushPendingToUrl(url: string, label: string) {
     let totalPushed = 0;
     let batches = 0;
@@ -642,11 +654,25 @@ function ContentStudioMain() {
       totalPushed += batchCount;
       remaining = data.remainingPending ?? Math.max(0, remaining - batchCount);
       if ((data.totalErrors ?? 0) > 0) {
-        throw new Error(`${label}: batch ${batches} had ${data.totalErrors} sync error(s).`);
+        throw new Error(`${label}: batch ${batches} had ${data.totalErrors} sync error(s). Stopped so you can fix those first.`);
+      }
+      const missingStorefront = (data.verification ?? []).filter(v => !v.onStorefront);
+      if (missingStorefront.length > 0) {
+        // Don't keep re-pushing the same failing titles in a loop — surface them and stop.
+        break;
       }
       if (batchCount === 0 || remaining === 0) break;
     }
     return { totalPushed, batches, lastData, label, url };
+  }
+
+  function summarizePushVerification(data: NonNullable<typeof syncResult> | null | undefined) {
+    const verification = data?.verification ?? [];
+    const onStorefront = verification.filter(v => v.onStorefront);
+    const missing = verification.filter(v => !v.onStorefront);
+    const remainingPending = data?.remainingPending ?? 0;
+    const trulyDone = missing.length === 0 && remainingPending === 0 && (data?.totalErrors ?? 0) === 0;
+    return { verification, onStorefront, missing, remainingPending, trulyDone };
   }
 
   useEffect(() => {
@@ -2067,7 +2093,9 @@ function ContentStudioMain() {
               <Upload className="h-4 w-4 text-blue-400" />
               <span className="text-sm font-semibold text-blue-300">Push to Production</span>
               <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">
-                {pushToProdCounts.pending} pending · {PUSH_TO_PROD_MAX}/batch
+                {pushToProdCounts.pending === 0
+                  ? "All caught up"
+                  : `${pushToProdCounts.pending} need push`}
               </Badge>
             </div>
             <ChevronDown className={`h-4 w-4 text-blue-400 transition-transform ${syncToProductionOpen ? "rotate-180" : ""}`} />
@@ -2075,9 +2103,47 @@ function ContentStudioMain() {
           {syncToProductionOpen && (
             <div className="px-4 pb-4 space-y-3">
               <p className="text-xs text-blue-200/70 leading-relaxed">
-                Syncs book <strong className="text-blue-200">content</strong> from this computer to production. This does not deploy git code.
-                Leave the Replit URL blank if <strong className="text-blue-200">ebookgamez.com</strong> is already your Replit deploy.
+                Sends published book content from this computer to the live site. This does <strong className="text-blue-200">not</strong> deploy code.
+                A book stays in “needs push” until it is verified on the live storefront with a cover.
               </p>
+              {pushToProdCounts.pending > 0 && (
+                <div
+                  className="rounded-md border border-blue-500/30 bg-blue-950/30 px-3 py-2 text-xs text-blue-100/90"
+                  data-testid="push-to-prod-pending-list"
+                >
+                  <p className="font-semibold text-blue-200 mb-1">
+                    Needs to be pushed ({pushToProdCounts.pending})
+                    {pushToProdCounts.neverPushed > 0 || pushToProdCounts.localChanges > 0 ? (
+                      <span className="font-normal text-blue-200/70">
+                        {" "}— {pushToProdCounts.neverPushed} never sent
+                        {pushToProdCounts.localChanges > 0 ? `, ${pushToProdCounts.localChanges} changed since last send` : ""}
+                      </span>
+                    ) : null}
+                  </p>
+                  <ul className="space-y-0.5 max-h-40 overflow-y-auto">
+                    {pushToProdCounts.pendingDrafts.slice(0, 25).map((d) => (
+                      <li key={d.id} className="flex gap-2">
+                        <span className="text-blue-300/50 shrink-0">#{d.id}</span>
+                        <span className="truncate">{d.title}</span>
+                        <span className="shrink-0 text-blue-300/60">
+                          {d.prodSyncReason === "local_changes" ? "changed" : "new"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {pushToProdCounts.pending > 25 && (
+                    <p className="mt-1 text-blue-200/60">…and {pushToProdCounts.pending - 25} more</p>
+                  )}
+                  <p className="mt-2 text-blue-200/65">
+                    Auto-push sends them in batches of {PUSH_TO_PROD_MAX} until this list is empty (or a book fails storefront check).
+                  </p>
+                </div>
+              )}
+              {pushToProdCounts.pending === 0 && (
+                <p className="text-xs text-green-300/90" data-testid="push-to-prod-all-synced">
+                  No published books are waiting to be pushed. If something is missing on ebookgamez.com, select it below and use Selected only.
+                </p>
+              )}
               {isOverPushLimit && (
                 <div
                   className="flex items-start gap-2 rounded-md border border-red-500/50 bg-red-950/40 px-3 py-2 text-xs text-red-200"
@@ -2094,7 +2160,9 @@ function ContentStudioMain() {
               )}
               {!isOverPushLimit && pushReady && (
                 <p className="text-xs text-green-300/90" data-testid="push-to-prod-count-preview">
-                  Ready to push <strong>{pushCountForMode}</strong> book{pushCountForMode === 1 ? "" : "s"} to {pushTargets.map(t => t.label).join(" + ")}.
+                  {syncMode === "pending"
+                    ? `Will push all ${pushToProdCounts.pending} pending book${pushToProdCounts.pending === 1 ? "" : "s"} to ${pushTargets.map(t => t.label).join(" + ")} (${PUSH_TO_PROD_MAX} per batch).`
+                    : `Ready to push ${pushCountForMode} selected book${pushCountForMode === 1 ? "" : "s"} to ${pushTargets.map(t => t.label).join(" + ")}.`}
                 </p>
               )}
               {pushDisabledReason && (
@@ -2162,7 +2230,7 @@ function ContentStudioMain() {
                     data-testid="select-sync-mode"
                   >
                     <option value="pending">
-                      Needs production push — next {Math.min(pushToProdCounts.pending, PUSH_TO_PROD_MAX)} of {pushToProdCounts.pending}
+                      All that need push ({pushToProdCounts.pending})
                     </option>
                     <option value="selected">Selected only ({pushToProdCounts.selected})</option>
                   </select>
@@ -2201,13 +2269,19 @@ function ContentStudioMain() {
                       const warnings = targetResults.flatMap(result =>
                         (result.data.warnings ?? []).map(warning => `${result.label}: ${warning}`)
                       );
-                      const hasProblems = targetResults.some(result =>
-                        !result.data.ok || (result.data.totalErrors ?? 0) > 0 || (result.data.warnings?.length ?? 0) > 0
+                      const summary = summarizePushVerification(lastResult);
+                      const hasProblems = !summary.trulyDone || warnings.length > 0 || targetResults.some(result =>
+                        !result.data.ok || (result.data.totalErrors ?? 0) > 0
                       );
                       const targetLabels = pushTargets.map(t => t.label).join(" + ");
-                      const message = syncMode === "pending"
-                        ? `Push complete: ${totalPushed} book(s) in ${totalBatches} batch(es) to ${targetLabels}.`
-                        : `Push complete: ${totalPushed} selected book copy/copies sent to ${targetLabels}.`;
+                      const missingNames = summary.missing.map(v => v.title).slice(0, 5);
+                      const message = hasProblems
+                        ? `Push finished with issues: ${totalPushed} book(s) in ${totalBatches} batch(es) to ${targetLabels}.`
+                          + (summary.missing.length ? ` ${summary.missing.length} not on storefront${missingNames.length ? ` (${missingNames.join("; ")}${summary.missing.length > missingNames.length ? "…" : ""})` : ""}.` : "")
+                          + (summary.remainingPending > 0 ? ` ${summary.remainingPending} still need push.` : "")
+                        : syncMode === "pending"
+                          ? `All pending books pushed: ${totalPushed} book(s) in ${totalBatches} batch(es) to ${targetLabels}.`
+                          : `Selected books pushed: ${totalPushed} to ${targetLabels}.`;
 
                       setSyncResult({
                         ...(lastResult ?? {
@@ -2244,7 +2318,7 @@ function ContentStudioMain() {
                   ) : isSyncing ? (
                     <><Loader2 className="h-3 w-3 animate-spin mr-1" />Syncing…</>
                   ) : (
-                    <><Upload className="h-3 w-3 mr-1" />Push live + Replit</>
+                    <><Upload className="h-3 w-3 mr-1" />{syncMode === "pending" ? "Push all that need it" : "Push selected"}</>
                   )}
                 </Button>
                 <Button
@@ -2264,17 +2338,27 @@ function ContentStudioMain() {
                     try {
                       const result = await autoPushPendingToUrl(liveUrl, "Live site");
                       queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                      const summary = summarizePushVerification(result.lastData);
+                      const missingNames = summary.missing.map(v => v.title);
+                      let message = `Pushed ${result.totalPushed} book(s) in ${result.batches} batch(es).`;
+                      if (summary.missing.length > 0) {
+                        message += ` Stopped: ${summary.missing.length} not on storefront — ${missingNames.join("; ")}.`;
+                      } else if (summary.remainingPending > 0) {
+                        message += ` ${summary.remainingPending} still need push.`;
+                      } else {
+                        message += " All pending books are on the live storefront.";
+                      }
                       if (result.lastData) {
                         setSyncResult({
                           ...result.lastData,
-                          message: `Auto-push live complete: ${result.totalPushed} book(s) in ${result.batches} batch(es).${(result.lastData.remainingPending ?? 0) > 0 ? ` ${result.lastData.remainingPending} still need push.` : ""}`,
-                          ok: (result.lastData.remainingPending ?? 0) === 0 && result.lastData.ok,
+                          message,
+                          ok: summary.trulyDone,
                         });
                       }
                       toast({
-                        title: (result.lastData?.remainingPending ?? 0) === 0 ? "Auto-push live complete" : "Auto-push live paused",
-                        description: `Pushed ${result.totalPushed} book(s) in ${result.batches} batch(es).${(result.lastData?.remainingPending ?? 0) > 0 ? ` ${result.lastData?.remainingPending} still need push.` : ""}`,
-                        variant: (result.lastData?.remainingPending ?? 0) === 0 ? "default" : "destructive",
+                        title: summary.trulyDone ? "Auto-push complete" : "Auto-push stopped — fix these first",
+                        description: message,
+                        variant: summary.trulyDone ? "default" : "destructive",
                       });
                     } catch (e: any) {
                       toast({ title: "Auto-push failed", description: e.message, variant: "destructive" });
@@ -2284,7 +2368,7 @@ function ContentStudioMain() {
                     }
                   }}
                   disabled={isSyncing || !normalizeProdUrl(productionUrl) || isLocalDevUrl(productionUrl) || pushToProdCounts.pending === 0}
-                  title={`Push pending books to live site in batches of ${PUSH_TO_PROD_MAX}`}
+                  title={`Push every book that still needs production sync, ${PUSH_TO_PROD_MAX} at a time, until the list is empty`}
                   variant="outline"
                   className="border-blue-500/40 text-blue-200 hover:bg-blue-500/10 h-8 px-4 text-sm whitespace-nowrap"
                   data-testid="button-auto-push-live"
@@ -2292,7 +2376,7 @@ function ContentStudioMain() {
                   {autoSyncProgress ? (
                     <><Loader2 className="h-3 w-3 animate-spin mr-1" />{autoSyncProgress.pushed} done · ~{autoSyncProgress.remaining} left</>
                   ) : (
-                    <>Auto-push live ({PUSH_TO_PROD_MAX}/batch)</>
+                    <>Push all that need it ({pushToProdCounts.pending})</>
                   )}
                 </Button>
               </div>
@@ -2303,12 +2387,26 @@ function ContentStudioMain() {
               )}
               {syncResult && (
                 <div className={`rounded px-3 py-2 text-xs ${syncResult.ok ? "bg-green-900/20 border border-green-500/30 text-green-300" : "bg-amber-900/20 border border-amber-500/40 text-amber-200"}`}>
-                  <p>{syncResult.ok ? "OK:" : "Review:"} {syncResult.message}</p>
-                  {syncResult.verification?.map((v) => (
-                    <p key={v.title} className="mt-1 opacity-90">
-                      {v.title}: {v.onStorefront ? (v.hasCover ? "on storefront with cover" : "on storefront — cover missing") : "not on storefront"}
-                    </p>
-                  ))}
+                  <p>{syncResult.ok ? "Done:" : "Needs attention:"} {syncResult.message}</p>
+                  {(() => {
+                    const summary = summarizePushVerification(syncResult);
+                    if (summary.verification.length === 0) return null;
+                    return (
+                      <div className="mt-2 space-y-1">
+                        {summary.onStorefront.length > 0 && (
+                          <p className="text-green-300/90">
+                            On storefront ({summary.onStorefront.length}): {summary.onStorefront.map(v => v.title).slice(0, 8).join("; ")}
+                            {summary.onStorefront.length > 8 ? "…" : ""}
+                          </p>
+                        )}
+                        {summary.missing.length > 0 && (
+                          <p className="text-amber-200 font-medium">
+                            Still need push / not on storefront ({summary.missing.length}): {summary.missing.map(v => v.title).join("; ")}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {syncResult.warnings?.map((w, i) => (
                     <p key={i} className="mt-1 text-amber-300/90">{w}</p>
                   ))}

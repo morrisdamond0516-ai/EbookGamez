@@ -12734,17 +12734,37 @@ export async function findCatalogBookForDraft(
  * Find the storefront catalog row for a published draft — exact title, source link,
  * or prefix match (e.g. short AI Studio title vs long live catalog title).
  */
+/**
+ * Only reuse a sourceDraftId catalog link when the titles actually match.
+ * Dev/prod draft IDs collide across databases (e.g. local #728 Puzzle Planet vs
+ * prod catalog source_draft_id #728 pointing at a schoolbook) — blind ID reuse
+ * updates the wrong storefront row and the new title never appears.
+ */
+function catalogLinkMatchesDraftTitle(
+  catalogTitle: string,
+  draftTitle: string,
+): boolean {
+  return (
+    catalogTitle.trim().toLowerCase() === draftTitle.trim().toLowerCase() ||
+    areTitlesSimilar(draftTitle, catalogTitle).similar
+  );
+}
+
 export async function findCatalogBookForPublishedSync(
   productionDraftId: number,
   draftTitle: string,
   devDraftId?: number,
 ): Promise<{ id: number; title: string } | null> {
   const byProdDraft = await findCatalogBookBySourceDraftId(productionDraftId);
-  if (byProdDraft) return { id: byProdDraft.id, title: byProdDraft.title };
+  if (byProdDraft && catalogLinkMatchesDraftTitle(byProdDraft.title, draftTitle)) {
+    return { id: byProdDraft.id, title: byProdDraft.title };
+  }
 
   if (devDraftId != null && devDraftId !== productionDraftId) {
     const byDevDraft = await findCatalogBookBySourceDraftId(devDraftId);
-    if (byDevDraft) return { id: byDevDraft.id, title: byDevDraft.title };
+    if (byDevDraft && catalogLinkMatchesDraftTitle(byDevDraft.title, draftTitle)) {
+      return { id: byDevDraft.id, title: byDevDraft.title };
+    }
   }
 
   const exact = await findExactCatalogBookForDraftTitle(draftTitle);
@@ -12795,6 +12815,7 @@ export async function upsertCatalogBookFromPublishedSync(params: {
   );
 
   const bookPatch = {
+    title: params.title,
     genre: params.genre,
     category,
     price: params.price,
@@ -12812,11 +12833,27 @@ export async function upsertCatalogBookFromPublishedSync(params: {
     return existing.id;
   }
 
+  // Stale source_draft_id links (wrong title) block unique inserts — clear them first.
+  const staleLinks = [params.productionDraftId, params.devDraftId].filter(
+    (id): id is number => typeof id === "number",
+  );
+  for (const draftId of staleLinks) {
+    const stale = await findCatalogBookBySourceDraftId(draftId);
+    if (stale && !catalogLinkMatchesDraftTitle(stale.title, params.title)) {
+      await db
+        .update(books)
+        .set({ sourceDraftId: null })
+        .where(eq(books.id, stale.id));
+      console.warn(
+        `[SyncReceive] Cleared stale source_draft_id=${draftId} from catalog #${stale.id} ("${stale.title.slice(0, 40)}") before creating "${params.title.slice(0, 40)}"`,
+      );
+    }
+  }
+
   try {
     const [book] = await db
       .insert(books)
       .values({
-        title: params.title,
         author: "EbookGamez",
         rating: "4.5",
         ...bookPatch,
@@ -12831,7 +12868,6 @@ export async function upsertCatalogBookFromPublishedSync(params: {
       const [book] = await db
         .insert(books)
         .values({
-          title: params.title,
           author: "EbookGamez",
           rating: "4.5",
           ...withoutLink,

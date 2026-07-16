@@ -8836,7 +8836,10 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
               const bookCoverUrl = coverUrl || backgroundUrl || "";
               const bookDesc = description || `An AI-generated ebook about ${topic}`;
               if (!bookCoverUrl) {
-                console.warn(`[SyncReceive] No cover URL for "${title}" — skipping catalog upsert`);
+                // Missing cover must count as an error — otherwise push marks the draft
+                // "synced" while it never appears on the public storefront.
+                console.warn(`[SyncReceive] No cover URL for "${title}" — catalog upsert skipped (counted as error)`);
+                errors++;
               } else {
                 await contentStudio.upsertCatalogBookFromPublishedSync({
                   productionDraftId: draftId,
@@ -9139,6 +9142,7 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       }
 
       const verification: { title: string; onStorefront: boolean; hasCover: boolean }[] = [];
+      const missingCoverOnPush = allDrafts.filter((d) => !d.coverUrl && !d.backgroundUrl);
       for (const draft of allDrafts) {
         let onStorefront = false;
         let hasCover = false;
@@ -9168,8 +9172,11 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         }
         verification.push({ title: draft.title, onStorefront, hasCover });
         if (!onStorefront) {
+          const noCover = !draft.coverUrl && !draft.backgroundUrl;
           warnings.push(
-            `"${draft.title}" is NOT on the production storefront yet — deploy latest code on Replit, then push again (catalog linking now matches similar titles like Replit Publish to Storefront).`,
+            noCover
+              ? `"${draft.title}" is NOT on the production storefront — this draft has no cover URL, so catalog linking was skipped. Add a cover, then push again.`
+              : `"${draft.title}" is NOT on the production storefront yet. Content may have synced, but no live catalog row was found for this title. Fix production code if needed, then use Selected only for this book.`,
           );
         } else if (!hasCover) {
           warnings.push(`"${draft.title}" is on the storefront but has no cover URL on production.`);
@@ -9177,6 +9184,11 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       }
 
       const verifiedOnStorefront = verification.filter((v) => v.onStorefront).length;
+      if (missingCoverOnPush.length > 0) {
+        warnings.push(
+          `${missingCoverOnPush.length} draft(s) had no cover/background URL at push time — production cannot create storefront catalog rows without a cover.`,
+        );
+      }
       const remainingPending = pendingOnly
         ? await countPublishedDraftsNeedingProdPush()
         : undefined;
@@ -9184,12 +9196,19 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       console.log(`[PushToProd] Complete: ${message}`);
       if (warnings.length) console.warn("[PushToProd] Warnings:", warnings.join(" | "));
 
-      if (totalErrors === 0) {
+      // Only fingerprint books that actually appear on the public storefront.
+      // Previously we fingerprinted whenever draft-row sync had zero errors, which
+      // incorrectly cleared "pending" for fiction that never got a catalog row.
+      const verifiedTitles = new Set(
+        verification.filter((v) => v.onStorefront).map((v) => v.title),
+      );
+      if (verifiedTitles.size > 0) {
         const {
           computeDraftProdFingerprint,
           withProdSyncInDescription,
         } = await import("@shared/prodSyncMetadata");
         for (const draft of allDrafts) {
+          if (!verifiedTitles.has(draft.title)) continue;
           const fingerprint = computeDraftProdFingerprint(draft);
           const description = withProdSyncInDescription(draft.description, {
             fingerprint,
