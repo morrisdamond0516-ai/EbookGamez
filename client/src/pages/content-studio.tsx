@@ -201,6 +201,17 @@ import { PROD_PUSH_BATCH_SIZE } from "@shared/prodSyncMetadata";
 const VISUAL_FIRST_GENRES = new Set(["Comics", "Graphic Novels", "Photography Books", "Coloring Books", "Art Books"]);
 const PUSH_TO_PROD_MAX = PROD_PUSH_BATCH_SIZE;
 const DEFAULT_PRODUCTION_URL = "https://ebookgamez.com";
+/** Optional Replit app URL when it differs from the custom domain (same push API). */
+const DEFAULT_REPLIT_URL = "";
+type ProdSyncMode = "selected" | "pending";
+
+function normalizeProdUrl(raw: string): string {
+  return raw.trim().replace(/\/$/, "");
+}
+
+function isLocalDevUrl(raw: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(raw.trim());
+}
 
 export default function ContentStudio() {
   return (
@@ -266,13 +277,22 @@ function ContentStudioMain() {
   const [syncToProductionOpen, setSyncToProductionOpen] = useState(false);
   const [productionUrl, setProductionUrl] = useState(() => {
     const saved = localStorage.getItem("ebgz_prod_url") || "";
-    if (saved && !/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(saved)) return saved;
+    if (saved && !isLocalDevUrl(saved)) return saved;
     return DEFAULT_PRODUCTION_URL;
   });
-  const [syncMode, setSyncMode] = useState<"selected" | "pending" | "recent" | "illustrated" | "prose" | "all">("pending");
-  const [recentSyncDays, setRecentSyncDays] = useState(7);
+  const [replitUrl, setReplitUrl] = useState(() => {
+    const saved = localStorage.getItem("ebgz_replit_url") || DEFAULT_REPLIT_URL;
+    if (saved && !isLocalDevUrl(saved)) return saved;
+    return "";
+  });
+  const [syncMode, setSyncMode] = useState<ProdSyncMode>("pending");
   const [isSyncing, setIsSyncing] = useState(false);
-  const [autoSyncProgress, setAutoSyncProgress] = useState<{ pushed: number; remaining: number; batch: number } | null>(null);
+  const [autoSyncProgress, setAutoSyncProgress] = useState<{
+    pushed: number;
+    remaining: number;
+    batch: number;
+    target?: string;
+  } | null>(null);
   const [syncResult, setSyncResult] = useState<{
     totalDrafts: number;
     totalUpdated: number;
@@ -284,6 +304,7 @@ function ContentStudioMain() {
     warnings?: string[];
     ok?: boolean;
     message: string;
+    remainingPending?: number;
   } | null>(null);
   const publishedSectionRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
@@ -533,64 +554,100 @@ function ContentStudioMain() {
 
   const pushToProdCounts = useMemo(() => {
     const published = drafts.filter(d => d.status === "published" && (d.content === "has_content" || (d.content && d.content.length > 100)));
-    const illustrated = published.filter(d => d.hasIllustrations);
-    const prose = published.filter(d => !d.hasIllustrations);
-    const cutoff = Date.now() - recentSyncDays * 24 * 60 * 60 * 1000;
-    const recent = published.filter(d => d.publishedAt && new Date(d.publishedAt).getTime() >= cutoff);
     const selected = published.filter(d => selectedIds.has(d.id));
     const pending = published.filter(d => d.needsProdPush);
     return {
-      illustrated: illustrated.length,
-      prose: prose.length,
-      all: published.length,
-      recent: recent.length,
       selected: selected.length,
       pending: pending.length,
     };
-  }, [drafts, recentSyncDays, selectedIds]);
+  }, [drafts, selectedIds]);
 
   const pushCountForMode = useMemo(() => {
-    switch (syncMode) {
-      case "selected": return pushToProdCounts.selected;
-      case "pending": return Math.min(pushToProdCounts.pending, PUSH_TO_PROD_MAX);
-      case "recent": return pushToProdCounts.recent;
-      case "illustrated": return pushToProdCounts.illustrated;
-      case "prose": return pushToProdCounts.prose;
-      default: return pushToProdCounts.all;
-    }
+    if (syncMode === "selected") return pushToProdCounts.selected;
+    return Math.min(pushToProdCounts.pending, PUSH_TO_PROD_MAX);
   }, [syncMode, pushToProdCounts]);
 
   const isOverPushLimit = useMemo(() => {
     if (syncMode === "pending") return false;
-    if (syncMode === "selected") return selectedIds.size > PUSH_TO_PROD_MAX;
-    return pushCountForMode > PUSH_TO_PROD_MAX;
-  }, [syncMode, selectedIds.size, pushCountForMode]);
+    return selectedIds.size > PUSH_TO_PROD_MAX;
+  }, [syncMode, selectedIds.size]);
+
+  const pushTargets = useMemo(() => {
+    const live = normalizeProdUrl(productionUrl);
+    const replit = normalizeProdUrl(replitUrl);
+    const targets: { label: string; url: string }[] = [];
+    if (live && !isLocalDevUrl(live)) targets.push({ label: "Live site", url: live });
+    if (replit && !isLocalDevUrl(replit) && replit !== live) {
+      targets.push({ label: "Replit", url: replit });
+    }
+    return targets;
+  }, [productionUrl, replitUrl]);
 
   const pushDisabledReason = useMemo(() => {
     if (isSyncing) return "Sync in progress…";
-    const prod = productionUrl.trim();
-    if (!prod) return "Enter your production URL above (e.g. https://ebookgamez.com).";
-    if (/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(prod)) {
-      return "Production URL is localhost — that only updates this PC. Use https://ebookgamez.com";
+    if (pushTargets.length === 0) {
+      return "Enter https://ebookgamez.com (and optional Replit URL) — not localhost.";
     }
     if (isOverPushLimit) return `Too many books (max ${PUSH_TO_PROD_MAX}).`;
     if (syncMode === "selected") {
-      if (selectedIds.size === 0) return "Step 3: Check one or more rows in the Published Books table below.";
+      if (selectedIds.size === 0) return "Check one or more rows in Published Books below.";
       if (pushToProdCounts.selected === 0) {
-        return `You checked ${selectedIds.size} row(s), but none are published with content. Publish the book first, then push.`;
+        return `You checked ${selectedIds.size} row(s), but none are published with content.`;
       }
-    } else if (syncMode === "pending" && pushToProdCounts.pending === 0) {
+    } else if (pushToProdCounts.pending === 0) {
       return "All published books are synced to production.";
-    } else if (pushCountForMode === 0) {
-      return "No published books match this sync mode. Try “Selected only”.";
     }
     return null;
   }, [
-    isSyncing, productionUrl, isOverPushLimit, syncMode, selectedIds.size,
-    pushToProdCounts.selected, pushCountForMode,
+    isSyncing, pushTargets.length, isOverPushLimit, syncMode, selectedIds.size,
+    pushToProdCounts.selected, pushToProdCounts.pending,
   ]);
 
   const pushReady = pushDisabledReason === null;
+
+  async function pushOneBatchToUrl(url: string, mode: ProdSyncMode, draftIds?: number[]) {
+    const token = localStorage.getItem("ebgz_admin_token") || "";
+    const resp = await fetch("/api/admin/push-to-production", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-token": token },
+      body: JSON.stringify({
+        productionUrl: url,
+        mode,
+        draftIds: mode === "selected" ? draftIds : undefined,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `Sync failed for ${url}`);
+    return data as NonNullable<typeof syncResult>;
+  }
+
+  /** Auto-push pending books in batches of 20 to one target URL. */
+  async function autoPushPendingToUrl(url: string, label: string) {
+    let totalPushed = 0;
+    let batches = 0;
+    let remaining = pushToProdCounts.pending;
+    let lastData: NonNullable<typeof syncResult> | null = null;
+    const MAX_AUTO_BATCHES = 200;
+    while (batches < MAX_AUTO_BATCHES) {
+      setAutoSyncProgress({
+        pushed: totalPushed,
+        remaining,
+        batch: batches + 1,
+        target: label,
+      });
+      const data = await pushOneBatchToUrl(url, "pending");
+      lastData = data;
+      batches++;
+      const batchCount = data.totalDrafts ?? 0;
+      totalPushed += batchCount;
+      remaining = data.remainingPending ?? Math.max(0, remaining - batchCount);
+      if ((data.totalErrors ?? 0) > 0) {
+        throw new Error(`${label}: batch ${batches} had ${data.totalErrors} sync error(s).`);
+      }
+      if (batchCount === 0 || remaining === 0) break;
+    }
+    return { totalPushed, batches, lastData, label, url };
+  }
 
   useEffect(() => {
     if (studioSearchQuery.trim() && publishedDrafts.length > 0) {
@@ -2009,22 +2066,18 @@ function ContentStudioMain() {
             <div className="flex items-center gap-2">
               <Upload className="h-4 w-4 text-blue-400" />
               <span className="text-sm font-semibold text-blue-300">Push to Production</span>
-              <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">max {PUSH_TO_PROD_MAX} per push</Badge>
+              <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">
+                {pushToProdCounts.pending} pending · {PUSH_TO_PROD_MAX}/batch
+              </Badge>
             </div>
             <ChevronDown className={`h-4 w-4 text-blue-400 transition-transform ${syncToProductionOpen ? "rotate-180" : ""}`} />
           </button>
           {syncToProductionOpen && (
             <div className="px-4 pb-4 space-y-3">
               <p className="text-xs text-blue-200/70 leading-relaxed">
-                Pushes from <strong>this computer</strong> to the live site. You must deploy code to Replit first, then push small batches (max {PUSH_TO_PROD_MAX}).
-                Use <strong className="text-blue-200">Auto-push all</strong> to run batches of {PUSH_TO_PROD_MAX} until every pending book is synced.
+                Syncs book <strong className="text-blue-200">content</strong> from this computer to production. This does not deploy git code.
+                Leave the Replit URL blank if <strong className="text-blue-200">ebookgamez.com</strong> is already your Replit deploy.
               </p>
-              <ol className="text-xs text-blue-200/80 space-y-1 list-decimal list-inside border border-blue-500/20 rounded-md px-3 py-2 bg-blue-950/30">
-                <li>Production URL = <strong className="text-blue-200">https://ebookgamez.com</strong> (not localhost)</li>
-                <li>Mode = <strong className="text-blue-200">Selected only</strong></li>
-                <li>Expand <strong className="text-blue-200">Published Books</strong> → check the row(s) you want</li>
-                <li>Click Push — read the result panel (must say “verified on storefront”)</li>
-              </ol>
               {isOverPushLimit && (
                 <div
                   className="flex items-start gap-2 rounded-md border border-red-500/50 bg-red-950/40 px-3 py-2 text-xs text-red-200"
@@ -2034,26 +2087,24 @@ function ContentStudioMain() {
                   <div>
                     <p className="font-semibold text-red-300">Cannot push — over the {PUSH_TO_PROD_MAX}-book limit</p>
                     <p className="mt-0.5 text-red-200/80">
-                      {syncMode === "selected"
-                        ? `You selected ${selectedIds.size} rows. Deselect down to ${PUSH_TO_PROD_MAX} or fewer.`
-                        : `“${syncMode === "recent" ? `Recently published (${recentSyncDays}d)` : syncMode}” matches ${pushCountForMode} books. Use “Selected only” or narrow the range.`}
+                      You selected {selectedIds.size} rows. Deselect down to {PUSH_TO_PROD_MAX} or fewer.
                     </p>
                   </div>
                 </div>
               )}
               {!isOverPushLimit && pushReady && (
                 <p className="text-xs text-green-300/90" data-testid="push-to-prod-count-preview">
-                  ✓ Ready to push <strong>{pushCountForMode}</strong> book{pushCountForMode === 1 ? "" : "s"} to {productionUrl.trim().replace(/^https?:\/\//, "")}
+                  Ready to push <strong>{pushCountForMode}</strong> book{pushCountForMode === 1 ? "" : "s"} to {pushTargets.map(t => t.label).join(" + ")}.
                 </p>
               )}
               {pushDisabledReason && (
                 <p className="text-xs text-amber-300/95" data-testid="push-to-prod-disabled-reason">
-                  ⏸ {pushDisabledReason}
+                  {pushDisabledReason}
                 </p>
               )}
-              <div className="flex flex-wrap gap-2 items-end">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_14rem]">
                 <div className="flex-1 min-w-[200px]">
-                  <Label className="text-xs text-muted-foreground mb-1 block">Production URL (e.g. https://ebookgamez.com)</Label>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Live site URL</Label>
                   <Input
                     value={productionUrl}
                     onChange={e => {
@@ -2064,7 +2115,7 @@ function ContentStudioMain() {
                     className="bg-white/5 border-white/20 text-sm h-8"
                     data-testid="input-production-url"
                   />
-                  {/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(productionUrl.trim()) && (
+                  {isLocalDevUrl(productionUrl) && (
                     <button
                       type="button"
                       className="text-[10px] text-amber-400 underline mt-1"
@@ -2077,11 +2128,36 @@ function ContentStudioMain() {
                     </button>
                   )}
                 </div>
-                <div className="w-56">
+                <div className="flex-1 min-w-[200px]">
+                  <Label className="text-xs text-muted-foreground mb-1 block">Replit URL (optional)</Label>
+                  <Input
+                    value={replitUrl}
+                    onChange={e => {
+                      setReplitUrl(e.target.value);
+                      localStorage.setItem("ebgz_replit_url", e.target.value);
+                    }}
+                    placeholder="https://your-app.replit.app"
+                    className="bg-white/5 border-white/20 text-sm h-8"
+                    data-testid="input-replit-url"
+                  />
+                  {isLocalDevUrl(replitUrl) && (
+                    <button
+                      type="button"
+                      className="text-[10px] text-amber-400 underline mt-1"
+                      onClick={() => {
+                        setReplitUrl("");
+                        localStorage.setItem("ebgz_replit_url", "");
+                      }}
+                    >
+                      Clear localhost Replit URL
+                    </button>
+                  )}
+                </div>
+                <div>
                   <Label className="text-xs text-muted-foreground mb-1 block">What to sync</Label>
                   <select
                     value={syncMode}
-                    onChange={e => setSyncMode(e.target.value as typeof syncMode)}
+                    onChange={e => setSyncMode(e.target.value as ProdSyncMode)}
                     className="w-full h-8 rounded-md border border-white/20 bg-background text-sm px-2"
                     data-testid="select-sync-mode"
                   >
@@ -2089,114 +2165,92 @@ function ContentStudioMain() {
                       Needs production push — next {Math.min(pushToProdCounts.pending, PUSH_TO_PROD_MAX)} of {pushToProdCounts.pending}
                     </option>
                     <option value="selected">Selected only ({pushToProdCounts.selected})</option>
-                    <option value="recent" disabled={pushToProdCounts.recent > PUSH_TO_PROD_MAX}>
-                      Recently published — {recentSyncDays}d ({pushToProdCounts.recent}){pushToProdCounts.recent > PUSH_TO_PROD_MAX ? " — over limit" : ""}
-                    </option>
-                    <option value="illustrated" disabled={pushToProdCounts.illustrated > PUSH_TO_PROD_MAX}>
-                      Illustrated only ({pushToProdCounts.illustrated}){pushToProdCounts.illustrated > PUSH_TO_PROD_MAX ? " — over limit" : ""}
-                    </option>
-                    <option value="prose" disabled={pushToProdCounts.prose > PUSH_TO_PROD_MAX}>
-                      Prose / novels ({pushToProdCounts.prose}){pushToProdCounts.prose > PUSH_TO_PROD_MAX ? " — over limit" : ""}
-                    </option>
-                    <option value="all" disabled={pushToProdCounts.all > PUSH_TO_PROD_MAX}>
-                      All published ({pushToProdCounts.all}){pushToProdCounts.all > PUSH_TO_PROD_MAX ? " — over limit" : ""}
-                    </option>
                   </select>
                 </div>
-                {syncMode === "recent" && (
-                  <div className="w-24">
-                    <Label className="text-xs text-muted-foreground mb-1 block">Days</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={30}
-                      value={recentSyncDays}
-                      onChange={e => setRecentSyncDays(Math.min(30, Math.max(1, parseInt(e.target.value) || 7)))}
-                      className="bg-white/5 border-white/20 text-sm h-8"
-                      data-testid="input-recent-sync-days"
-                    />
-                  </div>
-                )}
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
                 <Button
                   onClick={async () => {
-                    if (!productionUrl.trim()) { toast({ title: "Enter your production URL first", variant: "destructive" }); return; }
-                    if (syncMode === "selected" && selectedIds.size === 0) {
-                      toast({ title: "Nothing selected", description: "Check one or more drafts in the table below, then push.", variant: "destructive" });
-                      return;
-                    }
-                    if (syncMode === "selected" && selectedIds.size > PUSH_TO_PROD_MAX) {
-                      toast({ title: "Too many selected", description: `You selected ${selectedIds.size} rows. Max ${PUSH_TO_PROD_MAX} per push.`, variant: "destructive" });
-                      return;
-                    }
-                    if (isOverPushLimit || pushCountForMode > PUSH_TO_PROD_MAX) {
-                      toast({
-                        title: "Over the limit",
-                        description: `Cannot push more than ${PUSH_TO_PROD_MAX} books at once. This mode matches ${pushCountForMode}.`,
-                        variant: "destructive",
-                      });
-                      return;
-                    }
-                    if (pushCountForMode === 0) {
-                      toast({ title: "Nothing to sync", description: "No drafts match this mode.", variant: "destructive" });
-                      return;
-                    }
-                    const prod = productionUrl.trim();
-                    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(prod)) {
-                      toast({
-                        title: "Wrong production URL",
-                        description: "localhost only updates this PC. Use https://ebookgamez.com (or your Replit URL).",
-                        variant: "destructive",
-                      });
-                      return;
-                    }
+                    if (!pushReady) return;
                     setIsSyncing(true);
                     setSyncResult(null);
+                    setAutoSyncProgress(null);
                     try {
-                      const token = localStorage.getItem("ebgz_admin_token") || "";
-                      const resp = await fetch("/api/admin/push-to-production", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", "x-admin-token": token },
-                        body: JSON.stringify({
-                          productionUrl: productionUrl.trim(),
-                          mode: syncMode,
-                          recentDays: recentSyncDays,
-                          draftIds: syncMode === "selected" ? Array.from(selectedIds) : undefined,
+                      const selectedDraftIds = Array.from(selectedIds);
+                      const targetResults: { label: string; data: NonNullable<typeof syncResult> }[] = [];
+                      let totalPushed = 0;
+                      let totalBatches = 0;
+
+                      if (syncMode === "pending") {
+                        for (const target of pushTargets) {
+                          const result = await autoPushPendingToUrl(target.url, target.label);
+                          totalPushed += result.totalPushed;
+                          totalBatches += result.batches;
+                          if (result.lastData) targetResults.push({ label: target.label, data: result.lastData });
+                        }
+                      } else {
+                        for (const target of pushTargets) {
+                          const data = await pushOneBatchToUrl(target.url, "selected", selectedDraftIds);
+                          totalPushed += data.totalDrafts ?? 0;
+                          totalBatches++;
+                          targetResults.push({ label: target.label, data });
+                        }
+                      }
+
+                      const lastResult = targetResults[targetResults.length - 1]?.data;
+                      const warnings = targetResults.flatMap(result =>
+                        (result.data.warnings ?? []).map(warning => `${result.label}: ${warning}`)
+                      );
+                      const hasProblems = targetResults.some(result =>
+                        !result.data.ok || (result.data.totalErrors ?? 0) > 0 || (result.data.warnings?.length ?? 0) > 0
+                      );
+                      const targetLabels = pushTargets.map(t => t.label).join(" + ");
+                      const message = syncMode === "pending"
+                        ? `Push complete: ${totalPushed} book(s) in ${totalBatches} batch(es) to ${targetLabels}.`
+                        : `Push complete: ${totalPushed} selected book copy/copies sent to ${targetLabels}.`;
+
+                      setSyncResult({
+                        ...(lastResult ?? {
+                          totalDrafts: 0,
+                          totalUpdated: 0,
+                          totalInserted: 0,
+                          totalErrors: 0,
+                          message,
                         }),
+                        ok: !hasProblems,
+                        message,
+                        warnings: warnings.length > 0 ? warnings : lastResult?.warnings,
                       });
-                      const data = await resp.json();
-                      if (!resp.ok) throw new Error(data.error || "Sync failed");
-                      setSyncResult(data);
                       queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
-                      const hasProblems = !data.ok || (data.totalErrors ?? 0) > 0 || (data.warnings?.length ?? 0) > 0;
                       toast({
-                        title: hasProblems ? "Push finished with issues" : "Push verified on production",
-                        description: data.warnings?.length
-                          ? `${data.message}\n\n${data.warnings.slice(0, 3).join("\n")}`
-                          : data.message,
+                        title: hasProblems ? "Push finished with issues" : "Push complete",
+                        description: warnings.length > 0 ? `${message}\n\n${warnings.slice(0, 3).join("\n")}` : message,
                         variant: hasProblems ? "destructive" : "default",
                       });
                     } catch (e: any) {
                       toast({ title: "Sync failed", description: e.message, variant: "destructive" });
                     } finally {
                       setIsSyncing(false);
+                      setAutoSyncProgress(null);
                     }
                   }}
                   disabled={!pushReady}
-                  title={pushDisabledReason ?? "Push selected books to production"}
+                  title={pushDisabledReason ?? "Push books to live site and optional Replit target"}
                   className="bg-blue-600 hover:bg-blue-500 text-white h-8 px-4 text-sm whitespace-nowrap"
-                  data-testid="button-push-to-production"
+                  data-testid="button-push-live-and-replit"
                 >
                   {isSyncing && autoSyncProgress ? (
-                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />Batch {autoSyncProgress.batch}…</>
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />{autoSyncProgress.target ?? "Target"} batch {autoSyncProgress.batch}…</>
                   ) : isSyncing ? (
                     <><Loader2 className="h-3 w-3 animate-spin mr-1" />Syncing…</>
                   ) : (
-                    <><Upload className="h-3 w-3 mr-1" />Push to Production</>
+                    <><Upload className="h-3 w-3 mr-1" />Push live + Replit</>
                   )}
                 </Button>
                 <Button
                   onClick={async () => {
-                    if (!productionUrl.trim()) {
+                    const liveUrl = normalizeProdUrl(productionUrl);
+                    if (!liveUrl || isLocalDevUrl(liveUrl)) {
                       toast({ title: "Enter your production URL first", variant: "destructive" });
                       return;
                     }
@@ -2204,64 +2258,23 @@ function ContentStudioMain() {
                       toast({ title: "Nothing to sync", description: "All published books are already synced.", variant: "destructive" });
                       return;
                     }
-                    const prod = productionUrl.trim();
-                    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(prod)) {
-                      toast({
-                        title: "Wrong production URL",
-                        description: "localhost only updates this PC. Use https://ebookgamez.com (or your Replit URL).",
-                        variant: "destructive",
-                      });
-                      return;
-                    }
                     setIsSyncing(true);
                     setSyncResult(null);
-                    let totalPushed = 0;
-                    let batches = 0;
-                    let remaining = pushToProdCounts.pending;
-                    let lastData: typeof syncResult = null;
-                    const token = localStorage.getItem("ebgz_admin_token") || "";
-                    const MAX_AUTO_BATCHES = 200;
+                    setAutoSyncProgress(null);
                     try {
-                      while (batches < MAX_AUTO_BATCHES) {
-                        setAutoSyncProgress({
-                          pushed: totalPushed,
-                          remaining,
-                          batch: batches + 1,
-                        });
-                        const resp = await fetch("/api/admin/push-to-production", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json", "x-admin-token": token },
-                          body: JSON.stringify({
-                            productionUrl: productionUrl.trim(),
-                            mode: "pending",
-                          }),
-                        });
-                        const data = await resp.json();
-                        if (!resp.ok) throw new Error(data.error || "Sync failed");
-                        if ((data.totalDrafts ?? 0) === 0) break;
-                        if ((data.totalErrors ?? 0) > 0) {
-                          setSyncResult(data);
-                          throw new Error(`Batch ${batches + 1} had ${data.totalErrors} sync error(s). Fix and run auto-push again.`);
-                        }
-                        totalPushed += data.totalDrafts ?? 0;
-                        batches++;
-                        lastData = data;
-                        remaining = data.remainingPending ?? 0;
-                        queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
-                        if ((data.remainingPending ?? 0) === 0) break;
-                        await new Promise((r) => setTimeout(r, 2000));
-                      }
-                      if (lastData) {
+                      const result = await autoPushPendingToUrl(liveUrl, "Live site");
+                      queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                      if (result.lastData) {
                         setSyncResult({
-                          ...lastData,
-                          message: `Auto-push complete: ${totalPushed} book(s) in ${batches} batch(es).${(lastData.remainingPending ?? 0) > 0 ? ` ${lastData.remainingPending} still need push.` : ""}`,
-                          ok: (lastData.remainingPending ?? 0) === 0 && lastData.ok,
+                          ...result.lastData,
+                          message: `Auto-push live complete: ${result.totalPushed} book(s) in ${result.batches} batch(es).${(result.lastData.remainingPending ?? 0) > 0 ? ` ${result.lastData.remainingPending} still need push.` : ""}`,
+                          ok: (result.lastData.remainingPending ?? 0) === 0 && result.lastData.ok,
                         });
                       }
                       toast({
-                        title: (lastData?.remainingPending ?? 0) === 0 ? "Auto-push complete" : "Auto-push paused",
-                        description: `Pushed ${totalPushed} book(s) in ${batches} batch(es).${(lastData?.remainingPending ?? 0) > 0 ? ` ${lastData?.remainingPending} still need push.` : ""}`,
-                        variant: (lastData?.remainingPending ?? 0) === 0 ? "default" : "destructive",
+                        title: (result.lastData?.remainingPending ?? 0) === 0 ? "Auto-push live complete" : "Auto-push live paused",
+                        description: `Pushed ${result.totalPushed} book(s) in ${result.batches} batch(es).${(result.lastData?.remainingPending ?? 0) > 0 ? ` ${result.lastData?.remainingPending} still need push.` : ""}`,
+                        variant: (result.lastData?.remainingPending ?? 0) === 0 ? "default" : "destructive",
                       });
                     } catch (e: any) {
                       toast({ title: "Auto-push failed", description: e.message, variant: "destructive" });
@@ -2270,16 +2283,16 @@ function ContentStudioMain() {
                       setAutoSyncProgress(null);
                     }
                   }}
-                  disabled={isSyncing || !productionUrl.trim() || pushToProdCounts.pending === 0}
-                  title={`Push all pending books in batches of ${PUSH_TO_PROD_MAX} until done`}
+                  disabled={isSyncing || !normalizeProdUrl(productionUrl) || isLocalDevUrl(productionUrl) || pushToProdCounts.pending === 0}
+                  title={`Push pending books to live site in batches of ${PUSH_TO_PROD_MAX}`}
                   variant="outline"
                   className="border-blue-500/40 text-blue-200 hover:bg-blue-500/10 h-8 px-4 text-sm whitespace-nowrap"
-                  data-testid="button-auto-push-all-pending"
+                  data-testid="button-auto-push-live"
                 >
                   {autoSyncProgress ? (
                     <><Loader2 className="h-3 w-3 animate-spin mr-1" />{autoSyncProgress.pushed} done · ~{autoSyncProgress.remaining} left</>
                   ) : (
-                    <>Auto-push all ({PUSH_TO_PROD_MAX}/batch)</>
+                    <>Auto-push live ({PUSH_TO_PROD_MAX}/batch)</>
                   )}
                 </Button>
               </div>
@@ -2290,14 +2303,14 @@ function ContentStudioMain() {
               )}
               {syncResult && (
                 <div className={`rounded px-3 py-2 text-xs ${syncResult.ok ? "bg-green-900/20 border border-green-500/30 text-green-300" : "bg-amber-900/20 border border-amber-500/40 text-amber-200"}`}>
-                  <p>{syncResult.ok ? "✅" : "⚠️"} {syncResult.message}</p>
+                  <p>{syncResult.ok ? "OK:" : "Review:"} {syncResult.message}</p>
                   {syncResult.verification?.map((v) => (
                     <p key={v.title} className="mt-1 opacity-90">
-                      • {v.title}: {v.onStorefront ? (v.hasCover ? "on storefront with cover" : "on storefront — cover missing") : "not on storefront"}
+                      {v.title}: {v.onStorefront ? (v.hasCover ? "on storefront with cover" : "on storefront — cover missing") : "not on storefront"}
                     </p>
                   ))}
                   {syncResult.warnings?.map((w, i) => (
-                    <p key={i} className="mt-1 text-amber-300/90">⚠ {w}</p>
+                    <p key={i} className="mt-1 text-amber-300/90">{w}</p>
                   ))}
                 </div>
               )}
