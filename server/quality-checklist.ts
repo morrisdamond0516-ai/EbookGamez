@@ -1,6 +1,6 @@
 export const EBOOK_QUALITY_CHECKLIST = {
-  version: "1.0",
-  lastUpdated: "2026-02-27",
+  version: "1.1",
+  lastUpdated: "2026-07-11",
   
   checks: [
     {
@@ -178,8 +178,26 @@ export const EBOOK_QUALITY_CHECKLIST = {
       id: "ILLUST-002",
       category: "Illustration Quality",
       name: "Sparse Text Between Illustrations",
-      description: "Multiple illustration segments with very little text between them (<30 words). Results in a picture-book feel rather than an illustrated ebook with substantive content.",
-      detection: "Count segments between illustrations with <30 words; flag if more than 3 such segments exist",
+      description: "Multiple illustration segments with very little text between them (<30 words). In novels this can feel illustrated; in schoolbooks/textbooks it produces empty-looking pages (one bullet or short sentence stranded with a large figure).",
+      detection: "Count segments between illustrations with <30 words; flag if more than 3 such segments exist. Blocking for educational genres.",
+      severity: "high",
+      autoDetectable: true
+    },
+    {
+      id: "PAGE-001",
+      category: "Reader Pagination",
+      name: "Underfilled Content Pages",
+      description: "Fixed-layout reader pages with only one short sentence or a thin bullet island (print textbooks forbid this; EPUB reflow cannot enforce it, but our flipbook can). Caused by figure/text split leaving leftovers alone.",
+      detection: "Simulate schoolbook pagination via shared/readerPageSplit.scanUnderfilledReaderPages; flag >2 underfilled pages after merge pass.",
+      severity: "high",
+      autoDetectable: true
+    },
+    {
+      id: "ILLUST-002b",
+      category: "Illustration Quality",
+      name: "Lonely Instructional Line Pages",
+      description: "Reader pagination leaves a single short bullet, objective, or sentence alone on a page (often because a diagram budgeted nearly a full page). Common in Grade K–5 schoolbooks after Learning Objectives.",
+      detection: "Count bullet/header-only islands (≤20 words, ≤4 lines) between illustrations; flag educational books with more than 3. Reader uses large kid-readable schoolbook figures so thin leftovers share the page with the diagram.",
       severity: "high",
       autoDetectable: true
     },
@@ -216,6 +234,51 @@ export const EBOOK_QUALITY_CHECKLIST = {
       name: "Dangling Image Reference",
       description: "Text contains phrases like 'as shown in the illustration below' or 'see the diagram' but no illustration exists within 500 characters. The reader sees a reference to a non-existent image.",
       detection: "Regex scan for image-referencing phrases, then check if an [ILLUSTRATION:] marker with a real image path exists within 500 characters of the reference.",
+      severity: "critical",
+      autoDetectable: true
+    },
+    {
+      id: "ILLUST-007",
+      category: "Illustration Quality",
+      name: "ASCII Puzzle Lines",
+      description: "Mazes, grids, or connect-the-dots drawn with plain-text characters (|, -, .) instead of [ILLUSTRATION:] markers. These render poorly in the flipbook reader and look unprofessional.",
+      detection: "Count lines matching ASCII puzzle pattern (few letters, high density of |+-_.# characters). Flag if any chapter has 2+ such lines.",
+      severity: "critical",
+      autoDetectable: true
+    },
+    {
+      id: "EDU-001",
+      category: "Instructional Materials",
+      name: "Missing Pedagogical Structure",
+      description: "Educational books (Textbooks / Education / Learning) must show teachable structure: learning objectives, worked examples, practice, and checks for understanding — the same pillars state boards and school libraries use when evaluating instructional materials.",
+      detection: "scanEducationalPedagogySignals + checkInstructionalMaterialsQuality (strict gate)",
+      severity: "critical",
+      autoDetectable: true
+    },
+    {
+      id: "EDU-002",
+      category: "Instructional Materials",
+      name: "Grade / Audience Mismatch",
+      description: "Vocabulary, examples, or topics do not match the stated grade band or career level (e.g. kindergarten book written at high-school reading level).",
+      detection: "Instructional materials LLM review — GRADE_FIT pillar",
+      severity: "critical",
+      autoDetectable: true
+    },
+    {
+      id: "EDU-003",
+      category: "Instructional Materials",
+      name: "Fiction Climax Applied to Textbook",
+      description: "Educational books must NOT be judged by fiction climax/story-arc checks. They use instructional outline + instructional quality instead.",
+      detection: "isEducationalGenre skips climaxCheck in runPublishPipelineGate",
+      severity: "high",
+      autoDetectable: true
+    },
+    {
+      id: "EDU-004",
+      category: "Instructional Materials",
+      name: "Weak Instructional Outline",
+      description: "Educational outline scored below 6/10 on adoption-style editorial brief (objectives, sequence, practice, grade fit) before chapter writing.",
+      detection: "runEditorialBrief educational path; blocking like fiction when score < EDUCATIONAL_EDITORIAL_MIN_SCORE",
       severity: "critical",
       autoDetectable: true
     }

@@ -1,0 +1,67 @@
+---
+description: How educational / schoolbooks are quality-gated (not fiction)
+alwaysApply: true
+---
+
+# Educational books pipeline (school / college / trade)
+
+**Goal:** Treat Textbooks and Education / Learning like instructional materials a district or school library would evaluate — not like novels.
+
+## What boards & libraries look for (research summary)
+
+US materials review (CA SBE adoption, TX IMRA/TEKS, local HQIM, ALA school-library selection) repeatedly asks:
+
+1. **Standards / curriculum alignment** — covers the grade/subject sequence
+2. **Factual accuracy** — no invented “facts,” careful claims
+3. **Grade / age fit** — vocabulary and topics match the audience
+4. **Instructional design** — teachable units, not story arcs
+5. **Practice & checks** — exercises / formative assessment, not lecture-only
+6. **Suitability** — appropriate for school/library use
+7. **Clear organization & visuals** — diagrams/figures where concepts need them
+
+We do **not** submit to state boards from this app. We **do** enforce these content pillars in our gate so books are built to that bar.
+
+## Pipeline differences vs fiction
+
+| Step | Fiction | Educational (Textbooks / Education / Learning / schoolbooks catalog) |
+|------|---------|----------------------------------------------------------------------|
+| Cover first | Yes | Yes |
+| Outline | Story Architect + beats/climax | Unit/lesson sequence + objectives |
+| Editorial Brief | Blocking ≥ 6 (story) | Blocking ≥ 6 (**instructional** rubric) |
+| Strict gate | Genre + dialogue + climax | Genre + **instructional materials** check (no climax) |
+| Outline required at publish | Yes | Yes |
+| Pedagogy scan | N/A | Cheap scan for objectives/examples/practice |
+
+## Never
+
+- Do **not** run climax checks on educational books
+- Do **not** use popular-science / self-help author models for textbook craft
+- Do **not** promote educational drafts on structural-only audits when content exists
+- Do **not** build fixed two-column print replicas for digital schoolbooks (not required by digital HQIM / WCAG)
+
+## Page layout
+
+Digital school/library materials need **scannable instructional chrome**, not print manufacturing grids:
+- Section callouts for Learning Objectives, Worked Example, Practice, Check for Understanding, Key Terms
+- Diagrams inline with lesson text (`usesSchoolbookPageLayout`)
+- Clear headings for accessibility (ADA Title II → WCAG 2.1 AA direction)
+
+### Pagination formulas (do not reuse novel rules)
+
+Fixed flipbook is **500×680**. Layout math lives in `shared/readerPageSplit.ts` (reader + storefront preview + quality gate must share it).
+
+| Book type | Illustration rule | Fill rule |
+|-----------|-------------------|-----------|
+| **Novel / fiction** | URL art = own full page (Replit rule — still correct) | Half-empty page before art is OK |
+| **Schoolbook / textbook** | Mid-size **inline** figures + teaching text on same page | Pack to **type-page depth** (~2–3 lines of slack at the foot — Chicago / trade practice). Densify thin leftovers; never orphan Example/Practice. Last chapter page may be short. |
+| **Activity / workbook** | Same as schoolbook, slightly tighter line budget | Same densify + orphan rules |
+
+Wrap at the **page edge** by estimated Libre Baskerville width — if estimate ≠ CSS, pages either clip (`overflow:hidden`) or look 25–75% empty. Recalculate `MAX_VISUAL_LINES` / `PX_PER_CHAR_*` against the real pad + running-title gap before changing art size.
+
+## Reference
+
+- `shared/educationalBookQuality.ts` — detection + adoption pillars + pedagogy scan + section kinds
+- `shared/readerPageSplit.ts` — page-edge math + genre packing formulas
+- `client/src/lib/readerLineRender.tsx` — `renderInstructionalSectionHeader`
+- `server/contentStudio.ts` — `checkInstructionalMaterialsQuality`, educational editorial brief, `runPublishPipelineGate`
+- `script/seed-schoolbook-placers.ts` — Cover Review placers only

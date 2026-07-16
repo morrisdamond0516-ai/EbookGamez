@@ -89,28 +89,35 @@ async function buildAll() {
     console.log("no seed-data.sql to copy (optional)");
   }
 
-  console.log("Cleaning large media directories to reduce deployment image size...");
-  const largeDirs = ["uploads/illustrations", "uploads/covers", "uploads/ebooks", "uploads/coloring-pages", "uploads/pdfs", "uploads/temp"];
-  for (const dir of largeDirs) {
-    if (existsSync(dir)) {
-      await rm(dir, { recursive: true, force: true });
-      await mkdir(dir, { recursive: true });
-      console.log(`  cleaned ${dir}/`);
-    }
-  }
-  // Clean attached_assets root files only — preserve subdirectories (e.g. generated_images) which are static assets needed at runtime
-  const attachedRoot = "attached_assets";
-  if (existsSync(attachedRoot)) {
-    const { readdirSync, statSync, unlinkSync } = await import("fs");
-    for (const entry of readdirSync(attachedRoot)) {
-      const full = `${attachedRoot}/${entry}`;
-      if (statSync(full).isFile()) {
-        unlinkSync(full);
+  // Only strip local upload caches on Replit deploy (GCS is source of truth there).
+  // Cursor/local dev keeps uploads/ on disk — covers, illustrations, and PDFs are not in git.
+  const bucketName = process.env.PUBLIC_OBJECT_SEARCH_PATHS?.split(",")[0]?.trim().split("/")[1];
+  if (!bucketName) {
+    console.log("Skipping upload dir cleanup (local/Cursor workspace — files kept on disk)");
+  } else {
+    console.log("Cleaning large media directories to reduce deployment image size...");
+    const largeDirs = ["uploads/illustrations", "uploads/covers", "uploads/ebooks", "uploads/coloring-pages", "uploads/pdfs", "uploads/temp"];
+    for (const dir of largeDirs) {
+      if (existsSync(dir)) {
+        await rm(dir, { recursive: true, force: true });
+        await mkdir(dir, { recursive: true });
+        console.log(`  cleaned ${dir}/`);
       }
     }
-    console.log(`  cleaned ${attachedRoot}/ root files (subdirs preserved)`);
+    // Clean attached_assets root files only — preserve subdirectories (e.g. generated_images) which are static assets needed at runtime
+    const attachedRoot = "attached_assets";
+    if (existsSync(attachedRoot)) {
+      const { readdirSync, statSync, unlinkSync } = await import("fs");
+      for (const entry of readdirSync(attachedRoot)) {
+        const full = `${attachedRoot}/${entry}`;
+        if (statSync(full).isFile()) {
+          unlinkSync(full);
+        }
+      }
+      console.log(`  cleaned ${attachedRoot}/ root files (subdirs preserved)`);
+    }
+    console.log("Cleanup complete — empty upload dirs preserved for runtime use");
   }
-  console.log("Cleanup complete — empty upload dirs preserved for runtime use");
 }
 
 buildAll().catch((err) => {

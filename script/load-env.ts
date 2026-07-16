@@ -22,3 +22,8 @@ if (existsSync(envPath)) {
     process.env[key] = value;
   }
 }
+
+// Avoid OpenAI TLS failures on Windows (UNABLE_TO_VERIFY_LEAF_SIGNATURE).
+if (!process.env.NODE_OPTIONS?.includes("use-system-ca")) {
+  process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, "--use-system-ca"].filter(Boolean).join(" ");
+}

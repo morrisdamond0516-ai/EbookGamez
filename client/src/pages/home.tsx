@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
-import { Gamepad2, Download, BookOpen, ShoppingBag, ArrowRight, Sparkles, ExternalLink, X } from "lucide-react";
+import { Gamepad2, Download, BookOpen, ShoppingBag, ArrowRight, Sparkles, ExternalLink, X, Feather, ChevronRight } from "lucide-react";
 import { trackAddToCart } from "@/lib/analytics";
 import { NewsletterSignup } from "@/components/newsletter-signup";
+import { BLOG_POSTS } from "@/data/blog-data";
 const heroBg = "/hero.webp";
 
 interface Book {
@@ -621,6 +622,37 @@ export default function Home() {
                 Minecraft, Elden Ring, and Valorant. And our gaming guides section covers pro strategies, settings, tier
                 lists, and walkthroughs written by players who have actually put the hours in.
               </p>
+            </div>
+          </div>
+
+          <div className="border-t border-white/10 pt-12 mb-12">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Feather className="h-4 w-4 text-primary" />
+                  <span className="text-primary font-serif text-xs tracking-widest uppercase">From the Blog</span>
+                </div>
+                <h2 className="text-2xl font-display text-white">How we build the library</h2>
+                <p className="text-white/50 font-serif text-sm mt-2 max-w-xl">
+                  Free essays on quality gates, DRM-free ownership, schoolbooks, and why EbookGamez exists — no purchase required.
+                </p>
+              </div>
+              <Link href="/blog" className="text-primary font-serif text-sm hover:underline inline-flex items-center gap-1 shrink-0">
+                View all articles <ChevronRight className="h-4 w-4" />
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {BLOG_POSTS.slice(0, 3).map((post) => (
+                <Link key={post.id} href={`/blog/${post.id}`}>
+                  <article className="h-full border border-white/10 bg-white/[0.03] rounded-lg p-5 hover:border-primary/30 transition-all cursor-pointer group">
+                    <span className="text-[10px] uppercase tracking-wider text-primary/80 font-serif">{post.category}</span>
+                    <h3 className="font-display text-base text-white group-hover:text-primary transition-colors mt-2 leading-snug">
+                      {post.title}
+                    </h3>
+                    <p className="text-white/45 text-xs font-serif mt-2 line-clamp-2">{post.excerpt}</p>
+                  </article>
+                </Link>
+              ))}
             </div>
           </div>
 

@@ -153,6 +153,7 @@ export function Navbar() {
             <Link href="/games" className="text-foreground/80 hover:text-primary transition-colors font-serif">Games</Link>
             <Link href="/downloads" className="text-foreground/80 hover:text-primary transition-colors font-serif">Downloads</Link>
             <Link href="/guides" className="text-foreground/80 hover:text-primary transition-colors font-serif">Guides</Link>
+            <Link href="/blog" className="text-foreground/80 hover:text-primary transition-colors font-serif">Blog</Link>
             <Link href="/subscription" className="text-emerald-400 hover:text-emerald-300 transition-colors font-serif">Reading Pass</Link>
             <Link href="/about" className="text-foreground/80 hover:text-primary transition-colors font-serif">About</Link>
             {showAdmin && (
@@ -227,6 +228,7 @@ export function Navbar() {
                     <Link href="/games" className="text-xl font-serif text-foreground hover:text-primary">Games</Link>
                     <Link href="/downloads" className="text-xl font-serif text-foreground hover:text-primary">Downloads</Link>
                     <Link href="/guides" className="text-xl font-serif text-foreground hover:text-primary">Guides</Link>
+                    <Link href="/blog" className="text-xl font-serif text-foreground hover:text-primary">Blog</Link>
                     <Link href="/subscription" className="text-xl font-serif text-emerald-400 hover:text-emerald-300">Reading Pass</Link>
                     <Link href="/about" className="text-xl font-serif text-foreground hover:text-primary">About</Link>
                     <Link href={isCustomerLoggedIn ? "/my-account" : "/login"} className="text-xl font-serif text-foreground hover:text-primary" data-testid="link-mobile-account">

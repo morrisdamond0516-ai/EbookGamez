@@ -28,6 +28,8 @@ const Games = lazy(() => import("@/pages/games"));
 const Downloads = lazy(() => import("@/pages/downloads"));
 const Guides = lazy(() => import("@/pages/guides"));
 const GuideDetail = lazy(() => import("@/pages/guide-detail"));
+const Blog = lazy(() => import("@/pages/blog"));
+const BlogPost = lazy(() => import("@/pages/blog-post"));
 const DuplicateComparison = lazy(() => import("@/pages/duplicate-comparison"));
 const RewriteBlockers = lazy(() => import("@/pages/rewrite-blockers"));
 const Subscription = lazy(() => import("@/pages/subscription"));
@@ -90,6 +92,8 @@ function Router() {
         <Route path="/downloads" component={Downloads} />
         <Route path="/guides" component={Guides} />
         <Route path="/guides/:id" component={GuideDetail} />
+        <Route path="/blog" component={Blog} />
+        <Route path="/blog/:id" component={BlogPost} />
         <Route path="/subscription" component={Subscription} />
         <Route path="/subscription/success" component={SubscriptionSuccess} />
         <Route path="/admin/orphan-covers" component={OrphanCoverReview} />

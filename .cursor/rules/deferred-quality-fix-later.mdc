@@ -1,0 +1,25 @@
+---
+description: Reminder — 135 published books tagged for later illustration/structural fixes
+alwaysApply: true
+---
+
+# Reminder: deferred quality tags (do not unpublish)
+
+Some **published** books failed the structural gate (mostly **missing illustrations** on visual genres) but are **intentionally left published**.
+
+They are tagged in `draft.description` as `---QUALITY_DEFERRAL---` and show in Content Studio as **"Fix later"**.
+
+## Rules
+
+- Do **not** unpublish, demote, or hide them unless the user explicitly asks.
+- Treat them as **good for now** — fix illustrations later when the user is ready.
+- When fixing: add art / resolve markers → re-run quality gate → clear the deferral tag if it passes.
+- Clear tag helper: strip `QUALITY_DEFERRAL` block from description after a real fix.
+
+## Scale (as of 2026-07-10 sweep)
+
+- ~**135** published books tagged (mostly illustration gaps)
+- ~**523** structural pass
+- Research batch #707–728 was fine; still needs **prod push**
+
+When the user asks about library quality or illustrations, remind them about these **"Fix later"** tags.

@@ -537,10 +537,27 @@ Allow: /
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>${baseUrl}/</loc><changefreq>daily</changefreq><priority>1.0</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/catalog</loc><changefreq>daily</changefreq><priority>0.9</priority><lastmod>${now}</lastmod></url>
+  <url><loc>${baseUrl}/blog</loc><changefreq>weekly</changefreq><priority>0.85</priority><lastmod>${now}</lastmod></url>
+  <url><loc>${baseUrl}/about</loc><changefreq>monthly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
+  <url><loc>${baseUrl}/contact</loc><changefreq>monthly</changefreq><priority>0.7</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/games</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/downloads</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/guides</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/subscription</loc><changefreq>monthly</changefreq><priority>0.7</priority><lastmod>${now}</lastmod></url>`;
+
+      const blogIds = [
+        "why-ebookgamez-exists",
+        "how-we-quality-check-books",
+        "drm-free-ebooks-ownership",
+        "reading-pass-explained-honestly",
+        "kindergarten-complete-school-year-at-home",
+        "schoolbooks-catalog-not-pdf-dumps",
+        "ai-assistance-and-human-review",
+        "catalog-without-content-farm",
+      ];
+      for (const id of blogIds) {
+        xml += `\n  <url><loc>${baseUrl}/blog/${id}</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${now}</lastmod></url>`;
+      }
 
       for (const book of allBooks) {
         const lastmod = book.createdAt
@@ -2583,6 +2600,7 @@ Allow: /
           hasTBCMarker: sql<boolean>`false`.as('has_tbc_marker'),
           hasIncompleteMarker: sql<boolean>`false`.as('has_incomplete_marker'),
           hasIllustrations: sql<boolean>`COALESCE(${draftEbooks.content}, '') LIKE '%/objstore/illustrations/%'`.as('has_illustrations'),
+          prodFingerprint: sql<string>`md5(concat(coalesce(${draftEbooks.content}, ''), '|', coalesce(${draftEbooks.coverUrl}, ''), '|', coalesce(${draftEbooks.backgroundUrl}, '')))`.as('prod_fingerprint'),
         }).from(draftEbooks)
           .where(whereClause)
           .orderBy(desc(draftEbooks.createdAt));
@@ -2608,6 +2626,9 @@ Allow: /
 
       const catalogIndex =
         statusFilter === "published" ? await contentStudio.loadCatalogBookLinkIndex() : null;
+
+      const { assessProdSyncStatus } = await import("@shared/prodSyncMetadata");
+      const { parseQualityDeferralFromDescription } = await import("@shared/qualityDeferralMetadata");
 
       const enrichedDrafts = drafts.map(draft => {
         const wordCount = Number(draft.contentWordCount) || 0;
@@ -2636,6 +2657,20 @@ Allow: /
         const resolvedCoverUrl = statusFilter === "published"
           ? resolveDisplayCoverUrl(draft.coverUrl, catalogBook?.coverUrl, draft.backgroundUrl)
           : (draft.coverUrl || draft.backgroundUrl || null);
+
+        const prodSync =
+          statusFilter === "published"
+            ? assessProdSyncStatus(
+                { status: draft.status, description: draft.description },
+                {
+                  currentFingerprint: String(
+                    (draft as { prodFingerprint?: string }).prodFingerprint || "",
+                  ),
+                },
+              )
+            : null;
+
+        const qualityDeferral = parseQualityDeferralFromDescription(draft.description);
 
         return {
           id: draft.id,
@@ -2667,6 +2702,12 @@ Allow: /
           bookVisible: catalogBook?.visible !== false,
           publishedBookId: catalogBook?.id ?? null,
           inCatalog: catalogBook != null,
+          needsProdPush: prodSync?.needsProdPush ?? false,
+          prodSyncReason: prodSync?.reason ?? null,
+          lastProdSyncedAt: prodSync?.lastSyncedAt ?? null,
+          qualityDeferral: !!qualityDeferral,
+          qualityDeferralReason: qualityDeferral?.reason ?? null,
+          qualityDeferralNote: qualityDeferral?.note ?? null,
         };
       });
       res.json(enrichedDrafts);
@@ -2971,6 +3012,12 @@ Allow: /
           error: `Only "ready" books can be published. This book is "${draftAfterReset.status}". Run quality checks first.`,
         });
       }
+      const { draftHasPublishableCover } = await import("./coverStorage");
+      if (!draftHasPublishableCover(draftAfterReset)) {
+        return res.status(400).json({
+          error: "Cover image required before publishing — generate and save cover in Cover Review first.",
+        });
+      }
       const content = draftAfterReset.content || "";
       const title = draftAfterReset.title || draftAfterReset.topic || "Untitled";
       const genre = draftAfterReset.genre || "General";
@@ -3245,7 +3292,19 @@ Allow: /
 
       const reassigned: Array<{ fromId: number; toId: number; toTitle: string; toGenre: string }> = [];
       const deleted: number[] = [];
+      const keptWithStory: number[] = [];
       const usedCoverlessIds = new Set<number>();
+
+      const draftHasStory = (content: string | null | undefined) =>
+        !!content && content.length > 100;
+
+      const stripCoverOnly = async (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], draftId: number) => {
+        await tx.update(draftEbooks).set({
+          coverUrl: null,
+          backgroundUrl: null,
+          overlayApproved: false,
+        }).where(eq(draftEbooks.id, draftId));
+      };
 
       const findBestMatch = (rej: typeof rejected[0]) => {
         const rejGenre = (rej.genre || "").toLowerCase();
@@ -3256,9 +3315,16 @@ Allow: /
 
       await db.transaction(async (tx) => {
         for (const rej of rejected) {
+          const hasStory = draftHasStory(rej.content);
+
           if (!rej.backgroundUrl) {
-            await tx.delete(draftEbooks).where(eq(draftEbooks.id, rej.id));
-            deleted.push(rej.id);
+            if (hasStory) {
+              await stripCoverOnly(tx, rej.id);
+              keptWithStory.push(rej.id);
+            } else {
+              await tx.delete(draftEbooks).where(eq(draftEbooks.id, rej.id));
+              deleted.push(rej.id);
+            }
             continue;
           }
 
@@ -3271,7 +3337,15 @@ Allow: /
               coverStyleId: rej.coverStyleId || null,
             }).where(eq(draftEbooks.id, match.id));
             reassigned.push({ fromId: rej.id, toId: match.id, toTitle: match.title, toGenre: match.genre });
-            await tx.delete(draftEbooks).where(eq(draftEbooks.id, rej.id));
+            if (hasStory) {
+              await stripCoverOnly(tx, rej.id);
+              keptWithStory.push(rej.id);
+            } else {
+              await tx.delete(draftEbooks).where(eq(draftEbooks.id, rej.id));
+            }
+          } else if (hasStory) {
+            await stripCoverOnly(tx, rej.id);
+            keptWithStory.push(rej.id);
           } else {
             await tx.delete(draftEbooks).where(eq(draftEbooks.id, rej.id));
             deleted.push(rej.id);
@@ -3312,8 +3386,9 @@ Allow: /
       res.json({
         reassigned,
         deleted,
+        keptWithStory,
         titleBarsApplied,
-        message: `Reassigned ${reassigned.length} cover(s) to coverless ebooks (genre-matched when possible), deleted ${deleted.length} without suitable match. ${titleBarsApplied > 0 ? `Applied title bars to ${titleBarsApplied} cover(s).` : ""}`
+        message: `Reassigned ${reassigned.length} cover(s) to coverless ebooks (genre-matched when possible), deleted ${deleted.length} empty placeholder(s)${keptWithStory.length > 0 ? `, kept ${keptWithStory.length} ebook(s) with story text` : ""}. ${titleBarsApplied > 0 ? `Applied title bars to ${titleBarsApplied} cover(s).` : ""}`
       });
     } catch (error) {
       console.error("Error reassigning duplicate covers:", error);
@@ -4849,6 +4924,7 @@ Respond in JSON format only:
         title: draftEbooks.title,
         genre: draftEbooks.genre,
         topic: draftEbooks.topic,
+        description: draftEbooks.description,
         coverUrl: draftEbooks.coverUrl,
         backgroundUrl: draftEbooks.backgroundUrl,
         status: draftEbooks.status,
@@ -4869,18 +4945,12 @@ Respond in JSON format only:
         drafts = await db.select(selectFields).from(draftEbooks)
           .orderBy(desc(draftEbooks.id));
       }
-      const { resolveDisplayCoverUrl } = await import("./coverStorage");
+      const { enrichDraftForCoverReview } = await import("./coverStorage");
       const catalogIndex = await contentStudio.loadCatalogBookLinkIndex();
       const enriched = drafts.map((draft) => {
         const catalogBook = contentStudio.findCatalogBookLinkForDraft(draft.id, draft.title, catalogIndex);
-        const resolvedCoverUrl = resolveDisplayCoverUrl(
-          draft.coverUrl,
-          catalogBook?.coverUrl,
-          draft.backgroundUrl,
-        );
         return {
-          ...draft,
-          coverUrl: resolvedCoverUrl,
+          ...enrichDraftForCoverReview(draft),
           inCatalog: catalogBook != null,
           publishedBookId: catalogBook?.id ?? null,
         };
@@ -4889,6 +4959,71 @@ Respond in JSON format only:
     } catch (error) {
       console.error("Error fetching drafts for review:", error);
       res.status(500).json({ error: "Failed to fetch drafts" });
+    }
+  });
+
+  // POST /api/content-studio/recover-covers — find production/catalog covers, defer regen (no AI spend)
+  app.post("/api/content-studio/recover-covers", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { recoverExistingCovers } = await import("./coverRecovery");
+      const draftIds = Array.isArray(req.body?.draftIds)
+        ? req.body.draftIds.map((id: unknown) => parseInt(String(id), 10)).filter((n: number) => !Number.isNaN(n))
+        : undefined;
+      const dryRun = req.body?.dryRun === true;
+      const results = await recoverExistingCovers({ draftIds, dryRun });
+      res.json({
+        success: true,
+        dryRun,
+        recovered: results.filter((r) => r.action === "recovered").length,
+        deferred: results.filter((r) => r.action === "deferred").length,
+        skipped: results.filter((r) => r.action === "skipped").length,
+        failed: results.filter((r) => r.action === "failed").length,
+        results,
+      });
+    } catch (error) {
+      console.error("Error recovering covers:", error);
+      res.status(500).json({ error: "Failed to recover covers" });
+    }
+  });
+
+  // POST /api/content-studio/clear-cover-deferred/:id — queue for new cover when budget allows
+  app.post("/api/content-studio/clear-cover-deferred/:id", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const draftId = parseInt(req.params.id, 10);
+      const { clearCoverDeferredRegen } = await import("./coverRecovery");
+      await clearCoverDeferredRegen(draftId);
+      res.json({ success: true, draftId });
+    } catch (error) {
+      console.error("Error clearing cover deferred:", error);
+      res.status(500).json({ error: "Failed to clear deferred cover flag" });
+    }
+  });
+
+  // POST /api/content-studio/build-character-bible/:id — lock recurring character looks for illustrated fiction
+  app.post("/api/content-studio/build-character-bible/:id", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const draftId = parseInt(req.params.id, 10);
+      const { buildAndSaveCharacterBibleForDraft } = await import("./characterBible");
+      const force = req.body?.force === true;
+      const contentSample = req.body?.contentSample !== false;
+      const bible = await buildAndSaveCharacterBibleForDraft(draftId, { force, contentSample });
+      res.json({
+        success: true,
+        draftId,
+        characters: bible.characters.map((c) => ({
+          name: c.name,
+          role: c.role,
+          isProtagonist: c.isProtagonist,
+          fixedAppearance: c.fixedAppearance,
+          defaultOutfit: c.defaultOutfit,
+        })),
+      });
+    } catch (error: any) {
+      console.error("Error building character bible:", error);
+      res.status(500).json({ error: error?.message || "Failed to build character bible" });
     }
   });
 
@@ -5237,6 +5372,26 @@ Respond in JSON format only:
     } catch (error) {
       console.error("Error auditing published books:", error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Audit failed" });
+    }
+  });
+
+  app.post("/api/content-studio/reaudit-published", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { minId, maxId, draftIds, dryRun, verifyGenre, dialogueCheck, confirmedAfterPreflight } = req.body || {};
+      const result = await contentStudio.reauditPublishedDrafts({
+        minId: typeof minId === "number" ? minId : undefined,
+        maxId: typeof maxId === "number" ? maxId : undefined,
+        draftIds: Array.isArray(draftIds) ? draftIds : undefined,
+        dryRun: dryRun !== false,
+        verifyGenre: !!verifyGenre,
+        dialogueCheck: dialogueCheck === true,
+        confirmedAfterPreflight: !!confirmedAfterPreflight,
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error("Error re-auditing published books:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Re-audit failed" });
     }
   });
 
@@ -5656,6 +5811,33 @@ Respond in JSON format only:
     }
   });
 
+  app.post("/api/content-studio/overnight-pipeline", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const started = contentStudio.scheduleOvernightPipeline();
+      res.json({
+        success: true,
+        started,
+        message: started
+          ? "Overnight pipeline scheduled on this server — keep the dev server running. It will publish ready books, write research-batch content, illustrate #727, and publish again."
+          : "Overnight pipeline already scheduled or running on this server.",
+      });
+    } catch (error) {
+      console.error("Error scheduling overnight pipeline:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to schedule overnight pipeline" });
+    }
+  });
+
+  app.get("/api/content-studio/overnight-status", (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    res.json({
+      active: contentStudio.isOvernightPipelineActive(),
+      contentGen: contentStudio.getContentGenProgress(),
+      illustrations: contentStudio.getIllustrationProgress(),
+      activeGenerations: contentStudio.getActiveGenerationCount(),
+    });
+  });
+
   app.get("/api/content-studio/importable-books", async (req, res) => {
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
@@ -5757,9 +5939,14 @@ Respond in JSON format only:
         await contentStudio.generateIllustrationsOnly(ids);
         res.json({ success: true, message: `Illustrations-only generation started for ${ids.length} books` });
       } catch (busyErr: any) {
-        if (busyErr?.message?.includes("already running")) {
+        const msg = busyErr?.message || "";
+        if (msg.includes("already running")) {
           contentStudio.queueIllustrations(ids);
-          res.json({ success: true, queued: true, message: `Bulk is running — queued ${ids.length} books for illustration generation after it completes` });
+          res.json({
+            success: true,
+            queued: true,
+            message: `Illustration batch busy — queued ${ids.length} book(s). Art runs independently of content writing.`,
+          });
         } else {
           throw busyErr;
         }
@@ -6377,6 +6564,58 @@ Respond in JSON format only:
     } catch (error) {
       console.error("Error starting illustration repair:", error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to start illustration repair" });
+    }
+  });
+
+  app.post("/api/content-studio/repair-activity-book-lines", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { draftIds, regenerateIllustrations, confirmedAfterPreflight, dryRun } = req.body || {};
+      const ids = Array.isArray(draftIds) ? draftIds.map(Number) : undefined;
+      if (!ids?.length) {
+        const preflight = await contentStudio.preflightActivityLineRepairDrafts();
+        return res.json({ success: true, preflight, message: "Preflight only — pass draftIds + confirmedAfterPreflight to repair" });
+      }
+      if (ids.length === 1) {
+        const result = await contentStudio.repairActivityBookLinesForDraft(ids[0], {
+          force: !!req.body?.force,
+        });
+        if (regenerateIllustrations && result.unprocessedMarkers > 0) {
+          const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, ids[0]));
+          if (draft?.content) {
+            const updated = await contentStudio.generateIllustrations(
+              draft.content,
+              draft.genre || "Activity Books",
+              draft.title || "Untitled",
+              ids[0],
+            );
+            await db.update(draftEbooks).set({ content: updated }).where(eq(draftEbooks.id, ids[0]));
+          }
+        }
+        return res.json({ success: true, result });
+      }
+      const results = await contentStudio.repairAllActivityBookLines({
+        draftIds: ids,
+        regenerateIllustrations: !!regenerateIllustrations,
+        confirmedAfterPreflight: !!confirmedAfterPreflight,
+        dryRun: !!dryRun,
+      });
+      res.json({
+        success: true,
+        repaired: results.length,
+        results,
+        message: `Repaired ${results.length} activity/workbook draft(s)`,
+      });
+    } catch (error) {
+      if (error instanceof contentStudio.BatchOperationGuardError) {
+        return res.status(409).json({
+          error: error.message,
+          code: error.code,
+          preflight: error.preflight,
+        });
+      }
+      console.error("Error repairing activity book lines:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to repair activity book lines" });
     }
   });
 
@@ -8632,7 +8871,24 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
 
   // POST /api/admin/push-to-production
   // Pushes dev draft content to a production server (small batches only — avoids OOM).
-  const PUSH_TO_PROD_MAX_DRAFTS = 25;
+  const { PROD_PUSH_BATCH_SIZE } = await import("@shared/prodSyncMetadata");
+  const PUSH_TO_PROD_MAX_DRAFTS = PROD_PUSH_BATCH_SIZE;
+
+  async function countPublishedDraftsNeedingProdPush(): Promise<number> {
+    const { assessProdSyncStatus } = await import("@shared/prodSyncMetadata");
+    const rows = await db
+      .select({
+        content: draftEbooks.content,
+        coverUrl: draftEbooks.coverUrl,
+        backgroundUrl: draftEbooks.backgroundUrl,
+        description: draftEbooks.description,
+      })
+      .from(draftEbooks)
+      .where(
+        and(eq(draftEbooks.status, "published"), isNotNull(draftEbooks.content)),
+      );
+    return rows.filter((d) => assessProdSyncStatus(d).needsProdPush).length;
+  }
 
   function isLocalDevUrl(raw: string): boolean {
     try {
@@ -8659,6 +8915,7 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       }
 
       let whereClause;
+      let pendingOnly = false;
       if (mode === "selected") {
         if (!Array.isArray(draftIds) || draftIds.length === 0) {
           return res.status(400).json({ error: "Select at least one draft in the table, then choose “Selected only”." });
@@ -8677,6 +8934,9 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
           eq(draftEbooks.status, "published"),
           isNotNull(draftEbooks.content),
         );
+      } else if (mode === "pending") {
+        pendingOnly = true;
+        whereClause = sql`${draftEbooks.content} IS NOT NULL AND ${draftEbooks.status} = 'published'`;
       } else if (mode === "recent") {
         const days = Math.min(30, Math.max(1, Number(recentDays) || 7));
         whereClause = sql`${draftEbooks.content} IS NOT NULL
@@ -8691,7 +8951,7 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         whereClause = sql`${draftEbooks.content} LIKE '%/objstore/illustrations/%' AND ${draftEbooks.status} = 'published'`;
       }
 
-      const allDrafts = await db.select({
+      let allDrafts = await db.select({
         id: draftEbooks.id,
         title: draftEbooks.title,
         genre: draftEbooks.genre,
@@ -8705,10 +8965,48 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         publishedAt: draftEbooks.publishedAt,
       }).from(draftEbooks).where(whereClause);
 
-      if (allDrafts.length === 0) {
-        return res.status(400).json({ error: "No drafts matched this sync mode." });
+      if (pendingOnly) {
+        const { assessProdSyncStatus, parseProdSyncFromDescription } = await import(
+          "@shared/prodSyncMetadata"
+        );
+        allDrafts = allDrafts
+          .filter((d) => assessProdSyncStatus(d).needsProdPush)
+          .sort((a, b) => {
+            const aNever = !parseProdSyncFromDescription(a.description);
+            const bNever = !parseProdSyncFromDescription(b.description);
+            if (aNever !== bNever) return aNever ? -1 : 1;
+            return (
+              new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime()
+            );
+          })
+          .slice(0, PUSH_TO_PROD_MAX_DRAFTS);
       }
-      if (allDrafts.length > PUSH_TO_PROD_MAX_DRAFTS) {
+
+      if (allDrafts.length === 0) {
+        if (pendingOnly) {
+          const remainingPending = await countPublishedDraftsNeedingProdPush();
+          return res.json({
+            totalDrafts: 0,
+            totalUpdated: 0,
+            totalInserted: 0,
+            totalErrors: 0,
+            coversUploaded: 0,
+            coversMissing: 0,
+            verification: [],
+            warnings: [],
+            remainingPending,
+            message:
+              remainingPending === 0
+                ? "All published books are synced to production."
+                : "No books in this batch (queue may have cleared).",
+            ok: remainingPending === 0,
+          });
+        }
+        return res.status(400).json({
+          error: "No drafts matched this sync mode.",
+        });
+      }
+      if (!pendingOnly && allDrafts.length > PUSH_TO_PROD_MAX_DRAFTS) {
         return res.status(400).json({
           error: `This push would sync ${allDrafts.length} books (max ${PUSH_TO_PROD_MAX_DRAFTS}). Select ${PUSH_TO_PROD_MAX_DRAFTS} or fewer and try again.`,
         });
@@ -8879,9 +9177,32 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       }
 
       const verifiedOnStorefront = verification.filter((v) => v.onStorefront).length;
-      const message = `Synced ${allDrafts.length} book(s) (${totalUpdated} draft rows updated, ${totalInserted} new, ${coversUploaded} covers uploaded, ${verifiedOnStorefront}/${allDrafts.length} verified on storefront${totalErrors > 0 ? `, ${totalErrors} sync errors` : ""})`;
+      const remainingPending = pendingOnly
+        ? await countPublishedDraftsNeedingProdPush()
+        : undefined;
+      const message = `Synced ${allDrafts.length} book(s) (${totalUpdated} draft rows updated, ${totalInserted} new, ${coversUploaded} covers uploaded, ${verifiedOnStorefront}/${allDrafts.length} verified on storefront${totalErrors > 0 ? `, ${totalErrors} sync errors` : ""}${remainingPending != null ? `, ${remainingPending} still need push` : ""})`;
       console.log(`[PushToProd] Complete: ${message}`);
       if (warnings.length) console.warn("[PushToProd] Warnings:", warnings.join(" | "));
+
+      if (totalErrors === 0) {
+        const {
+          computeDraftProdFingerprint,
+          withProdSyncInDescription,
+        } = await import("@shared/prodSyncMetadata");
+        for (const draft of allDrafts) {
+          const fingerprint = computeDraftProdFingerprint(draft);
+          const description = withProdSyncInDescription(draft.description, {
+            fingerprint,
+            syncedAt: new Date().toISOString(),
+            productionUrl: url,
+          });
+          await db
+            .update(draftEbooks)
+            .set({ description })
+            .where(eq(draftEbooks.id, draft.id));
+        }
+      }
+
       res.json({
         totalDrafts: allDrafts.length,
         totalUpdated,
@@ -8891,6 +9212,7 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         coversMissing,
         verification,
         warnings,
+        remainingPending,
         message,
         ok: totalErrors === 0 && verifiedOnStorefront === allDrafts.length && warnings.length === 0,
       });

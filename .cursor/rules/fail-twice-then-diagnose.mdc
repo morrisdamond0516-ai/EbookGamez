@@ -1,0 +1,29 @@
+---
+description: After 2 failed attempts, diagnose root cause — do not keep burning API money
+alwaysApply: true
+---
+
+# Fail twice → dig deeper (stop burning money)
+
+When generation, rewrite, repair, or publish work **fails twice** with the same or similar error, **stop retrying** and investigate the real cause before spending more API calls.
+
+## Required behavior
+
+1. **Attempt 1 fails** — one careful retry is OK (transient network blip).
+2. **Attempt 2 fails the same way** — **STOP**. Do not continue through remaining chapters, books, or overnight loops.
+3. **Dig deeper** before any further paid calls:
+   - Log full error (`cause`, `code`, nested socket errors — not just `"Connection error"`).
+   - Run a cheap diagnostic (small API ping vs large/stream call) if the failure looks like transport/TLS/timeout.
+   - Check whether the failure is content/outline quality vs infrastructure.
+4. **Fix the root cause** (e.g. streaming vs non-streaming, TLS, wrong endpoint, bad content) — then resume **one** controlled run.
+5. Tell the user what failed, what you found, and what you changed — before restarting expensive work.
+
+## Never do
+
+- Retry the same failing chapter/book path 3–15 times while burning tokens.
+- Assume “outline is bad” or “rewrite again” when the error is connection/socket/timeout.
+- Leave overnight/batch jobs looping on known connection failures.
+
+## Cost mindset
+
+API spend is real money. **Two failures of the same type = diagnosis mode, not more generation.**

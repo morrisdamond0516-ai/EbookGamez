@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { LOST_COVER_REGEN_IDS } from "@shared/coverConstants";
 import { getEffectClass, getColorVariables } from "@/lib/typography-effects";
 import { analyzeForTypography, enhanceTypographyOptions, getComplexityBreakdown, type VisualIntelligenceResult } from "@/lib/visual-intelligence";
 import { titlePerfectionEngine, type PerfectTitleDesign } from "@/lib/title-perfection-engine";
@@ -29,6 +30,12 @@ interface DraftEbook {
   coverStyleId: string | null;
   overlayApproved: boolean;
   publishedAt: string | null;
+  /** False when cover URLs point at missing files (local disk / GCS). */
+  coverReachable?: boolean;
+  /** True when cover was lost or deleted — show in Awaiting AI Style & Cover. */
+  needsCoverRegeneration?: boolean;
+  /** Existing production/catalog cover — regen deferred until later (no AI spend now). */
+  coverRegenDeferred?: boolean;
 }
 
 interface ColorPreset {
@@ -122,13 +129,37 @@ function normalizeLocalCoverUrl(url: string | null | undefined): string {
   return url.replace(/^\/objstore\/covers\//, "/uploads/covers/");
 }
 
-function coverReviewHasImage(draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl">): boolean {
+function coverReviewHasImage(draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl" | "coverReachable">): boolean {
+  if (draft.coverReachable === false) return false;
   return !!(draft.coverUrl || draft.backgroundUrl);
 }
 
-/** Research / idea placers: title + genre only — no AI style or cover yet. */
-function isTitlePlacerDraft(draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl" | "coverStyleId">): boolean {
+/** Only the known lost batch (#646, #648, #707–#728) — never flag old library books missing local disk copies. */
+function effectiveNeedsCoverRegeneration(
+  draft: Pick<DraftEbook, "id" | "coverUrl" | "backgroundUrl" | "coverStyleId" | "coverReachable" | "needsCoverRegeneration" | "coverRegenDeferred">,
+): boolean {
+  if (draft.coverRegenDeferred) return false;
+  if (!LOST_COVER_REGEN_IDS.has(draft.id)) return false;
+  if (draft.needsCoverRegeneration) return true;
+  return !!draft.coverStyleId && !coverReviewHasImage(draft);
+}
+
+/** New title placers OR known lost covers — regenerate in Awaiting AI Style & Cover. */
+function isAwaitingCoverDraft(draft: Pick<DraftEbook, "id" | "coverUrl" | "backgroundUrl" | "coverStyleId" | "coverReachable" | "needsCoverRegeneration" | "coverRegenDeferred">): boolean {
+  if (draft.coverRegenDeferred && coverReviewHasImage(draft)) return false;
+  if (effectiveNeedsCoverRegeneration(draft)) return true;
   return !draft.coverStyleId && !coverReviewHasImage(draft);
+}
+
+function isDeferredExistingCoverDraft(
+  draft: Pick<DraftEbook, "coverUrl" | "backgroundUrl" | "coverStyleId" | "coverReachable" | "coverRegenDeferred">,
+): boolean {
+  return !!draft.coverRegenDeferred && coverReviewHasImage(draft) && !draft.coverStyleId;
+}
+
+/** @deprecated use isAwaitingCoverDraft */
+function isTitlePlacerDraft(draft: Pick<DraftEbook, "id" | "coverUrl" | "backgroundUrl" | "coverStyleId" | "coverReachable" | "needsCoverRegeneration" | "coverRegenDeferred">): boolean {
+  return isAwaitingCoverDraft(draft);
 }
 
 function coverReviewPrimaryUrl(
@@ -1137,6 +1168,33 @@ export default function BatchCoverReview() {
     },
   });
 
+  const recoverCoversMutation = useMutation({
+    mutationFn: async (draftIds?: number[]) => {
+      const res = await apiRequest("POST", "/api/content-studio/recover-covers", { draftIds });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Cover recovery failed");
+      }
+      return res.json() as Promise<{
+        recovered: number;
+        deferred: number;
+        skipped: number;
+        failed: number;
+      }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+      toast({
+        title: "Existing covers recovered",
+        description: `${data.recovered + data.deferred} marked complete (regen deferred). ${data.skipped} skipped, ${data.failed} not found.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Recovery failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const updateRequestMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: "approved" | "rejected" | "pending" }) => {
       const res = await apiRequest("PATCH", `/api/content-studio/book-requests/${id}`, { status });
@@ -1867,8 +1925,8 @@ export default function BatchCoverReview() {
   }, [drafts, publishedBooks]);
   
   // Count missing covers (includes title placers)
-  const missingCoverCount = drafts.filter(d => !coverReviewHasImage(d)).length;
-  const titlePlacerCount = drafts.filter(isTitlePlacerDraft).length;
+  const missingCoverCount = drafts.filter(isAwaitingCoverDraft).length;
+  const titlePlacerCount = drafts.filter(d => !d.coverStyleId && !coverReviewHasImage(d)).length;
 
   const classicGenres = ["Classic Literature", "Classic Adventure", "Classic Drama", "Classic Epic", "Classic Fantasy", "Classic Horror", "Classic Mystery", "Classic Philosophy", "Classic Romance", "Classic Science Fiction"];
   
@@ -1885,7 +1943,7 @@ export default function BatchCoverReview() {
       filtered = filtered.filter(d => !d.publishedAt);
     }
     if (showMissingCovers) {
-      filtered = filtered.filter(d => !coverReviewHasImage(d));
+      filtered = filtered.filter(isAwaitingCoverDraft);
     }
     return filtered;
   }, [drafts, showMissingCovers, coverFilter, showClassics]);
@@ -1954,7 +2012,7 @@ export default function BatchCoverReview() {
     const ungrouped: DraftEbook[] = [];
     
     draftsForReview.forEach(draft => {
-      if (draft.coverStyleId && draft.coverStyleId !== "") {
+      if (draft.coverStyleId && draft.coverStyleId !== "" && coverReviewHasImage(draft)) {
         if (!groups[draft.coverStyleId]) {
           groups[draft.coverStyleId] = [];
         }
@@ -1973,6 +2031,19 @@ export default function BatchCoverReview() {
     
     return { allGroups: allGroupEntries, ungrouped };
   }, [draftsForReview]);
+
+  const awaitingCoverDrafts = useMemo(
+    () => groupedDrafts.ungrouped.filter(isAwaitingCoverDraft).sort((a, b) => a.id - b.id),
+    [groupedDrafts.ungrouped],
+  );
+  const deferredCoverDrafts = useMemo(
+    () => groupedDrafts.ungrouped.filter(isDeferredExistingCoverDraft).sort((a, b) => a.id - b.id),
+    [groupedDrafts.ungrouped],
+  );
+  const lostCoverCount = useMemo(
+    () => awaitingCoverDrafts.filter(effectiveNeedsCoverRegeneration).length,
+    [awaitingCoverDrafts],
+  );
 
   useEffect(() => {
     if (!expandedSectionsInitialized && groupedDrafts) {
@@ -2070,6 +2141,21 @@ export default function BatchCoverReview() {
             >
               <RefreshCw className="w-4 h-4 mr-1" />
               Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={recoverCoversMutation.isPending}
+              onClick={() => recoverCoversMutation.mutate(undefined)}
+              className="border-emerald-500 text-emerald-700 hover:bg-emerald-50"
+              data-testid="button-recover-covers"
+            >
+              {recoverCoversMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 mr-1" />
+              )}
+              Recover Existing Covers
             </Button>
             <Button
               variant="default"
@@ -3432,6 +3518,11 @@ export default function BatchCoverReview() {
                                   <CheckCircle className="w-3 h-3" />
                                 </div>
                               )}
+                              {draft.coverRegenDeferred && (
+                                <div className="absolute bottom-8 left-1 right-1 bg-emerald-700/90 text-white text-[8px] text-center py-0.5 rounded">
+                                  Existing — regen later
+                                </div>
+                              )}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -4000,393 +4091,10 @@ export default function BatchCoverReview() {
                     ))}
 
                     {/* Ungrouped covers (no style assigned yet) */}
-                    {groupedDrafts.ungrouped.length > 0 && (() => {
-                      const titlePlacers = groupedDrafts.ungrouped
-                        .filter(isTitlePlacerDraft)
-                        .sort((a, b) => a.id - b.id);
-                      const pendingOverlay = groupedDrafts.ungrouped.filter(d => coverReviewHasImage(d) && !d.overlayApproved);
-                      const approvedOverlay = groupedDrafts.ungrouped.filter(d => coverReviewHasImage(d) && d.overlayApproved);
-                      const selectedPendingIds = pendingOverlay.filter(d => selectedDraftIds.has(d.id)).map(d => d.id);
-                      const selectedApprovedIds = approvedOverlay.filter(d => selectedDraftIds.has(d.id)).map(d => d.id);
-                      return (
-                        <>
-                    {pendingOverlay.length > 0 && (
-                      <div className="border border-dashed border-amber-400 rounded-lg overflow-hidden bg-amber-50">
-                        <div className="flex items-center justify-between p-3 cursor-pointer" onClick={() => toggleSectionExpanded("__pending__")}>
-                          <div className="flex items-center gap-2">
-                            <ChevronDown className={`w-5 h-5 text-amber-600 transition-transform duration-200 ${expandedSections.has("__pending__") ? "" : "-rotate-90"}`} />
-                            <span className="text-sm font-medium text-amber-800">
-                              Pending AI Title Overlay
-                            </span>
-                            <span className="text-sm text-amber-700">
-                              ({pendingOverlay.length} covers)
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {selectedPendingIds.length > 0 && (
-                              <Button
-                                size="sm"
-                                className="bg-green-600 hover:bg-green-500 text-white"
-                                onClick={async () => {
-                                  try {
-                                    const res = await apiRequest("POST", "/api/content-studio/approve-overlay", { draftIds: selectedPendingIds });
-                                    const data = await res.json();
-                                    toast({ title: "Overlay Approved", description: data.message });
-                                    queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
-                                    setSelectedDraftIds(prev => {
-                                      const next = new Set(prev);
-                                      selectedPendingIds.forEach(id => next.delete(id));
-                                      return next;
-                                    });
-                                  } catch {
-                                    toast({ title: "Error", description: "Failed to approve overlays.", variant: "destructive" });
-                                  }
-                                }}
-                                data-testid="approve-overlay-btn"
-                              >
-                                <Check className="w-4 h-4 mr-1" />
-                                Approve Overlay ({selectedPendingIds.length})
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-amber-800 hover:text-amber-900"
-                              onClick={() => {
-                                const ids = pendingOverlay.map(d => d.id);
-                                setSelectedDraftIds(prev => {
-                                  const next = new Set(prev);
-                                  ids.forEach(id => next.add(id));
-                                  return next;
-                                });
-                              }}
-                              data-testid="select-pending-overlay"
-                            >
-                              Select All
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-amber-800 hover:text-amber-900"
-                              onClick={() => {
-                                const sectionIds = new Set(pendingOverlay.map(d => d.id));
-                                setSelectedDraftIds(prev => {
-                                  const next = new Set(prev);
-                                  sectionIds.forEach(id => next.delete(id));
-                                  return next;
-                                });
-                              }}
-                              data-testid="unselect-pending-overlay"
-                            >
-                              Unselect All
-                            </Button>
-                          </div>
-                        </div>
-                        {expandedSections.has("__pending__") && (<>
-                        <p className="text-xs text-amber-700 mb-3 px-3">
-                          These covers need AI title overlay. Double-click to edit, then check off and approve when finished.
-                        </p>
-                        <div className="px-3 pb-3 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                          {pendingOverlay.map((draft) => (
-                            <div
-                              key={draft.id}
-                              className={`relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
-                                selectedDraftId === draft.id
-                                  ? "border-green-500 ring-2 ring-green-200" 
-                                  : selectedDraftIds.has(draft.id) 
-                                    ? "border-blue-500 ring-2 ring-blue-200" 
-                                    : "border-transparent hover:border-gray-300"
-                              }`}
-                              onClick={() => {
-                                setSelectedDraftIds(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(draft.id)) {
-                                    next.delete(draft.id);
-                                  } else {
-                                    next.add(draft.id);
-                                  }
-                                  return next;
-                                });
-                                setSelectedDraftId(draft.id);
-                              }}
-                              onDoubleClick={(e) => {
-                                e.stopPropagation();
-                                { if (previewAutoSaveTimer.current) clearTimeout(previewAutoSaveTimer.current); userEditedTitleRef.current = false; lastSavedDraftIdRef.current = null; setPreviewDraft(draft); setPreviewEditTitle(draft.title); setPreviewTitleMismatch(false); setPreviewTitleCutoff(null); setPreviewOverlayMode(null); setPreviewTitleSize(100); };
-                              }}
-                              data-testid={`card-draft-${draft.id}`}
-                            >
-                              <div className="relative w-full aspect-[2/3] bg-black">
-                                {coverReviewHasImage(draft) ? (
-                                  <CoverReviewImage
-                                    draft={draft}
-                                    showCleanBackgrounds={showCleanBackgrounds}
-                                    className={`w-full h-full ${(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "contain" ? "object-contain" : "object-cover"}`}
-                                  />
-                                ) : (
-                                  <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
-                                    <span className="text-gray-500 text-xs text-center px-2">No cover yet</span>
-                                  </div>
-                                )}
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setCoverFitOverrides(prev => {
-                                      const next = new Map(prev);
-                                      const current = next.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover");
-                                      next.set(draft.id, current === "cover" ? "contain" : "cover");
-                                      return next;
-                                    });
-                                  }}
-                                  className="absolute bottom-8 right-1 bg-black/60 backdrop-blur border border-white/10 text-white rounded w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
-                                  title="Toggle fit mode"
-                                >
-                                  {(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "cover" ? (
-                                    <Minimize2 className="w-3 h-3" />
-                                  ) : (
-                                    <Maximize2 className="w-3 h-3" />
-                                  )}
-                                </button>
-                                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                  {(draft.backgroundUrl || draft.coverUrl) && (
-                                    <>
-                                      <button
-                                        className="p-1 bg-green-600 hover:bg-green-500 rounded text-white shadow-lg"
-                                        title="Move cover to another ebook"
-                                        data-testid={`button-reassign-cover-${draft.id}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setReassignSourceId(draft.id);
-                                          setReassignSearch("");
-                                        }}
-                                      >
-                                        <ArrowRight className="w-3 h-3" />
-                                      </button>
-                                      <button
-                                        className="p-1 bg-blue-600 hover:bg-blue-500 rounded text-white shadow-lg"
-                                        title="Swap image"
-                                        data-testid={`button-swap-cover-ungrouped-${draft.id}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSwapTargetId(draft.id);
-                                          swapFileInputRef.current?.click();
-                                        }}
-                                      >
-                                        <Replace className="w-3 h-3" />
-                                      </button>
-                                      <button
-                                        className="p-1 bg-orange-600 hover:bg-orange-500 rounded text-white shadow-lg"
-                                        title="Remove cover only"
-                                        data-testid={`button-delete-cover-ungrouped-${draft.id}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (confirm(`Remove cover image from "${draft.title}"? The ebook entry will remain.`)) {
-                                            deleteCoverMutation.mutate(draft.id);
-                                          }
-                                        }}
-                                      >
-                                        <Image className="w-3 h-3" />
-                                      </button>
-                                    </>
-                                  )}
-                                  <button
-                                    className="p-1 bg-red-600 hover:bg-red-500 rounded text-white shadow-lg"
-                                    title="Delete entire ebook"
-                                    data-testid={`button-delete-ebook-ungrouped-${draft.id}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (confirm(`Delete ebook "${draft.title}" entirely? This cannot be undone.`)) {
-                                        deleteEbookMutation.mutate(draft.id);
-                                      }
-                                    }}
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                                {analyzingIds.has(draft.id) && (
-                                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                                    <div className="text-white text-xs flex items-center gap-2">
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                      Analyzing...
-                                    </div>
-                                  </div>
-                                )}
-                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] p-1 text-center truncate">
-                                  {draft.title}
-                                </div>
-                              </div>
-                              {selectedDraftIds.has(draft.id) && (
-                                <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full p-1">
-                                  <Check className="w-3 h-3" />
-                                </div>
-                              )}
-                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
-                                <span className="text-white text-xs bg-black/50 px-2 py-1 rounded">
-                                  Double-click to edit title
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        </>)}
-                      </div>
-                    )}
+                    {groupedDrafts.ungrouped.length > 0 && awaitingCoverDrafts.length > 0 && (
+                      <>
 
-                    {approvedOverlay.length > 0 && (
-                      <div className="border border-dashed border-green-400 rounded-lg overflow-hidden bg-green-50">
-                        <div className="flex items-center justify-between p-3 cursor-pointer" onClick={() => toggleSectionExpanded("__approved__")}>
-                          <div className="flex items-center gap-2">
-                            <ChevronDown className={`w-5 h-5 text-green-600 transition-transform duration-200 ${expandedSections.has("__approved__") ? "" : "-rotate-90"}`} />
-                            <Check className="w-4 h-4 text-green-600" />
-                            <span className="text-sm font-medium text-green-800">
-                              Overlay Approved
-                            </span>
-                            <span className="text-sm text-green-700">
-                              ({approvedOverlay.length} covers)
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {selectedApprovedIds.length > 0 && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="border-amber-400 text-amber-700 hover:bg-amber-50"
-                                onClick={async () => {
-                                  try {
-                                    const res = await apiRequest("POST", "/api/content-studio/unapprove-overlay", { draftIds: selectedApprovedIds });
-                                    const data = await res.json();
-                                    toast({ title: "Moved Back", description: data.message });
-                                    queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts", "published"] });
-                                    setSelectedDraftIds(prev => {
-                                      const next = new Set(prev);
-                                      selectedApprovedIds.forEach(id => next.delete(id));
-                                      return next;
-                                    });
-                                  } catch {
-                                    toast({ title: "Error", description: "Failed to unapprove overlays.", variant: "destructive" });
-                                  }
-                                }}
-                                data-testid="unapprove-overlay-btn"
-                              >
-                                Move Back to Pending ({selectedApprovedIds.length})
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-green-800 hover:text-green-900"
-                              onClick={() => {
-                                const ids = approvedOverlay.map(d => d.id);
-                                setSelectedDraftIds(prev => {
-                                  const next = new Set(prev);
-                                  ids.forEach(id => next.add(id));
-                                  return next;
-                                });
-                              }}
-                              data-testid="select-approved-overlay"
-                            >
-                              Select All
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-green-800 hover:text-green-900"
-                              onClick={() => {
-                                const sectionIds = new Set(approvedOverlay.map(d => d.id));
-                                setSelectedDraftIds(prev => {
-                                  const next = new Set(prev);
-                                  sectionIds.forEach(id => next.delete(id));
-                                  return next;
-                                });
-                              }}
-                              data-testid="unselect-approved-overlay"
-                            >
-                              Unselect All
-                            </Button>
-                          </div>
-                        </div>
-                        {expandedSections.has("__approved__") && (
-                        <div className="px-3 pb-3 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                          {approvedOverlay.map((draft) => (
-                            <div
-                              key={draft.id}
-                              className={`relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
-                                selectedDraftIds.has(draft.id) 
-                                    ? "border-blue-500 ring-2 ring-blue-200" 
-                                    : "border-green-300 hover:border-green-400"
-                              }`}
-                              onClick={() => {
-                                setSelectedDraftIds(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(draft.id)) {
-                                    next.delete(draft.id);
-                                  } else {
-                                    next.add(draft.id);
-                                  }
-                                  return next;
-                                });
-                              }}
-                              onDoubleClick={(e) => {
-                                e.stopPropagation();
-                                { if (previewAutoSaveTimer.current) clearTimeout(previewAutoSaveTimer.current); userEditedTitleRef.current = false; lastSavedDraftIdRef.current = null; setPreviewDraft(draft); setPreviewEditTitle(draft.title); setPreviewTitleMismatch(false); setPreviewTitleCutoff(null); setPreviewOverlayMode(null); setPreviewTitleSize(100); };
-                              }}
-                              data-testid={`card-approved-${draft.id}`}
-                            >
-                              <div className="relative w-full aspect-[2/3] bg-black">
-                                {coverReviewHasImage(draft) ? (
-                                  <CoverReviewImage
-                                    draft={draft}
-                                    showCleanBackgrounds={showCleanBackgrounds}
-                                    className={`w-full h-full ${(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "contain" ? "object-contain" : "object-cover"}`}
-                                  />
-                                ) : (
-                                  <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
-                                    <span className="text-gray-500 text-xs text-center px-2">No cover</span>
-                                  </div>
-                                )}
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setCoverFitOverrides(prev => {
-                                      const next = new Map(prev);
-                                      const current = next.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover");
-                                      next.set(draft.id, current === "cover" ? "contain" : "cover");
-                                      return next;
-                                    });
-                                  }}
-                                  className="absolute bottom-8 right-1 bg-black/60 backdrop-blur border border-white/10 text-white rounded w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-20"
-                                  title="Toggle fit mode"
-                                >
-                                  {(coverFitOverrides.get(draft.id) || ((draft.coverUrl || "").includes("ai-overlay") ? "contain" : "cover")) === "cover" ? (
-                                    <Minimize2 className="w-3 h-3" />
-                                  ) : (
-                                    <Maximize2 className="w-3 h-3" />
-                                  )}
-                                </button>
-                                <div className="absolute top-1 left-1">
-                                  <div className="bg-green-500 rounded-full p-0.5">
-                                    <Check className="w-2.5 h-2.5 text-white" />
-                                  </div>
-                                </div>
-                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] p-1 text-center truncate">
-                                  {draft.title}
-                                </div>
-                              </div>
-                              {selectedDraftIds.has(draft.id) && (
-                                <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full p-1">
-                                  <Check className="w-3 h-3" />
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                        )}
-                      </div>
-                    )}
-
-                    {titlePlacers.length > 0 && (
-                      <div id="section-title-placers" className="border-2 border-dashed border-violet-400 rounded-lg overflow-hidden bg-violet-50/80">
+                    <div id="section-title-placers" className="border-2 border-dashed border-violet-400 rounded-lg overflow-hidden bg-violet-50/80">
                         <div
                           className="flex items-center justify-between p-3 cursor-pointer"
                           onClick={() => toggleSectionExpanded("__placers__")}
@@ -4397,7 +4105,10 @@ export default function BatchCoverReview() {
                             <span className="text-sm font-medium text-violet-900">
                               Awaiting AI Style &amp; Cover
                             </span>
-                            <span className="text-sm text-violet-700">({titlePlacers.length} title placers)</span>
+                            <span className="text-sm text-violet-700">
+                              ({awaitingCoverDrafts.length}
+                              {lostCoverCount > 0 ? ` — ${lostCoverCount} need regen` : ""})
+                            </span>
                           </div>
                           <Button
                             variant="ghost"
@@ -4405,7 +4116,7 @@ export default function BatchCoverReview() {
                             className="text-violet-800 hover:text-violet-900"
                             onClick={(e) => {
                               e.stopPropagation();
-                              const ids = titlePlacers.map(d => d.id);
+                              const ids = awaitingCoverDrafts.map(d => d.id);
                               setSelectedDraftIds(prev => {
                                 const next = new Set(prev);
                                 ids.forEach(id => next.add(id));
@@ -4420,10 +4131,10 @@ export default function BatchCoverReview() {
                         {expandedSections.has("__placers__") && (
                           <>
                             <p className="text-xs text-violet-800 mb-3 px-3">
-                              New research ideas land here first. Pick an AI style in the sections above, select placers, then Generate backgrounds.
+                              New titles and covers that were lost or deleted appear here. Pick an AI style above, select books, then Generate.
                             </p>
                             <div className="px-3 pb-3 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                              {titlePlacers.map((draft) => (
+                              {awaitingCoverDrafts.map((draft) => (
                                 <div
                                   key={draft.id}
                                   className={`relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
@@ -4443,9 +4154,85 @@ export default function BatchCoverReview() {
                                   data-testid={`card-placer-${draft.id}`}
                                 >
                                   <div className="relative w-full aspect-[2/3] bg-gradient-to-br from-violet-900/40 to-gray-900 flex flex-col items-center justify-center gap-2 px-2">
-                                    <Lightbulb className="w-7 h-7 text-violet-300" />
-                                    <span className="text-violet-200 text-[10px] text-center font-medium">Title placer</span>
-                                    <span className="text-violet-400/80 text-[9px] text-center">No style yet</span>
+                                    {effectiveNeedsCoverRegeneration(draft) ? (
+                                      <>
+                                        <Image className="w-7 h-7 text-orange-400" />
+                                        <span className="text-orange-300 text-[10px] text-center font-medium">Cover lost — regen</span>
+                                        {draft.coverStyleId && (
+                                          <span className="text-violet-300/90 text-[9px] text-center">{allStyleNames[draft.coverStyleId] || draft.coverStyleId}</span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Lightbulb className="w-7 h-7 text-violet-300" />
+                                        <span className="text-violet-200 text-[10px] text-center font-medium">Title placer</span>
+                                        <span className="text-violet-400/80 text-[9px] text-center">No style yet</span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-1.5">
+                                    <p className="text-[10px] text-white font-medium truncate">{draft.title}</p>
+                                    <p className="text-[9px] text-gray-400">ID: {draft.id} · {draft.genre}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      </>
+                    )}
+
+                    {deferredCoverDrafts.length > 0 && (
+                      <div id="section-deferred-covers" className="border-2 border-dashed border-emerald-400 rounded-lg overflow-hidden bg-emerald-50/80 mt-4">
+                        <div
+                          className="flex items-center justify-between p-3 cursor-pointer"
+                          onClick={() => toggleSectionExpanded("__deferred__")}
+                        >
+                          <div className="flex items-center gap-2">
+                            <ChevronDown className={`w-5 h-5 text-emerald-600 transition-transform duration-200 ${expandedSections.has("__deferred__") ? "" : "-rotate-90"}`} />
+                            <CheckCircle className="w-4 h-4 text-emerald-600" />
+                            <span className="text-sm font-medium text-emerald-900">
+                              Existing Covers — Regen Later
+                            </span>
+                            <span className="text-sm text-emerald-700">({deferredCoverDrafts.length})</span>
+                          </div>
+                        </div>
+                        {expandedSections.has("__deferred__") && (
+                          <>
+                            <p className="text-xs text-emerald-800 mb-3 px-3">
+                              These books already have covers on production. No new AI cover spend until you are ready — use Regenerate when budget allows.
+                            </p>
+                            <div className="px-3 pb-3 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                              {deferredCoverDrafts.map((draft) => (
+                                <div
+                                  key={draft.id}
+                                  className={`relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
+                                    selectedDraftIds.has(draft.id)
+                                      ? "border-blue-500 ring-2 ring-blue-200"
+                                      : "border-emerald-300 hover:border-emerald-500"
+                                  }`}
+                                  onClick={() => {
+                                    setSelectedDraftIds((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(draft.id)) next.delete(draft.id);
+                                      else next.add(draft.id);
+                                      return next;
+                                    });
+                                    setSelectedDraftId(draft.id);
+                                  }}
+                                  data-testid={`card-deferred-${draft.id}`}
+                                >
+                                  <div className="relative w-full aspect-[2/3] bg-black">
+                                    <CoverReviewImage
+                                      draft={draft}
+                                      showCleanBackgrounds={showCleanBackgrounds}
+                                      className="w-full h-full object-cover"
+                                      loading="lazy"
+                                    />
+                                    <div className="absolute top-1 left-1 bg-emerald-600 text-white text-[8px] px-1.5 py-0.5 rounded">
+                                      Deferred
+                                    </div>
                                   </div>
                                   <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-1.5">
                                     <p className="text-[10px] text-white font-medium truncate">{draft.title}</p>
@@ -4458,9 +4245,6 @@ export default function BatchCoverReview() {
                         )}
                       </div>
                     )}
-                        </>
-                      );
-                    })()}
                   </div>
                 )}
               </CardContent>
@@ -4633,7 +4417,7 @@ export default function BatchCoverReview() {
                               <p className="text-[10px] text-gray-500">ID: {draft.id} · {draft.genre}</p>
                               <p className="text-[10px] text-purple-600">{draft.coverStyleId || "no style"}</p>
                               {isChosen && (
-                                <p className="text-[10px] text-blue-600 mt-0.5 font-medium">Will be retitled &amp; sent to Pending AI Title Overlay</p>
+                                <p className="text-[10px] text-blue-600 mt-0.5 font-medium">Will be retitled for duplicate resolution</p>
                               )}
                               {isRejected && (
                                 <p className="text-[10px] text-green-600 mt-0.5 font-medium">Keeps original title</p>
@@ -4870,7 +4654,7 @@ export default function BatchCoverReview() {
                       });
                     }
                     toast({
-                      title: "Sent to Pending AI Title Overlay",
+                      title: "Duplicates updated",
                       description: `${retitleIds.length} cover${retitleIds.length !== 1 ? "s" : ""} sent for retitling.`,
                     });
                     queryClient.invalidateQueries({ queryKey: ["/api/content-studio/ready-for-review"] });
@@ -4889,7 +4673,7 @@ export default function BatchCoverReview() {
                 {deletingDuplicates ? (
                   <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Processing...</>
                 ) : (
-                  <><Sparkles className="w-4 h-4 mr-1" /> Send {chosenDuplicates.size} to Pending AI Title Overlay</>
+                  <><Sparkles className="w-4 h-4 mr-1" /> Retitle {chosenDuplicates.size} duplicate{chosenDuplicates.size !== 1 ? "s" : ""}</>
                 )}
               </Button>
             </div>

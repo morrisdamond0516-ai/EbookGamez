@@ -1,0 +1,27 @@
+---
+description: After any book fix or repair, always re-run quality gate before ready/publish
+alwaysApply: true
+---
+
+# Quality check after every fix
+
+Any change to draft content, illustrations, covers, or status must pass the pipeline gate again before `ready` or `published`.
+
+## Required workflow
+
+1. After a fix, run **`audit-one-draft.ts`** (strict by default) or **`runPublishPipelineGate(d, { strict: true })`**.
+2. Strict gate = structural + cover + illustrations + **genre verify** + **dialogue/prose** (fiction/NF) or **instructional materials** (Textbooks / Education) + **climax** (fiction only).
+3. Do **not** mark `ready` or publish until strict gate **passes**.
+4. Follow the full cover → outline → Story Architect path for new work (see `story-pipeline-quality.mdc`). Educational books: see `educational-books-pipeline.mdc`.
+
+## Scripts
+
+- Single draft (strict): `npx tsx script/audit-one-draft.ts <id>`
+- Promote only if pass: `npx tsx script/audit-one-draft.ts <id> --promote`
+- Structural-only (exception): `npx tsx script/audit-one-draft.ts <id> --structural-only`
+
+## User expectation
+
+Fixing something does not mean it is done. **Fix → quality check → then ready/publish.**
+
+If the same failure happens twice (especially connection/API errors), **stop and diagnose** — see `fail-twice-then-diagnose.mdc`. Do not keep burning API retries.

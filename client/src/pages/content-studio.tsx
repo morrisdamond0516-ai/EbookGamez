@@ -176,6 +176,13 @@ interface DraftEbook {
   bookVisible?: boolean;
   publishedBookId?: number | null;
   inCatalog?: boolean;
+  needsProdPush?: boolean;
+  prodSyncReason?: "never_pushed" | "local_changes" | "synced" | "not_published" | null;
+  lastProdSyncedAt?: string | null;
+  /** Tagged for later fix (e.g. missing illustrations) — still published / considered good. */
+  qualityDeferral?: boolean;
+  qualityDeferralReason?: string | null;
+  qualityDeferralNote?: string | null;
 }
 
 interface GenerationJob {
@@ -189,8 +196,10 @@ interface GenerationJob {
   createdAt: string;
 }
 
+import { PROD_PUSH_BATCH_SIZE } from "@shared/prodSyncMetadata";
+
 const VISUAL_FIRST_GENRES = new Set(["Comics", "Graphic Novels", "Photography Books", "Coloring Books", "Art Books"]);
-const PUSH_TO_PROD_MAX = 25;
+const PUSH_TO_PROD_MAX = PROD_PUSH_BATCH_SIZE;
 const DEFAULT_PRODUCTION_URL = "https://ebookgamez.com";
 
 export default function ContentStudio() {
@@ -260,9 +269,10 @@ function ContentStudioMain() {
     if (saved && !/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(saved)) return saved;
     return DEFAULT_PRODUCTION_URL;
   });
-  const [syncMode, setSyncMode] = useState<"selected" | "recent" | "illustrated" | "prose" | "all">("selected");
+  const [syncMode, setSyncMode] = useState<"selected" | "pending" | "recent" | "illustrated" | "prose" | "all">("pending");
   const [recentSyncDays, setRecentSyncDays] = useState(7);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [autoSyncProgress, setAutoSyncProgress] = useState<{ pushed: number; remaining: number; batch: number } | null>(null);
   const [syncResult, setSyncResult] = useState<{
     totalDrafts: number;
     totalUpdated: number;
@@ -528,18 +538,21 @@ function ContentStudioMain() {
     const cutoff = Date.now() - recentSyncDays * 24 * 60 * 60 * 1000;
     const recent = published.filter(d => d.publishedAt && new Date(d.publishedAt).getTime() >= cutoff);
     const selected = published.filter(d => selectedIds.has(d.id));
+    const pending = published.filter(d => d.needsProdPush);
     return {
       illustrated: illustrated.length,
       prose: prose.length,
       all: published.length,
       recent: recent.length,
       selected: selected.length,
+      pending: pending.length,
     };
   }, [drafts, recentSyncDays, selectedIds]);
 
   const pushCountForMode = useMemo(() => {
     switch (syncMode) {
       case "selected": return pushToProdCounts.selected;
+      case "pending": return Math.min(pushToProdCounts.pending, PUSH_TO_PROD_MAX);
       case "recent": return pushToProdCounts.recent;
       case "illustrated": return pushToProdCounts.illustrated;
       case "prose": return pushToProdCounts.prose;
@@ -548,6 +561,7 @@ function ContentStudioMain() {
   }, [syncMode, pushToProdCounts]);
 
   const isOverPushLimit = useMemo(() => {
+    if (syncMode === "pending") return false;
     if (syncMode === "selected") return selectedIds.size > PUSH_TO_PROD_MAX;
     return pushCountForMode > PUSH_TO_PROD_MAX;
   }, [syncMode, selectedIds.size, pushCountForMode]);
@@ -565,6 +579,8 @@ function ContentStudioMain() {
       if (pushToProdCounts.selected === 0) {
         return `You checked ${selectedIds.size} row(s), but none are published with content. Publish the book first, then push.`;
       }
+    } else if (syncMode === "pending" && pushToProdCounts.pending === 0) {
+      return "All published books are synced to production.";
     } else if (pushCountForMode === 0) {
       return "No published books match this sync mode. Try “Selected only”.";
     }
@@ -1137,8 +1153,12 @@ function ContentStudioMain() {
   };
 
   const resetAndRestart = async (draftId: number) => {
+    const adminToken = localStorage.getItem("ebgz_admin_token") || "";
     try {
-      const resetRes = await fetch(`/api/content-studio/reset-stuck/${draftId}`, { method: "POST" });
+      const resetRes = await fetch(`/api/content-studio/reset-stuck/${draftId}`, {
+        method: "POST",
+        headers: { "x-admin-token": adminToken },
+      });
       if (!resetRes.ok) {
         const err = await resetRes.json();
         throw new Error(err.error || "Failed to reset");
@@ -1179,8 +1199,12 @@ function ContentStudioMain() {
 
   const continueWriting = async (draftId: number) => {
     setContinuingDraftIds(prev => new Set(prev).add(draftId));
+    const adminToken = localStorage.getItem("ebgz_admin_token") || "";
     try {
-      const response = await fetch(`/api/content-studio/continue-writing/${draftId}`, { method: "POST" });
+      const response = await fetch(`/api/content-studio/continue-writing/${draftId}`, {
+        method: "POST",
+        headers: { "x-admin-token": adminToken },
+      });
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || "Failed to continue writing");
@@ -1339,7 +1363,6 @@ function ContentStudioMain() {
       .then(r => r.json())
       .then(data => {
         toast({ title: "Illustrations Queued", description: data.message || `${ids.length} books queued for illustration generation` });
-        pollContentGenStatus();
         pollIllustrationProgress();
       })
       .catch(() => {
@@ -1574,7 +1597,10 @@ function ContentStudioMain() {
                           data-testid={`checkbox-book-${n.id}`}
                         />
                         <span className="text-purple-300 font-mono">#{n.id}</span>
-                        <span className="truncate" title={n.title}>{n.title.length > 30 ? n.title.substring(0, 30) + '...' : n.title}</span>
+                        <span className="truncate flex-1" title={n.title}>{n.title.length > 24 ? n.title.substring(0, 24) + '...' : n.title}</span>
+                        <span className={`shrink-0 text-[9px] px-1 rounded ${n.actionType === "illustrations-only" ? "bg-purple-500/20 text-purple-300" : "bg-amber-500/20 text-amber-300"}`}>
+                          {n.actionType === "illustrations-only" ? "art only" : "rewrite"}
+                        </span>
                       </label>
                     ))}
                   </div>
@@ -1591,18 +1617,20 @@ function ContentStudioMain() {
                             body: JSON.stringify({ draftIds: ids }),
                           }).then(r => { if (r.ok) { setIllustrationGenRunning(true); pollIllustrationProgress(); setSelectedForRewrite(new Set()); } else { r.json().then(d => alert(d.error || "Failed")); } }).catch(() => alert("Network error"));
                         }}
-                        disabled={illustrationGenRunning || contentGenRunning}
+                        disabled={illustrationGenRunning}
                         className="w-full border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
                         data-testid="button-bulk-art-only"
                       >
                         {illustrationGenRunning ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ImageIcon className="h-3 w-3 mr-1" />}
                         {illustrationGenRunning ? 'Generating Art...' : `Art Only (${selectedForRewrite.size} selected)`}
                       </Button>
+                      {selectedForRewrite.size > 0 && [...selectedForRewrite].some(id => illustrationNeeds.find(n => n.id === id)?.actionType === "rewrite-and-illustrate") && (
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => {
-                          const ids = Array.from(selectedForRewrite);
+                          const ids = Array.from(selectedForRewrite).filter(id => illustrationNeeds.find(n => n.id === id)?.actionType === "rewrite-and-illustrate");
+                          if (ids.length === 0) return;
                           fetch("/api/content-studio/rewrite-specific-drafts", {
                             method: "POST",
                             headers: { "Content-Type": "application/json", "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
@@ -1614,9 +1642,12 @@ function ContentStudioMain() {
                         data-testid="button-bulk-rewrite-art"
                       >
                         {contentGenRunning ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                        {contentGenRunning ? 'Rewriting + Art...' : `Rewrite + Art (${selectedForRewrite.size} selected)`}
+                        {contentGenRunning ? 'Rewriting + Art...' : `Rewrite + Art (${[...selectedForRewrite].filter(id => illustrationNeeds.find(n => n.id === id)?.actionType === "rewrite-and-illustrate").length} selected)`}
                       </Button>
-                      <p className="text-[10px] text-muted-foreground">Art Only = just adds images. Rewrite + Art = rewrites content then adds images (costs more).</p>
+                      )}
+                      {selectedForRewrite.size > 0 && (
+                      <p className="text-[10px] text-muted-foreground">Art Only = images only (content unchanged). Rewrite + Art only shows for books that need a prose rewrite.</p>
+                      )}
                     </div>
                   )}
                   {selectedForRewrite.size === 0 && (
@@ -1986,6 +2017,7 @@ function ContentStudioMain() {
             <div className="px-4 pb-4 space-y-3">
               <p className="text-xs text-blue-200/70 leading-relaxed">
                 Pushes from <strong>this computer</strong> to the live site. You must deploy code to Replit first, then push small batches (max {PUSH_TO_PROD_MAX}).
+                Use <strong className="text-blue-200">Auto-push all</strong> to run batches of {PUSH_TO_PROD_MAX} until every pending book is synced.
               </p>
               <ol className="text-xs text-blue-200/80 space-y-1 list-decimal list-inside border border-blue-500/20 rounded-md px-3 py-2 bg-blue-950/30">
                 <li>Production URL = <strong className="text-blue-200">https://ebookgamez.com</strong> (not localhost)</li>
@@ -2053,6 +2085,9 @@ function ContentStudioMain() {
                     className="w-full h-8 rounded-md border border-white/20 bg-background text-sm px-2"
                     data-testid="select-sync-mode"
                   >
+                    <option value="pending">
+                      Needs production push — next {Math.min(pushToProdCounts.pending, PUSH_TO_PROD_MAX)} of {pushToProdCounts.pending}
+                    </option>
                     <option value="selected">Selected only ({pushToProdCounts.selected})</option>
                     <option value="recent" disabled={pushToProdCounts.recent > PUSH_TO_PROD_MAX}>
                       Recently published — {recentSyncDays}d ({pushToProdCounts.recent}){pushToProdCounts.recent > PUSH_TO_PROD_MAX ? " — over limit" : ""}
@@ -2131,6 +2166,7 @@ function ContentStudioMain() {
                       const data = await resp.json();
                       if (!resp.ok) throw new Error(data.error || "Sync failed");
                       setSyncResult(data);
+                      queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
                       const hasProblems = !data.ok || (data.totalErrors ?? 0) > 0 || (data.warnings?.length ?? 0) > 0;
                       toast({
                         title: hasProblems ? "Push finished with issues" : "Push verified on production",
@@ -2150,7 +2186,101 @@ function ContentStudioMain() {
                   className="bg-blue-600 hover:bg-blue-500 text-white h-8 px-4 text-sm whitespace-nowrap"
                   data-testid="button-push-to-production"
                 >
-                  {isSyncing ? <><Loader2 className="h-3 w-3 animate-spin mr-1" />Syncing…</> : <><Upload className="h-3 w-3 mr-1" />Push to Production</>}
+                  {isSyncing && autoSyncProgress ? (
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />Batch {autoSyncProgress.batch}…</>
+                  ) : isSyncing ? (
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />Syncing…</>
+                  ) : (
+                    <><Upload className="h-3 w-3 mr-1" />Push to Production</>
+                  )}
+                </Button>
+                <Button
+                  onClick={async () => {
+                    if (!productionUrl.trim()) {
+                      toast({ title: "Enter your production URL first", variant: "destructive" });
+                      return;
+                    }
+                    if (pushToProdCounts.pending === 0) {
+                      toast({ title: "Nothing to sync", description: "All published books are already synced.", variant: "destructive" });
+                      return;
+                    }
+                    const prod = productionUrl.trim();
+                    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(prod)) {
+                      toast({
+                        title: "Wrong production URL",
+                        description: "localhost only updates this PC. Use https://ebookgamez.com (or your Replit URL).",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    setIsSyncing(true);
+                    setSyncResult(null);
+                    let totalPushed = 0;
+                    let batches = 0;
+                    let remaining = pushToProdCounts.pending;
+                    let lastData: typeof syncResult = null;
+                    const token = localStorage.getItem("ebgz_admin_token") || "";
+                    const MAX_AUTO_BATCHES = 200;
+                    try {
+                      while (batches < MAX_AUTO_BATCHES) {
+                        setAutoSyncProgress({
+                          pushed: totalPushed,
+                          remaining,
+                          batch: batches + 1,
+                        });
+                        const resp = await fetch("/api/admin/push-to-production", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", "x-admin-token": token },
+                          body: JSON.stringify({
+                            productionUrl: productionUrl.trim(),
+                            mode: "pending",
+                          }),
+                        });
+                        const data = await resp.json();
+                        if (!resp.ok) throw new Error(data.error || "Sync failed");
+                        if ((data.totalDrafts ?? 0) === 0) break;
+                        if ((data.totalErrors ?? 0) > 0) {
+                          setSyncResult(data);
+                          throw new Error(`Batch ${batches + 1} had ${data.totalErrors} sync error(s). Fix and run auto-push again.`);
+                        }
+                        totalPushed += data.totalDrafts ?? 0;
+                        batches++;
+                        lastData = data;
+                        remaining = data.remainingPending ?? 0;
+                        queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                        if ((data.remainingPending ?? 0) === 0) break;
+                        await new Promise((r) => setTimeout(r, 2000));
+                      }
+                      if (lastData) {
+                        setSyncResult({
+                          ...lastData,
+                          message: `Auto-push complete: ${totalPushed} book(s) in ${batches} batch(es).${(lastData.remainingPending ?? 0) > 0 ? ` ${lastData.remainingPending} still need push.` : ""}`,
+                          ok: (lastData.remainingPending ?? 0) === 0 && lastData.ok,
+                        });
+                      }
+                      toast({
+                        title: (lastData?.remainingPending ?? 0) === 0 ? "Auto-push complete" : "Auto-push paused",
+                        description: `Pushed ${totalPushed} book(s) in ${batches} batch(es).${(lastData?.remainingPending ?? 0) > 0 ? ` ${lastData?.remainingPending} still need push.` : ""}`,
+                        variant: (lastData?.remainingPending ?? 0) === 0 ? "default" : "destructive",
+                      });
+                    } catch (e: any) {
+                      toast({ title: "Auto-push failed", description: e.message, variant: "destructive" });
+                    } finally {
+                      setIsSyncing(false);
+                      setAutoSyncProgress(null);
+                    }
+                  }}
+                  disabled={isSyncing || !productionUrl.trim() || pushToProdCounts.pending === 0}
+                  title={`Push all pending books in batches of ${PUSH_TO_PROD_MAX} until done`}
+                  variant="outline"
+                  className="border-blue-500/40 text-blue-200 hover:bg-blue-500/10 h-8 px-4 text-sm whitespace-nowrap"
+                  data-testid="button-auto-push-all-pending"
+                >
+                  {autoSyncProgress ? (
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />{autoSyncProgress.pushed} done · ~{autoSyncProgress.remaining} left</>
+                  ) : (
+                    <>Auto-push all ({PUSH_TO_PROD_MAX}/batch)</>
+                  )}
                 </Button>
               </div>
               {syncMode === "selected" && selectedIds.size > 0 && (
@@ -2679,6 +2809,10 @@ function ContentStudioMain() {
                               {getStatusBadge(draft.status)}
                               {illustrationNeeds.some(n => n.id === draft.id) && (
                                 <>
+                                  {(() => {
+                                    const need = illustrationNeeds.find(n => n.id === draft.id);
+                                    return (
+                                      <>
                                   <Button
                                     size="sm"
                                     variant="ghost"
@@ -2689,13 +2823,14 @@ function ContentStudioMain() {
                                         body: JSON.stringify({ draftIds: [draft.id] }),
                                       }).then(r => { if (r.ok) { setIllustrationGenRunning(true); pollIllustrationProgress(); } else { r.json().then(d => alert(d.error || "Failed")); } }).catch(() => alert("Network error"));
                                     }}
-                                    disabled={illustrationGenRunning || contentGenRunning}
+                                    disabled={illustrationGenRunning}
                                     className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 text-[10px] px-1.5 h-6"
                                     data-testid={`button-art-only-${draft.id}`}
-                                    title="Add art only — content stays the same"
+                                    title={need?.reason || "Add art only — content stays the same"}
                                   >
                                     <ImageIcon className="h-3 w-3 mr-0.5" /> Art Only
                                   </Button>
+                                  {need?.actionType === "rewrite-and-illustrate" && (
                                   <Button
                                     size="sm"
                                     variant="ghost"
@@ -2713,6 +2848,10 @@ function ContentStudioMain() {
                                   >
                                     <RefreshCw className="h-3 w-3 mr-0.5" /> Rewrite + Art
                                   </Button>
+                                  )}
+                                      </>
+                                    );
+                                  })()}
                                 </>
                               )}
                             </div>
@@ -2917,7 +3056,7 @@ function ContentStudioMain() {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => generateIllustrations(draft.id)}
-                                  disabled={illustratingDraftIds.has(draft.id)}
+                                  disabled={illustratingDraftIds.has(draft.id) || illustrationGenRunning}
                                   className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10"
                                   data-testid={`button-illustrations-${draft.id}`}
                                   title="Generate AI illustrations for this book"
@@ -3032,6 +3171,19 @@ function ContentStudioMain() {
                           <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
                             {publishedDrafts.length}
                           </Badge>
+                          {publishedDrafts.filter(d => d.needsProdPush).length > 0 && (
+                            <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">
+                              {publishedDrafts.filter(d => d.needsProdPush).length} need prod push
+                            </Badge>
+                          )}
+                          {publishedDrafts.filter(d => d.qualityDeferral).length > 0 && (
+                            <Badge
+                              className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-xs"
+                              title="Structural issues noted for later (usually missing illustrations). Still published — considered good for now."
+                            >
+                              {publishedDrafts.filter(d => d.qualityDeferral).length} fix later
+                            </Badge>
+                          )}
                         </div>
                         <ChevronDown className={`h-5 w-5 text-green-400 transition-transform duration-200 ${publishedExpanded ? 'rotate-180' : ''}`} />
                       </button>
@@ -3110,6 +3262,26 @@ function ContentStudioMain() {
                                 <TableCell>
                                   <div className="flex items-center gap-1 flex-wrap">
                                     {getStatusBadge(draft.status)}
+                                    {draft.needsProdPush && (
+                                      <Badge
+                                        className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-[10px]"
+                                        title={
+                                          draft.prodSyncReason === "local_changes"
+                                            ? "Local content or cover changed since last production push"
+                                            : "Never pushed to live production"
+                                        }
+                                      >
+                                        {draft.prodSyncReason === "local_changes" ? "Prod: changed" : "Prod: new"}
+                                      </Badge>
+                                    )}
+                                    {draft.qualityDeferral && (
+                                      <Badge
+                                        className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px]"
+                                        title={draft.qualityDeferralNote || "Fix later — still published / considered good"}
+                                      >
+                                        Fix later
+                                      </Badge>
+                                    )}
                                     {!(draft.inCatalog ?? draft.publishedBookId != null) && (
                                       <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[10px]" title="Marked published in AI Studio but not in the storefront catalog">
                                         Not in catalog
@@ -3117,6 +3289,10 @@ function ContentStudioMain() {
                                     )}
                                     {illustrationNeeds.some(n => n.id === draft.id) && (
                                       <>
+                                        {(() => {
+                                          const need = illustrationNeeds.find(n => n.id === draft.id);
+                                          return (
+                                            <>
                                         <Button
                                           size="sm"
                                           variant="ghost"
@@ -3127,13 +3303,14 @@ function ContentStudioMain() {
                                               body: JSON.stringify({ draftIds: [draft.id] }),
                                             }).then(r => { if (r.ok) { setIllustrationGenRunning(true); pollIllustrationProgress(); } else { r.json().then(d => alert(d.error || "Failed")); } }).catch(() => alert("Network error"));
                                           }}
-                                          disabled={illustrationGenRunning || contentGenRunning}
+                                          disabled={illustrationGenRunning}
                                           className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 text-[10px] px-1.5 h-6"
                                           data-testid={`button-art-only-pub-${draft.id}`}
-                                          title="Add art only — content stays the same"
+                                          title={need?.reason || "Add art only — content stays the same"}
                                         >
                                           <ImageIcon className="h-3 w-3 mr-0.5" /> Art Only
                                         </Button>
+                                        {need?.actionType === "rewrite-and-illustrate" && (
                                         <Button
                                           size="sm"
                                           variant="ghost"
@@ -3151,6 +3328,10 @@ function ContentStudioMain() {
                                         >
                                           <RefreshCw className="h-3 w-3 mr-0.5" /> Rewrite + Art
                                         </Button>
+                                        )}
+                                            </>
+                                          );
+                                        })()}
                                       </>
                                     )}
                                   </div>

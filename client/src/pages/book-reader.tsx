@@ -11,6 +11,28 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import HTMLFlipBook from "react-pageflip";
+import {
+  normalizeActivityBookContent,
+  isActivityOrWorkbookGenre,
+} from "@shared/activityBookContent";
+import { usesSchoolbookPageLayout } from "@shared/educationalBookQuality";
+import {
+  splitIntoPages as splitContentIntoPages,
+  CONT_PREFIX,
+  MAX_VISUAL_LINES,
+  WORKBOOK_MAX_VISUAL_LINES,
+  ILLUST_MAX_PX_INLINE,
+} from "@shared/readerPageSplit";
+import {
+  renderAsciiPuzzleLine,
+  renderWorksheetWritingLine,
+  renderWorksheetSectionHeader,
+  renderInstructionalSectionHeader,
+  isInstructionalHeaderLine,
+  shouldRenderAsFillIn,
+  shouldRenderAsPuzzleLine,
+  isWorksheetHeaderLine,
+} from "@/lib/readerLineRender";
 
 function escapeHtml(str: string): string {
   return str
@@ -63,6 +85,8 @@ const GENRE_COLORS: Record<string, { spine: string; coverBg: string; coverText: 
   "Classic Philosophy":{ spine: "#2a2520", coverBg: "#1e1a18", coverText: "#c8c0b8", accent: "#a8a29e" },
   "Classic Epic":      { spine: "#3a2508", coverBg: "#2a1a05", coverText: "#e8d4a0", accent: "#ea580c" },
   "Classic Drama":     { spine: "#2a1838", coverBg: "#1e1028", coverText: "#d0a8f0", accent: "#c084fc" },
+  "Textbooks":         { spine: "#1e3a5f", coverBg: "#152a45", coverText: "#c8ddf0", accent: "#3b82f6" },
+  "Education / Learning": { spine: "#1e3a5f", coverBg: "#152a45", coverText: "#c8ddf0", accent: "#2563eb" },
 };
 
 const DEFAULT_COLORS = { spine: "#3a2508", coverBg: "#2a1a05", coverText: "#e8d4a0", accent: "#f59e0b" };
@@ -124,416 +148,19 @@ function parseChapters(content: string): Chapter[] {
   return chapters;
 }
 
-// Layout constants — derived from HTMLFlipBook props and inline styles.
-// Update these if you change the flipbook dimensions or content padding.
-// HTMLFlipBook:  width={500}  height={680}
-const PAGE_WIDTH_PX  = 500;
-const PAGE_HEIGHT_PX = 680;
+// Layout constants live in @shared/readerPageSplit (single source for reader + quality gate).
+const ILLUST_MAX_PX_WORKBOOK = ILLUST_MAX_PX_INLINE;
 
-// Content page wrapper:  padding="16px 20px 28px"  (top | sides | bottom)
-const CONTENT_PAD_TOP    = 16;
-const CONTENT_PAD_SIDE   = 20;
-const CONTENT_PAD_BOTTOM = 28;
-const CONTENT_WIDTH_PX   = PAGE_WIDTH_PX  - CONTENT_PAD_SIDE * 2;       // 460 px
-const CONTENT_HEIGHT_PX  = PAGE_HEIGHT_PX - CONTENT_PAD_TOP - CONTENT_PAD_BOTTOM; // 636 px
-
-// Chapter running-title strip (rendered on every content page):
-//   fontSize:10  fontFamily:'Cinzel'  marginBottom:12
-//   Cinzel cap-height at 10 px ≈ 13 px  →  13 + 12 = 25 px  (use 26 to be safe)
-const RUNNING_TITLE_PX = 26;
-
-// Safety margin: absorbs sub-pixel font rendering differences across browsers/screens.
-const LAYOUT_SAFE_PX = 20;
-
-// Net usable vertical pixels for body content per page.
-const NET_CONTENT_PX = CONTENT_HEIGHT_PX - RUNNING_TITLE_PX - LAYOUT_SAFE_PX; // 590 px
-
-// Body text:  fontSize:12.5  lineHeight:1.65  (Libre Baskerville)
-const BODY_FONT_PX       = 12.5;
-const BODY_LINE_HEIGHT   = 1.65;
-const PX_PER_LINE        = BODY_FONT_PX * BODY_LINE_HEIGHT; // 20.625 px per visual line
-
-// Max visual lines per page.
-// 30 × 20.625px = 618px estimated content. Available content area (after running title)
-// = 636 - 26 = 610px. The 8px overage is within the overflow:hidden clip zone and
-// is invisible in practice (estimates are conservative; +0.2/element already absorbs
-// marginBottoms). Going from 29→30 lets the paginator absorb one more sentence per
-// page, significantly reducing dead space on chapter-ending pages.
-const MAX_VISUAL_LINES          = 30;
-const WORKBOOK_MAX_VISUAL_LINES = 29; // workbooks kept at 29 (illustration sizing calibrated)
-
-// Pixel-width estimation — Libre Baskerville 12.5 px.
-// `_` (7.5 px) is wider than average alphanumeric (6.5 px) — corrected separately.
-// Body paragraphs have textIndent:20, so the first line is 440 px, rest are 460 px.
-// Bullets/dialogue use paddingLeft on all lines, so always 440 px — no indent correction.
-const PX_PER_CHAR_REGULAR   = 6.5;   // Baskerville 12.5 px average
-const PX_PER_CHAR_WIDE      = 7.5;   // underscore `_` in Baskerville
-const CONTENT_PX_BODY       = 460;   // full content width (textIndent correction applied separately)
-const CONTENT_PX_INDENTED   = 440;   // bullets / dialogue (paddingLeft 16–20 px, all lines)
-const CONTENT_PX_TEXTINDENT = 20;    // textIndent on body paragraph first lines
-const CHARS_PER_LINE_TABLE  = 60;    // kept for table rows (pipe chars ≈ 7.67 px)
-
-// Sub-header (## / ### …):  fontSize:16  Playfair Display  marginTop:12  marginBottom:8
-// No explicit lineHeight → browser default for serif ≈ 1.25  → 16×1.25 = 20 px/line.
-// Total per wrapped line: 20 px.  Per-element margins: 12+8=20 px.
-// 1-line header:  (20 + 20) / 20.625 = 1.94 visual lines → estimator: 1×HEADER_LINE_COST + HEADER_MARGIN_COST
-const HEADER_PX_PER_LINE     = 16 * 1.25;    // 20 px
-const HEADER_MARGIN_PX       = 12 + 8;        // 20 px
-const HEADER_CHARS_PER_LINE  = 44;            // Playfair Display 16 px ≈ 10.5 px/char → 460/10.5≈44
-// visual-line cost for 1 wrapped line of header text + fixed margin overhead
-const HEADER_LINE_COST   = HEADER_PX_PER_LINE / PX_PER_LINE;  // ≈ 0.970
-const HEADER_MARGIN_COST = HEADER_MARGIN_PX   / PX_PER_LINE;  // ≈ 0.970
-
-// Illustration vertical space.
-// Standard: illustration gets its own full page; reserve 22 lines for flush logic.
-// Workbook: illustration shares a page with exercise text; 22 lines → ~437px height, ~291px wide.
-const ILLUST_LINES_STANDARD   = 22;
-const ILLUST_LINES_WORKBOOK   = 22;
-const ILLUST_MARGIN_PX        = 16;  // margin: "12px auto 4px" → 12 + 4 = 16 px vertical
-// Standard illustrations always get their own page; maxHeight is handled by the full-page renderer.
-const ILLUST_MAX_PX_WORKBOOK  = Math.floor(ILLUST_LINES_WORKBOOK  * PX_PER_LINE - ILLUST_MARGIN_PX); // 437 px
-// ─── END LAYOUT CONSTANTS ────────────────────────────────────────────────────
-
-const BLANK_DIV_HEIGHT_PX = 8; // matches renderContentLine: <div style={{ height: 8 }} />
-
-function estimateVisualLines(line: string): number {
-  const trimmed = line.trim();
-  if (trimmed === "") return BLANK_DIV_HEIGHT_PX / PX_PER_LINE; // 8px ≈ 0.39 lines
-
-  const illustrationMatch = trimmed.match(/\[ILLUSTRATION:\s*(.+?)\]/i) || trimmed.match(/\[IMAGE:\s*(.+?)\]/i) || trimmed.match(/\[COMIC PANEL:\s*(.+?)\]/i);
-  if (illustrationMatch) {
-    const src = illustrationMatch[1].trim();
-    const isUrl = src.startsWith("http") || src.startsWith("/");
-    // splitIntoPages overrides this to ILLUST_LINES_WORKBOOK (11) for workbook genres;
-    // the base value here covers standard (full-page) mode.
-    if (isUrl) return ILLUST_LINES_STANDARD; // 22
-    return 10; // text placeholder box
-  }
-
-  // Sub-headers (## / ### / ####):  Playfair Display 16 px, marginTop:12 marginBottom:8.
-  // Uses IDENTICAL regex to renderContentLine so the estimate always matches the render.
-  const headerMatch = trimmed.match(/^#{2,}\s*\**\s*(.+?)\s*\**\s*$/);
-  if (headerMatch) {
-    const headerWrappedLines = Math.ceil(headerMatch[1].length / HEADER_CHARS_PER_LINE) || 1;
-    return headerWrappedLines * HEADER_LINE_COST + HEADER_MARGIN_COST;
-  }
-
-  // Body text, bullets, dialogue, table rows — pixel-width-based wrap estimate.
-  // Underscore `_` is ~7.5 px wide in Baskerville vs ~6.5 px for normal chars.
-  // This prevents fill-in-the-blank workbook lines ("1. ___________") from being
-  // under-estimated: 65 underscores × 7.5 px = 487 px → correctly rounds to 2 lines.
-  const isBullet   = trimmed.startsWith("- ") || trimmed.startsWith("\u2022 ");
-  const isTableRow = trimmed.startsWith("|");
-  // Dialogue gets paddingLeft:16 → 444 px effective width, same budget as bullets.
-  const isDialogue = trimmed.startsWith('"') || trimmed.startsWith('\u201c') || trimmed.startsWith("'");
-
-  if (isTableRow) {
-    // Table rows contain pipe chars + mixed-width content; keep the calibrated char limit.
-    const wrapped = Math.ceil(trimmed.length / CHARS_PER_LINE_TABLE);
-    return wrapped + 0.2;
-  }
-
-  // Pixel-width estimation for body / bullet / dialogue.
-  const underscores  = (trimmed.match(/_/g) || []).length;
-  const normalChars  = trimmed.length - underscores;
-  const estimatedPx  = underscores * PX_PER_CHAR_WIDE + normalChars * PX_PER_CHAR_REGULAR;
-
-  let wrapped: number;
-  if (isBullet || isDialogue) {
-    // paddingLeft applies to ALL lines → constant 440 px width.
-    wrapped = Math.ceil(estimatedPx / CONTENT_PX_INDENTED);
-  } else {
-    // Body text: textIndent:20 shrinks the FIRST line to 440 px; rest are 460 px.
-    // ceil((px + 20) / 460) is the exact formula for this first-line-narrowing model.
-    wrapped = Math.ceil((estimatedPx + CONTENT_PX_TEXTINDENT) / CONTENT_PX_BODY);
-  }
-  // +0.2 covers the marginBottom:4px (4/20.625≈0.19) on every paragraph element.
-  return wrapped + 0.2;
-}
-
-/**
- * Splits a long paragraph at sentence boundaries so no page ends mid-sentence.
- * Returns an array of sentence-grouped chunks, each fitting within maxLines.
- */
-function splitParagraphAtSentences(para: string, maxLines: number): string[] {
-  // Match sentences: anything ending in . ! ? … (including closing quotes/parens)
-  const sentenceRe = /[^.!?…]+[.!?…]+[""')\]]*\s*/g;
-  const rawSentences = para.match(sentenceRe);
-  const sentences: string[] = rawSentences
-    ? rawSentences.map(s => s.trim()).filter(Boolean)
-    : [para];
-
-  // If the regex didn't split anything useful, fall back to word-level splitting
-  if (sentences.length <= 1) {
-    const words = para.split(/\s+/);
-    const chunks: string[] = [];
-    let current = "";
-    for (const word of words) {
-      const candidate = current ? current + " " + word : word;
-      if (estimateVisualLines(candidate) > maxLines && current) {
-        chunks.push(current);
-        current = word;
-      } else {
-        current = candidate;
-      }
-    }
-    if (current) chunks.push(current);
-    return chunks;
-  }
-
-  const chunks: string[] = [];
-  let current = "";
-  for (const sentence of sentences) {
-    const candidate = current ? current + " " + sentence : sentence;
-    if (estimateVisualLines(candidate) > maxLines && current) {
-      chunks.push(current.trim());
-      current = sentence;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks;
-}
-
-/**
- * Tries to split a paragraph at a sentence boundary that fits within remainingLines.
- * Returns { firstPart, secondPart } or null if no clean split point exists.
- */
-function splitParagraphForPageBreak(
-  para: string,
-  remainingLines: number
-): { firstPart: string; secondPart: string } | null {
-  if (remainingLines < 1.2) return null;
-
-  // Collect candidate break positions at multiple levels of granularity.
-  // We try from coarsest (sentence endings) down to finest (clause markers).
-  // Each level is only tried if no break was found at a coarser level.
-  // This handles Philosophy/academic prose that has long single-sentence
-  // paragraphs connected by semicolons, em-dashes, or colons.
-  function findBreakPositions(text: string, minCarryLines: number): { firstPart: string; secondPart: string } | null {
-    // Level 1 — sentence endings: . ! ? …
-    const sentenceEnds: number[] = [];
-    const sentRe = /[.!?…][""')\]]*\s+/g;
-    let m: RegExpExecArray | null;
-    while ((m = sentRe.exec(text)) !== null) {
-      sentenceEnds.push(m.index + m[0].length);
-    }
-
-    // Level 2 — semicolons (same-sentence clause boundaries)
-    const semiEnds: number[] = [];
-    const semiRe = /;\s+/g;
-    while ((m = semiRe.exec(text)) !== null) {
-      semiEnds.push(m.index + m[0].length);
-    }
-
-    // Level 3 — em-dashes and colons (strong internal pauses)
-    const dashEnds: number[] = [];
-    const dashRe = /[—:]\s+/g;
-    while ((m = dashRe.exec(text)) !== null) {
-      dashEnds.push(m.index + m[0].length);
-    }
-
-    // Try each level; stop once a valid split is found.
-    const levels = [sentenceEnds, semiEnds, dashEnds];
-    for (const positions of levels) {
-      if (positions.length === 0) continue;
-      let firstPart = "";
-      let bestPos = -1;
-      for (const pos of positions) {
-        const candidate = text.slice(0, pos).trim();
-        if (estimateVisualLines(candidate) <= remainingLines) {
-          firstPart = candidate;
-          bestPos = pos;
-        } else {
-          break;
-        }
-      }
-      if (!firstPart || bestPos < 0) continue;
-      const secondPart = text.slice(bestPos).trim();
-      if (estimateVisualLines(secondPart) < minCarryLines) continue;
-      return { firstPart, secondPart };
-    }
-    return null;
-  }
-
-  // Require at least 3 carry-over lines so the continuation reads naturally
-  // at the top of the next page rather than a single orphan fragment.
-  return findBreakPositions(para, 3);
-}
-
-// Prefix used to mark paragraph continuations across page breaks.
-// Renderer strips this and omits the opening indent so readers can see
-// it flows from the previous page — exactly like printed books.
-const CONT_PREFIX = "\x01CONT\x01";
-
-function splitIntoPages(text: string, reservedLines = 0, options: { smallIllustrations?: boolean; maxLines?: number } = {}): string[][] {
-  // Collapse runs of consecutive blank lines to a single blank line so that
-  // chapters with many whitespace-only lines don't accumulate into blank pages.
-  const rawLines = text.split("\n");
-  const lines: string[] = [];
-  let prevWasEmpty = false;
-  for (const l of rawLines) {
-    const isEmpty = l.trim() === "";
-    if (isEmpty && prevWasEmpty) continue;
-    lines.push(l);
-    prevWasEmpty = isEmpty;
-  }
-
-  const { smallIllustrations = false, maxLines = MAX_VISUAL_LINES } = options;
-
-  const pages: string[][] = [];
-  let currentPage: string[] = [];
-  let visualCount = 0;
-  let isFirstPage = true;
-
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-    // Don't let a blank line start a fresh page — it just wastes visible space.
-    if (trimmedLine === "" && currentPage.length === 0) continue;
-    const cost = estimateVisualLines(trimmedLine);
-    const isIllustration = /\[ILLUSTRATION:/i.test(trimmedLine) || /\[IMAGE:/i.test(trimmedLine) || /\[COMIC PANEL:/i.test(trimmedLine);
-    const isHeader = !isIllustration && trimmedLine.startsWith("##");
-    const isSpecialLine = isIllustration || isHeader || trimmedLine.startsWith(CONT_PREFIX);
-    const pageMax = isFirstPage ? maxLines - reservedLines : maxLines;
-
-    // ── Orphan guard — headers, numbered markers, and list items ────────────
-    // Applies to:
-    //   • Markdown headers (##, ###)
-    //   • Standalone section numbers like "2" or "2."
-    //   • Numbered list items like "2. The second point..."
-    // Rule: if placing this marker would leave fewer than 4 lines for the
-    // content that follows, flush the page first so the marker always
-    // opens a fresh page with room for its content underneath it.
-    const isNumberedMarker =
-      /^\d+\.?\s*$/.test(trimmedLine) ||          // "2" or "2." alone
-      /^\d+\.\s+\S/.test(trimmedLine);             // "2. Some text..."
-    const isOrphanCandidate = isHeader || isNumberedMarker;
-    if (isOrphanCandidate && currentPage.length > 0) {
-      const MIN_AFTER_MARKER = 4;
-      if (pageMax - (visualCount + cost) < MIN_AFTER_MARKER) {
-        pages.push([...currentPage]);
-        currentPage = [];
-        visualCount = 0;
-        isFirstPage = false;
-      }
-    }
-    // ─────────────────────────────────────────────────────────────────────────
-    const pageHasContinuation = currentPage.some(l => l.startsWith(CONT_PREFIX));
-    const isUrlIllustration = isIllustration && (trimmedLine.includes('/uploads/') || trimmedLine.includes('/objstore/') || trimmedLine.includes('http'));
-
-    // Workbook mode: URL illustrations render at ILLUST_LINES_WORKBOOK (18) lines so
-    // exercise text can share the page. Standard mode: 22 lines (full-page flush).
-    const effectiveCost = (smallIllustrations && isUrlIllustration) ? ILLUST_LINES_WORKBOOK : cost;
-
-    // Flush the current page before placing an illustration.
-    // Full-page mode: always flush before a URL illustration so it gets its own clean page.
-    // smallIllustrations mode: only flush if the page is >60% full or has a continuation,
-    // keeping the exercise text that follows on the same page.
-    const shouldFlushBeforeIllus = isUrlIllustration
-      ? (smallIllustrations
-          ? (visualCount > pageMax * 0.6 || pageHasContinuation)
-          : true)
-      : (visualCount > pageMax * 0.5 || pageHasContinuation);
-    if (isIllustration && shouldFlushBeforeIllus && currentPage.length > 0) {
-      pages.push([...currentPage]);
-      currentPage = [];
-      visualCount = 0;
-      isFirstPage = false;
-    }
-
-    // Paragraph longer than a full page → split it at sentence boundaries across multiple pages
-    if (cost > maxLines) {
-      if (currentPage.length > 0) {
-        pages.push([...currentPage]);
-        currentPage = [];
-        visualCount = 0;
-        isFirstPage = false;
-      }
-      const chunks = splitParagraphAtSentences(trimmedLine, maxLines);
-      // Push all chunks except the last as complete standalone pages.
-      // The last chunk goes into currentPage so subsequent lines (blank lines,
-      // dividers, next paragraphs) can fill the remainder of that page — preventing
-      // the final chunk from being stranded alone with nothing else on the page.
-      for (let ci = 0; ci < chunks.length - 1; ci++) {
-        pages.push([ci === 0 ? chunks[ci] : CONT_PREFIX + chunks[ci]]);
-      }
-      const lastChunkRaw = chunks[chunks.length - 1];
-      currentPage = [chunks.length === 1 ? lastChunkRaw : CONT_PREFIX + lastChunkRaw];
-      visualCount = estimateVisualLines(lastChunkRaw);
-      isFirstPage = false;
-      continue;
-    }
-
-    // Decorative lines (dividers like "* * *", "---") — allow slight page overfill
-    // rather than letting a divider land alone on an otherwise-empty next page.
-    // IMPORTANT: underscore `_` must be excluded so workbook fill-in lines like
-    // "- ______________________________________" are never treated as decorative —
-    // they have real height that must be budgeted and trigger normal page breaks.
-    const isDecorativeLine = cost <= 1.5 && !trimmedLine.match(/[a-zA-Z0-9_]/);
-
-    // Flush condition: always flush for non-decorative lines, and ALSO flush for decorative
-    // lines once the page is already over budget (visualCount > pageMax).  This prevents
-    // consecutive section-break lines ("---" × 4 with blanks between them) from each
-    // bypassing the flush check and stacking a page to 34+ lines.  The single-overshoot
-    // use-case is still served: if visualCount is still ≤ pageMax, one decorative line
-    // is allowed to land at the end of the page without being pushed to the next page.
-    if (visualCount + effectiveCost > pageMax && currentPage.length > 0 &&
-        (!isDecorativeLine || visualCount > pageMax)) {
-      // Try to fill the current page by splitting the paragraph at a sentence boundary.
-      // Only attempt for plain body-text lines (not headers, illustrations, continuations,
-      // decorative dividers, or blank lines) and only when there's meaningful space left.
-      const remainingLines = pageMax - visualCount;
-      if (
-        !isSpecialLine &&
-        !isDecorativeLine &&
-        trimmedLine !== "" &&
-        remainingLines >= 2
-      ) {
-        const split = splitParagraphForPageBreak(trimmedLine, remainingLines);
-        if (split) {
-          // First part fills the current page; carry-over starts the next.
-          currentPage.push(split.firstPart);
-          pages.push([...currentPage]);
-          currentPage = [CONT_PREFIX + split.secondPart];
-          visualCount = estimateVisualLines(split.secondPart);
-          isFirstPage = false;
-          continue;
-        }
-      }
-      // Default: move the whole paragraph to the next page.
-      pages.push([...currentPage]);
-      currentPage = [];
-      visualCount = 0;
-      isFirstPage = false;
-    }
-    // Guard: after any mid-loop page reset (overflow / split / illustration flush),
-    // currentPage may now be empty. Don't let a blank line start a fresh page.
-    if (trimmedLine === "" && currentPage.length === 0) continue;
-    currentPage.push(trimmedLine);
-    visualCount += effectiveCost;
-
-    // Full-page mode: flush immediately after placing a URL illustration so text that
-    // follows goes on the next page. This lets isIllustrationOnlyPage identify the page
-    // and render the image at full-page height (up to 610px) instead of the inline cap.
-    // smallIllustrations mode: skip the post-flush so the exercise text below can share
-    // the page with the illustration.
-    if (isUrlIllustration && !smallIllustrations) {
-      pages.push([...currentPage]);
-      currentPage = [];
-      visualCount = 0;
-      isFirstPage = false;
-    }
-  }
-  if (currentPage.length > 0) {
-    // Final guard: don't emit a page that is nothing but blank lines.
-    const hasContent = currentPage.some(l => {
-      const t = l.startsWith(CONT_PREFIX) ? l.slice(CONT_PREFIX.length).trim() : l.trim();
-      return t !== "";
-    });
-    if (hasContent) pages.push(currentPage);
-  }
-  return pages;
+function splitIntoPages(
+  text: string,
+  reservedLines = 0,
+  options: { smallIllustrations?: boolean; maxLines?: number } = {},
+): string[][] {
+  return splitContentIntoPages(text, reservedLines, {
+    smallIllustrations: options.smallIllustrations,
+    maxLines: options.maxLines,
+    mergeUnderfilled: true,
+  });
 }
 
 const BookPage = forwardRef<HTMLDivElement, {
@@ -722,7 +349,7 @@ function IllustrationImage({ src, maxHeight, maxWidth, description }: {
   );
 }
 
-function renderContentLine(line: string, idx: number, smallIllustrations = false) {
+function renderContentLine(line: string, idx: number, smallIllustrations = false, schoolbookLayout = false) {
   const raw = line.trim();
   // Continuation paragraphs (flowing from the previous page) have no opening indent —
   // matching standard book typography for paragraphs that span a page break.
@@ -732,6 +359,19 @@ function renderContentLine(line: string, idx: number, smallIllustrations = false
 
   if (trimmed === "") return <div key={idx} style={{ height: 8 }} />;
 
+  if (shouldRenderAsPuzzleLine(trimmed)) {
+    return renderAsciiPuzzleLine(trimmed, idx, PAGE_ACCENT, PAGE_TEXT);
+  }
+
+  if (shouldRenderAsFillIn(trimmed)) {
+    return renderWorksheetWritingLine(
+      trimmed,
+      String(idx),
+      { text: PAGE_TEXT, accent: PAGE_ACCENT, heading: PAGE_HEADING },
+      { textIndent: paraIndent },
+    );
+  }
+
   const illustrationMatch = trimmed.match(/\[ILLUSTRATION:\s*(.+?)\]/i) || trimmed.match(/\[IMAGE:\s*(.+?)\]/i) || trimmed.match(/\[COMIC PANEL:\s*(.+?)\]/i);
   if (illustrationMatch) {
     const fullSrc = illustrationMatch[1].trim();
@@ -740,18 +380,30 @@ function renderContentLine(line: string, idx: number, smallIllustrations = false
     const src = pipeIdx >= 0 ? fullSrc.substring(0, pipeIdx).trim() : fullSrc;
     const inlineCaption = pipeIdx >= 0 ? fullSrc.substring(pipeIdx + 3).trim() : null;
     const isUrl = src.startsWith("http") || src.startsWith("/");
-    // Workbooks reserve ILLUST_LINES_WORKBOOK lines for inline illustrations so exercise
-    // text shares the page. Standard mode: illustrations get their own page (full-page
-    // renderer handles those), but 420px cap is a fallback for edge cases.
+    // Schoolbooks: large kid-readable diagrams (~417px) with lesson text on the same page.
     const inlineMaxHeight = smallIllustrations ? ILLUST_MAX_PX_WORKBOOK : 420;
     if (isUrl) {
       return (
-        <div key={idx} style={{ margin: "12px auto 4px" }}>
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
-            <IllustrationImage src={src} maxWidth="92%" maxHeight={inlineMaxHeight} description={src} />
+        <div key={idx} style={{ margin: "6px auto 2px" }}>
+          {/* Fixed frame = packer ILLUST_LINES_INLINE so short images don't leave a silent empty band. */}
+          <div style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            width: "100%",
+            ...(smallIllustrations
+              ? { height: ILLUST_MAX_PX_WORKBOOK, maxHeight: ILLUST_MAX_PX_WORKBOOK }
+              : {}),
+          }}>
+            <IllustrationImage
+              src={src}
+              maxWidth={smallIllustrations ? "98%" : "92%"}
+              maxHeight={inlineMaxHeight}
+              description={src}
+            />
           </div>
           {inlineCaption && (
-            <p style={{ fontSize: 10.5, fontStyle: "italic", color: PAGE_TEXT, opacity: 0.6, textAlign: "center", marginTop: 5, marginBottom: 2, fontFamily: "'Libre Baskerville', serif", lineHeight: 1.4 }}>
+            <p style={{ fontSize: 10.5, fontStyle: "italic", color: PAGE_TEXT, opacity: 0.6, textAlign: "center", marginTop: 4, marginBottom: 2, fontFamily: "'Libre Baskerville', serif", lineHeight: 1.4 }}>
               {inlineCaption}
             </p>
           )}
@@ -769,7 +421,7 @@ function renderContentLine(line: string, idx: number, smallIllustrations = false
         maxWidth: "85%",
       }}>
         <div style={{ fontSize: 9, letterSpacing: 2, textTransform: "uppercase", color: PAGE_ACCENT, opacity: 0.6, marginBottom: 4, fontFamily: "'Cinzel', serif" }}>
-          Illustration
+          {schoolbookLayout ? "Figure / Diagram" : "Illustration"}
         </div>
         <p style={{ fontSize: 11, fontStyle: "italic", color: PAGE_TEXT, opacity: 0.7, fontFamily: "'Libre Baskerville', serif", lineHeight: 1.5 }}>
           {src}
@@ -780,10 +432,21 @@ function renderContentLine(line: string, idx: number, smallIllustrations = false
 
   const subMatch = trimmed.match(/^#{2,}\s*\**\s*(.+?)\s*\**\s*$/);
   if (subMatch) {
+    const headingText = subMatch[1].replace(/\*+/g, "").replace(/^#+\s*/, "").trim();
+    if (schoolbookLayout && isInstructionalHeaderLine(trimmed)) {
+      return renderInstructionalSectionHeader(headingText, String(idx));
+    }
+    if (isWorksheetHeaderLine(trimmed)) {
+      return renderWorksheetSectionHeader(
+        headingText,
+        String(idx),
+        { text: PAGE_TEXT, accent: PAGE_ACCENT, heading: PAGE_HEADING },
+      );
+    }
     return (
       <h3 key={idx} style={{
-        fontFamily: "'Playfair Display', Georgia, serif",
-        fontSize: 16,
+        fontFamily: schoolbookLayout ? "'Source Sans 3', 'Segoe UI', sans-serif" : "'Playfair Display', Georgia, serif",
+        fontSize: schoolbookLayout ? 15 : 16,
         fontWeight: 700,
         color: PAGE_HEADING,
         marginTop: 12,
@@ -791,6 +454,18 @@ function renderContentLine(line: string, idx: number, smallIllustrations = false
       }}>
         {subMatch[1].replace(/\*+/g, "").replace(/^#+\s*/, "").trim()}
       </h3>
+    );
+  }
+
+  const boldOnlyMatch = trimmed.match(/^\*\*(.+)\*\*$/);
+  if (boldOnlyMatch && schoolbookLayout && isInstructionalHeaderLine(trimmed)) {
+    return renderInstructionalSectionHeader(boldOnlyMatch[1].trim(), String(idx));
+  }
+  if (boldOnlyMatch && isWorksheetHeaderLine(trimmed)) {
+    return renderWorksheetSectionHeader(
+      boldOnlyMatch[1].trim(),
+      String(idx),
+      { text: PAGE_TEXT, accent: PAGE_ACCENT, heading: PAGE_HEADING },
     );
   }
 
@@ -804,6 +479,15 @@ function renderContentLine(line: string, idx: number, smallIllustrations = false
     .replace(/\*\*(.+?)\*\*/g, "$1");
 
   if (isBullet) {
+    const bulletBody = cleanLine.replace(/^[-\u2022]\s*/, "");
+    if (shouldRenderAsFillIn(bulletBody)) {
+      return renderWorksheetWritingLine(
+        bulletBody,
+        String(idx),
+        { text: PAGE_TEXT, accent: PAGE_ACCENT, heading: PAGE_HEADING },
+        { textIndent: 20 },
+      );
+    }
     return (
       <p key={idx} style={{ paddingLeft: 20, marginBottom: 3, lineHeight: 1.65, position: "relative", fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 12.5, fontWeight: 500, color: PAGE_TEXT }}>
         <span style={{ position: "absolute", left: 6, color: PAGE_ACCENT }}>{"\u2022"}</span>
@@ -969,7 +653,13 @@ export default function BookReader() {
     return match ? match[1] : "";
   }, [isClassicBook, draft?.topic]);
   const publisherLabel = isClassicBook && classicAuthor ? classicAuthor : "EbookGamez";
-  const chapters = useMemo(() => draft?.content ? parseChapters(draft.content) : [], [draft?.content]);
+  const chapters = useMemo(() => {
+    if (!draft?.content) return [];
+    const content = isActivityOrWorkbookGenre(draft.genre)
+      ? normalizeActivityBookContent(draft.content)
+      : draft.content;
+    return parseChapters(content);
+  }, [draft?.content, draft?.genre]);
 
   const allPages = useMemo(() => {
     if (!draft) return [];
@@ -1068,19 +758,16 @@ export default function BookReader() {
         });
       }
 
-      // Workbooks, activity books, and journals display illustrations at ~220px so the
-      // exercise text can appear on the same page below the image — matching professional
-      // workbook layout (vs. art/photography books where illustrations fill the full page).
-      const SMALL_ILLUS_GENRES = ['Workbooks', 'Activity Books', 'Guided Journals'];
-      const isWorkbookGenre = SMALL_ILLUS_GENRES.some(g =>
-        (draft.genre || '').toLowerCase().includes(g.toLowerCase())
-      );
+      // Activity books / workbooks: inline puzzle art. Schoolbooks: inline diagrams with lesson text.
+      const isWorkbookGenre = isActivityOrWorkbookGenre(draft.genre);
+      const isSchoolbookGenre = usesSchoolbookPageLayout(draft.genre);
+      const useInlineIllustrations = isWorkbookGenre || isSchoolbookGenre;
 
       for (const chapter of chapters) {
         pages.push({ type: "chapter-title", content: { number: chapter.number, title: chapter.title } });
 
         const contentPages = splitIntoPages(chapter.content, 0, {
-          smallIllustrations: isWorkbookGenre,
+          smallIllustrations: useInlineIllustrations,
           maxLines: isWorkbookGenre ? WORKBOOK_MAX_VISUAL_LINES : MAX_VISUAL_LINES,
         });
         for (const pageLinesArr of contentPages) {
@@ -2009,11 +1696,7 @@ export default function BookReader() {
                 /\[ILLUSTRATION:/i.test(l) || /\[IMAGE:/i.test(l) || /\[COMIC PANEL:/i.test(l)
               );
 
-              // Workbook genres keep a consistent size even on illustration-only pages
-              const WORKBOOK_GENRES_ILLUS = ['Workbooks', 'Activity Books', 'Guided Journals'];
-              const isWorkbookIllus = WORKBOOK_GENRES_ILLUS.some(g =>
-                (draft?.genre || '').toLowerCase().includes(g.toLowerCase())
-              );
+              const isWorkbookIllus = isActivityOrWorkbookGenre(draft?.genre) || usesSchoolbookPageLayout(draft?.genre);
 
               if (isIllustrationOnlyPage) {
                 // Full-page illustration: no overflow clipping, centered with flex
@@ -2034,8 +1717,8 @@ export default function BookReader() {
                         const src = pipeIdx >= 0 ? fullSrc.substring(0, pipeIdx).trim() : fullSrc;
                         const caption = pipeIdx >= 0 ? fullSrc.substring(pipeIdx + 3).trim() : null;
                         const hasCaption = !!caption;
-                        // Workbook genres use a consistent mid-size so full-page illustrations
-                        // match inline ones — avoids jarring size jumps between pages.
+                        // Schoolbooks: match inline kid-size on solo-art pages (same budget).
+                        // Fiction keeps near-full-bleed art.
                         const fullPageMaxHeight = isWorkbookIllus
                           ? ILLUST_MAX_PX_WORKBOOK
                           : (page.content.chapterTitle || hasCaption ? 560 : 635);
@@ -2044,7 +1727,7 @@ export default function BookReader() {
                             <IllustrationImage
                               src={src}
                               maxHeight={fullPageMaxHeight}
-                              maxWidth="96%"
+                              maxWidth={isWorkbookIllus ? "98%" : "96%"}
                               description={src}
                             />
                             {hasCaption && (
@@ -2062,6 +1745,8 @@ export default function BookReader() {
 
               return (() => {
                 const pageLines = page.content.lines as string[];
+                const isWorkbook = isActivityOrWorkbookGenre(draft?.genre);
+                const isSchoolbook = usesSchoolbookPageLayout(draft?.genre);
 
                 return (
                 <BookPage key={pageIndex} pageNum={pageIndex} totalPages={allPages.length}>
@@ -2071,6 +1756,7 @@ export default function BookReader() {
                     overflow: "hidden",
                     display: "flex",
                     flexDirection: "column",
+                    boxSizing: "border-box",
                   }}>
                     {page.content.chapterTitle && (
                       <div style={{
@@ -2092,18 +1778,11 @@ export default function BookReader() {
                         })()}
                       </div>
                     )}
-                    {/* Small gap between chapter header and content (~1 line) */}
                     <div style={{ height: 20, flexShrink: 0 }} />
                     <div style={{ flexShrink: 0 }}>
-                      {(() => {
-                        const WORKBOOK_GENRES_RENDER = ['Workbooks', 'Activity Books', 'Guided Journals'];
-                        const isWorkbook = WORKBOOK_GENRES_RENDER.some(g =>
-                          (draft?.genre || '').toLowerCase().includes(g.toLowerCase())
-                        );
-                        return pageLines.map((line: string, idx: number) =>
-                          renderContentLine(line, idx, isWorkbook)
-                        );
-                      })()}
+                      {pageLines.map((line: string, idx: number) =>
+                        renderContentLine(line, idx, isWorkbook || isSchoolbook, isSchoolbook)
+                      )}
                     </div>
                   </div>
                 </BookPage>

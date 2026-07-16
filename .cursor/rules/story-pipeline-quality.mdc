@@ -1,0 +1,52 @@
+---
+description: Cover-first, outline-guided Story Architect pipeline — readers must love the books
+alwaysApply: true
+---
+
+# Story pipeline — cover → outline → Story Architect → publish
+
+**Goal:** Readers enjoy the books and come back for more. Every fiction book is guided beginning to end — not rushed to published. Educational books (Textbooks / Education / Learning) use the same cover-first discipline but an **instructional** quality path — see `educational-books-pipeline.mdc`.
+
+## Mandatory order (new fiction / prose)
+
+1. **Research / writing brief** — audience, tone, dialogue style, narrative beats (including climax).
+2. **Cover first** — publishable cover in Cover Review (`checkStoryWritingGate` blocks writing without it).
+3. **Outline** — detailed blueprint: hook, character arcs, genre beats, climax, resolution.
+4. **Editorial Brief** — outline scored before prose; fiction must score ≥ 6 or outline is regenerated (max 3 attempts).
+5. **Cover ↔ outline cross-exam** — align visual promise with story before chapters.
+6. **Story Architect** — bestselling-author techniques assigned per chapter from the outline.
+7. **Chapter writing** — prose follows outline, cover, and writing brief.
+8. **Strict quality gate** — structural + genre + dialogue; fiction also checks climax (score ≥ 6).
+9. **Ready → publish** — only after strict gate passes.
+
+## Educational books (school / college / trade)
+
+Same cover-first order, but: instructional outline + blocking educational editorial brief ≥ 6; strict gate uses **instructional materials** check (no climax); pedagogy scan for objectives/examples/practice. Details in `educational-books-pipeline.mdc` and `shared/educationalBookQuality.ts`.
+
+### Page layout (research verdict)
+
+**Not necessary:** fixed two-column print-textbook typesetting (digital HQIM uses reflowable EPUB/web + WCAG accessibility).
+
+**Necessary and added:** schoolbook reader chrome — labeled section callouts (Objectives / Example / Practice / Check / Key Terms) + inline diagrams that share the page with lesson text (`usesSchoolbookPageLayout` in the flipbook reader).
+
+## Never shortcut (unless user explicitly asks)
+
+- Do **not** start content generation without cover (except resume of substantial in-progress work).
+- Do **not** use structural-only gates to promote or publish fiction.
+- Do **not** bypass outline / Story Architect for “fast fixes” — repair chapters, then re-run **strict** gate.
+- Do **not** apply fiction climax checks to Textbooks / Education / Learning.
+- Overnight / batch scripts must use **`runPublishPipelineGate(d, { strict: true })`**.
+
+## Repair workflow
+
+Fix the problem → **`audit-one-draft.ts <id>`** (strict by default) → promote only if pass → publish.
+
+Structural-only audit: `audit-one-draft.ts <id> --structural-only` (exception path only).
+
+## Reference files
+
+- `server/storyCoverBridge.ts` — cover-first gate
+- `server/contentStudio.ts` — Story Architect, Editorial Brief, `runPublishPipelineGate`
+- `shared/educationalBookQuality.ts` — educational detection + adoption pillars
+- `script/seed-research-placers.ts` — writing briefs with narrative beats
+- `script/seed-schoolbook-placers.ts` — schoolbooks Cover Review placers

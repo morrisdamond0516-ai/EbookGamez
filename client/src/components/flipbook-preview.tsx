@@ -3,40 +3,43 @@ import HTMLFlipBook from "react-pageflip";
 import { X, ChevronLeft, ChevronRight, Lock, ShoppingCart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "wouter";
+import {
+  renderAsciiPuzzleLine,
+  renderWorksheetWritingLine,
+  renderWorksheetSectionHeader,
+  renderInstructionalSectionHeader,
+  shouldRenderAsFillIn,
+  shouldRenderAsPuzzleLine,
+  isWorksheetHeaderLine,
+  isInstructionalHeaderLine,
+} from "@/lib/readerLineRender";
+import { usesSchoolbookPageLayout } from "@shared/educationalBookQuality";
+import {
+  splitIntoPages as sharedSplitIntoPages,
+  CONT_PREFIX,
+  MAX_VISUAL_LINES,
+  ILLUST_MAX_PX_INLINE,
+  PAGE_WIDTH_PX,
+  PAGE_HEIGHT_PX,
+  CONTENT_PAD_TOP,
+  CONTENT_PAD_SIDE,
+  CONTENT_PAD_BOTTOM,
+} from "@shared/readerPageSplit";
 
-// ─── Layout constants (mirror book-reader.tsx) ───────────────────────────────
-const PAGE_WIDTH_PX   = 500;
-const PAGE_HEIGHT_PX  = 680;
-const CONTENT_PAD_TOP    = 16;
-const CONTENT_PAD_SIDE   = 20;
-const CONTENT_PAD_BOTTOM = 28;
-const CONTENT_WIDTH_PX   = PAGE_WIDTH_PX  - CONTENT_PAD_SIDE * 2;
-const CONTENT_HEIGHT_PX  = PAGE_HEIGHT_PX - CONTENT_PAD_TOP - CONTENT_PAD_BOTTOM;
-const RUNNING_TITLE_PX   = 26;
-const LAYOUT_SAFE_PX     = 20;
-const NET_CONTENT_PX     = CONTENT_HEIGHT_PX - RUNNING_TITLE_PX - LAYOUT_SAFE_PX;
-const BODY_FONT_PX       = 12.5;
-const BODY_LINE_HEIGHT   = 1.65;
-const PX_PER_LINE        = BODY_FONT_PX * BODY_LINE_HEIGHT;
-const MAX_VISUAL_LINES   = 29;
-const HEADER_PX_PER_LINE = 16 * 1.25;
-const HEADER_MARGIN_PX   = 12 + 8;
-const HEADER_CHARS_PER_LINE = 44;
-const HEADER_LINE_COST   = HEADER_PX_PER_LINE / PX_PER_LINE;
-const HEADER_MARGIN_COST = HEADER_MARGIN_PX   / PX_PER_LINE;
-const PX_PER_CHAR_REGULAR = 6.5;
-const PX_PER_CHAR_WIDE    = 7.5;
-const CONTENT_PX_BODY     = 460;
-const CONTENT_PX_INDENTED = 440;
-const CONTENT_PX_TEXTINDENT = 20;
-const CHARS_PER_LINE_TABLE  = 60;
-const BLANK_DIV_HEIGHT_PX   = 8;
-const CONT_PREFIX = "\x01CONT\x01";
-
+// ─── Layout canvas (must match book-reader + shared/readerPageSplit) ─────────
 const PAGE_BG     = "#faf6ed";
 const PAGE_TEXT   = "#000000";
 const PAGE_ACCENT = "#4a3a28";
 const PAGE_HEADING = "#000000";
+
+/** Storefront preview uses the same page formula as the real reader. */
+function splitIntoPages(text: string, schoolbookLayout = false): string[][] {
+  return sharedSplitIntoPages(text, 0, {
+    smallIllustrations: schoolbookLayout,
+    maxLines: MAX_VISUAL_LINES,
+    mergeUnderfilled: true,
+  });
+}
 
 // ─── Genre colours (same as book-reader) ─────────────────────────────────────
 const GENRE_COLORS: Record<string, { spine: string; coverBg: string; coverText: string; accent: string }> = {
@@ -55,156 +58,32 @@ const GENRE_COLORS: Record<string, { spine: string; coverBg: string; coverText: 
   "Spirituality":      { spine: "#2a1838", coverBg: "#1e1028", coverText: "#d0a8f0", accent: "#c084fc" },
   "Productivity":      { spine: "#1a2a10", coverBg: "#142008", coverText: "#c0e0a0", accent: "#84cc16" },
   "Classic Literature":{ spine: "#3a2508", coverBg: "#2a1a05", coverText: "#e8d4a0", accent: "#d4a853" },
+  "Textbooks":         { spine: "#1e3a5f", coverBg: "#152a45", coverText: "#c8ddf0", accent: "#3b82f6" },
+  "Education / Learning": { spine: "#1e3a5f", coverBg: "#152a45", coverText: "#c8ddf0", accent: "#2563eb" },
 };
 const DEFAULT_COLORS = { spine: "#3a2508", coverBg: "#2a1a05", coverText: "#e8d4a0", accent: "#f59e0b" };
 function getGenreColors(genre: string) { return GENRE_COLORS[genre] || DEFAULT_COLORS; }
 
-// ─── Line-cost estimator ──────────────────────────────────────────────────────
-function estimateVisualLines(line: string): number {
-  const trimmed = line.trim();
-  if (trimmed === "") return BLANK_DIV_HEIGHT_PX / PX_PER_LINE;
-
-  // Illustration markers with a resolved URL take a full page
-  const illustMatch = trimmed.match(/\[(?:ILLUSTRATION|IMAGE|COMIC PANEL):\s*(.+?)\]/i);
-  if (illustMatch) {
-    const src = illustMatch[1].split(' | ')[0].trim();
-    if (src.startsWith("/") || src.startsWith("http")) return MAX_VISUAL_LINES;
-    return 2; // placeholder marker — treat as two lines
-  }
-
-  const headerMatch = trimmed.match(/^#{2,}\s*\**\s*(.+?)\s*\**\s*$/);
-  if (headerMatch) {
-    const wrapped = Math.ceil(headerMatch[1].length / HEADER_CHARS_PER_LINE) || 1;
-    return wrapped * HEADER_LINE_COST + HEADER_MARGIN_COST;
-  }
-
-  const isBullet   = trimmed.startsWith("- ") || trimmed.startsWith("\u2022 ");
-  const isTableRow = trimmed.startsWith("|");
-  const isDialogue = trimmed.startsWith('"') || trimmed.startsWith('\u201c') || trimmed.startsWith("'");
-
-  if (isTableRow) {
-    return Math.ceil(trimmed.length / CHARS_PER_LINE_TABLE) + 0.2;
-  }
-
-  const underscores = (trimmed.match(/_/g) || []).length;
-  const normalChars = trimmed.length - underscores;
-  const estimatedPx = underscores * PX_PER_CHAR_WIDE + normalChars * PX_PER_CHAR_REGULAR;
-
-  let wrapped: number;
-  if (isBullet || isDialogue) {
-    wrapped = Math.ceil(estimatedPx / CONTENT_PX_INDENTED);
-  } else {
-    wrapped = Math.ceil((estimatedPx + CONTENT_PX_TEXTINDENT) / CONTENT_PX_BODY);
-  }
-  return wrapped + 0.2;
-}
-
-function splitParagraphAtSentences(para: string, maxLines: number): string[] {
-  const sentenceRe = /[^.!?…]+[.!?…]+[""')\]]*\s*/g;
-  const rawSentences = para.match(sentenceRe);
-  const sentences = rawSentences ? rawSentences.map(s => s.trim()).filter(Boolean) : [para];
-
-  if (sentences.length <= 1) {
-    const words = para.split(/\s+/);
-    const chunks: string[] = [];
-    let current = "";
-    for (const word of words) {
-      const candidate = current ? current + " " + word : word;
-      if (estimateVisualLines(candidate) > maxLines && current) {
-        chunks.push(current);
-        current = word;
-      } else {
-        current = candidate;
-      }
-    }
-    if (current) chunks.push(current);
-    return chunks;
-  }
-
-  const chunks: string[] = [];
-  let current = "";
-  for (const sentence of sentences) {
-    const candidate = current ? current + " " + sentence : sentence;
-    if (estimateVisualLines(candidate) > maxLines && current) {
-      chunks.push(current.trim());
-      current = sentence;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks;
-}
-
-function splitIntoPages(text: string): string[][] {
-  const rawLines = text.split("\n");
-  const lines: string[] = [];
-  let prevWasEmpty = false;
-  for (const l of rawLines) {
-    const isEmpty = l.trim() === "";
-    if (isEmpty && prevWasEmpty) continue;
-    lines.push(l);
-    prevWasEmpty = isEmpty;
-  }
-
-  const pages: string[][] = [];
-  let currentPage: string[] = [];
-  let visualCount = 0;
-  const maxLines = MAX_VISUAL_LINES;
-
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-    if (trimmedLine === "" && currentPage.length === 0) continue;
-    const cost = estimateVisualLines(trimmedLine);
-    const isDecorativeLine = cost <= 1.5 && !trimmedLine.match(/[a-zA-Z0-9_]/);
-
-    if (cost > maxLines) {
-      if (currentPage.length > 0) {
-        pages.push([...currentPage]);
-        currentPage = [];
-        visualCount = 0;
-      }
-      const chunks = splitParagraphAtSentences(trimmedLine, maxLines);
-      for (let ci = 0; ci < chunks.length - 1; ci++) {
-        pages.push([ci === 0 ? chunks[ci] : CONT_PREFIX + chunks[ci]]);
-      }
-      const lastChunkRaw = chunks[chunks.length - 1];
-      currentPage = [chunks.length === 1 ? lastChunkRaw : CONT_PREFIX + lastChunkRaw];
-      visualCount = estimateVisualLines(lastChunkRaw);
-      continue;
-    }
-
-    if (visualCount + cost > maxLines && currentPage.length > 0 &&
-        (!isDecorativeLine || visualCount > maxLines)) {
-      pages.push([...currentPage]);
-      currentPage = [];
-      visualCount = 0;
-    }
-    if (trimmedLine === "" && currentPage.length === 0) continue;
-    currentPage.push(trimmedLine);
-    visualCount += cost;
-  }
-  if (currentPage.length > 0) {
-    const hasContent = currentPage.some(l => {
-      const t = l.startsWith(CONT_PREFIX) ? l.slice(CONT_PREFIX.length).trim() : l.trim();
-      return t !== "";
-    });
-    if (hasContent) pages.push(currentPage);
-  }
-  return pages;
-}
-
-function IllustrationImage({ src, caption }: { src: string; caption?: string | null }) {
+function IllustrationImage({ src, caption, schoolbookLayout = false }: { src: string; caption?: string | null; schoolbookLayout?: boolean }) {
   const [errored, setErrored] = useState(false);
   if (errored) return null;
+  const maxH = schoolbookLayout ? ILLUST_MAX_PX_INLINE : 560;
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", marginTop: 8, marginBottom: 8 }}>
-      <img
-        src={src}
-        alt={caption || "Illustration"}
-        onError={() => setErrored(true)}
-        style={{ maxWidth: "96%", maxHeight: 560, objectFit: "contain", borderRadius: 4 }}
-      />
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", marginTop: 6, marginBottom: 2 }}>
+      <div style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        width: "100%",
+        ...(schoolbookLayout ? { height: maxH, maxHeight: maxH } : {}),
+      }}>
+        <img
+          src={src}
+          alt={caption || "Illustration"}
+          onError={() => setErrored(true)}
+          style={{ maxWidth: schoolbookLayout ? "98%" : "96%", maxHeight: maxH, objectFit: "contain", borderRadius: 4 }}
+        />
+      </div>
       {caption && (
         <p style={{ fontSize: 10, fontStyle: "italic", color: PAGE_TEXT, opacity: 0.6, textAlign: "center", marginTop: 4, fontFamily: "'Libre Baskerville', serif", lineHeight: 1.4 }}>
           {caption}
@@ -214,13 +93,26 @@ function IllustrationImage({ src, caption }: { src: string; caption?: string | n
   );
 }
 
-function renderContentLine(line: string, idx: number) {
+function renderContentLine(line: string, idx: number, schoolbookLayout = false) {
   const raw = line.trim();
   const isContinuation = raw.startsWith(CONT_PREFIX);
   const trimmed = isContinuation ? raw.slice(CONT_PREFIX.length).trim() : raw;
   const paraIndent = isContinuation ? 0 : 20;
 
   if (trimmed === "") return <div key={idx} style={{ height: 8 }} />;
+
+  if (shouldRenderAsPuzzleLine(trimmed)) {
+    return renderAsciiPuzzleLine(trimmed, idx, PAGE_ACCENT, PAGE_TEXT);
+  }
+
+  if (shouldRenderAsFillIn(trimmed)) {
+    return renderWorksheetWritingLine(
+      trimmed,
+      String(idx),
+      { text: PAGE_TEXT, accent: PAGE_ACCENT, heading: PAGE_HEADING },
+      { textIndent: paraIndent },
+    );
+  }
 
   // Render illustration markers as images
   const illustMatch = trimmed.match(/\[(?:ILLUSTRATION|IMAGE|COMIC PANEL):\s*(.+?)\]/i);
@@ -230,17 +122,40 @@ function renderContentLine(line: string, idx: number) {
     const src = pipeIdx >= 0 ? fullSrc.substring(0, pipeIdx).trim() : fullSrc;
     const caption = pipeIdx >= 0 ? fullSrc.substring(pipeIdx + 3).trim() : null;
     if (src.startsWith("/") || src.startsWith("http")) {
-      return <IllustrationImage key={idx} src={src} caption={caption} />;
+      return <IllustrationImage key={idx} src={src} caption={caption} schoolbookLayout={schoolbookLayout} />;
     }
     return null; // unresolved placeholder — skip
   }
 
   const subMatch = trimmed.match(/^#{2,}\s*\**\s*(.+?)\s*\**\s*$/);
   if (subMatch) {
+    const headingText = subMatch[1].replace(/\*+/g, "").replace(/^#+\s*/, "").trim();
+    if (schoolbookLayout && isInstructionalHeaderLine(trimmed)) {
+      return renderInstructionalSectionHeader(headingText, String(idx));
+    }
+    if (isWorksheetHeaderLine(trimmed)) {
+      return renderWorksheetSectionHeader(
+        headingText,
+        String(idx),
+        { text: PAGE_TEXT, accent: PAGE_ACCENT, heading: PAGE_HEADING },
+      );
+    }
     return (
-      <h3 key={idx} style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 16, fontWeight: 700, color: PAGE_HEADING, marginTop: 12, marginBottom: 8 }}>
+      <h3 key={idx} style={{ fontFamily: schoolbookLayout ? "'Source Sans 3', 'Segoe UI', sans-serif" : "'Playfair Display', Georgia, serif", fontSize: 16, fontWeight: 700, color: PAGE_HEADING, marginTop: 12, marginBottom: 8 }}>
         {subMatch[1].replace(/\*+/g, "").replace(/^#+\s*/, "").trim()}
       </h3>
+    );
+  }
+
+  const boldOnlyMatch = trimmed.match(/^\*\*(.+)\*\*$/);
+  if (boldOnlyMatch && schoolbookLayout && isInstructionalHeaderLine(trimmed)) {
+    return renderInstructionalSectionHeader(boldOnlyMatch[1].trim(), String(idx));
+  }
+  if (boldOnlyMatch && isWorksheetHeaderLine(trimmed)) {
+    return renderWorksheetSectionHeader(
+      boldOnlyMatch[1].trim(),
+      String(idx),
+      { text: PAGE_TEXT, accent: PAGE_ACCENT, heading: PAGE_HEADING },
     );
   }
 
@@ -490,7 +405,9 @@ export default function FlipbookPreview({ bookId, onClose, onBuy }: FlipbookPrev
     };
   }, []);
 
-  const allPages = preview ? splitIntoPages(preview.content) : [];
+  const allPages = preview
+    ? splitIntoPages(preview.content, usesSchoolbookPageLayout(preview.genre))
+    : [];
   // Respect previewPageLimit for non-chapter books (e.g. coloring books = 5 pages)
   const pages = preview?.previewPageLimit != null
     ? allPages.slice(0, preview.previewPageLimit)
@@ -635,12 +552,18 @@ export default function FlipbookPreview({ bookId, onClose, onBuy }: FlipbookPrev
             {/* ── Content pages ── */}
             {pages.map((pageLines, pi) => (
               <BookPage key={pi} pageNum={pi + 1} totalPages={pages.length}>
-                <div style={{ padding: `${CONTENT_PAD_TOP}px ${CONTENT_PAD_SIDE}px ${CONTENT_PAD_BOTTOM}px` }}>
-                  {/* Running title */}
+                <div style={{
+                  padding: `${CONTENT_PAD_TOP}px ${CONTENT_PAD_SIDE}px ${CONTENT_PAD_BOTTOM}px`,
+                  height: "100%",
+                  overflow: "hidden",
+                  boxSizing: "border-box",
+                }}>
                   <div style={{ fontSize: 10, fontFamily: "'Cinzel', serif", letterSpacing: 2, textTransform: "uppercase", color: PAGE_ACCENT, opacity: 0.6, marginBottom: 12, textAlign: "center" }}>
                     {preview.chapterTitle}
                   </div>
-                  {pageLines.map((line, li) => renderContentLine(line, li))}
+                  {pageLines.map((line, li) =>
+                    renderContentLine(line, li, usesSchoolbookPageLayout(preview.genre))
+                  )}
                 </div>
               </BookPage>
             ))}

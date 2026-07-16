@@ -6,7 +6,8 @@ import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
-import { resumePendingJobs, isGenerationActive, getActiveGenerationCount, resumeInterruptedDrafts, autoResumeBulkGeneration, autoResumeTargetedOrBulk, autoResumeIllustrations, autoResumeBulkPublish, queueIllustrations } from "./contentStudio";
+import { resumePendingJobs, isGenerationActive, getActiveGenerationCount, resumeInterruptedDrafts, autoResumeBulkGeneration, autoResumeTargetedOrBulk, autoResumeIllustrations, autoResumeBulkPublish, demotePublishedWithoutReachableCover, queueIllustrations } from "./contentStudio";
+import { isStartupAutoResumeDisabled } from "./startupFlags";
 import { startMonthlyScheduler } from "./contentRefresh";
 import { seedProductionData } from "./seedProduction";
 import { execSync } from "child_process";
@@ -451,9 +452,21 @@ app.get('/objstore/illustrations/:filename', async (req, res) => {
     const { filename } = req.params;
     if (!filename) return res.status(400).send("No filename");
 
+    const localPath = path.join(process.cwd(), "uploads", "illustrations", filename);
+    if (fs.existsSync(localPath)) {
+      res.set({
+        "Content-Type": "image/png",
+        "Cache-Control": "public, max-age=2592000, immutable",
+      });
+      return res.sendFile(localPath);
+    }
+
     const { getSharedStorageClient, getObjStoreBucketName } = await import("./objectStorage");
     const bucketName = getObjStoreBucketName();
-    if (!bucketName) return res.status(500).send("Object storage not configured");
+    if (!bucketName) {
+      console.warn(`[IllustServe] Not in local uploads and object storage not configured: ${filename}`);
+      return res.status(404).send("Illustration not found");
+    }
 
     const storageClient = getSharedStorageClient();
     const file = storageClient.bucket(bucketName).file(`public/illustrations/${filename}`);
@@ -556,18 +569,25 @@ async function fixLocalCoverPaths() {
   _fixLocalCoverPathsRunning = true;
   const startedAt = Date.now();
   try {
-    const { ensureCoverPersisted } = await import("./coverStorage");
+    const { ensureCoverPersisted, isLocalWorkspaceMode } = await import("./coverStorage");
     const pg = await import("pg");
     const client = new pg.default.Client({ connectionString: process.env.DATABASE_URL });
     await client.connect();
+
+    const localWorkspace = isLocalWorkspaceMode();
 
     // Sample rate for re-verifying already-migrated (/objstore/covers/) rows on each
     // restart, to catch drift (e.g. accidental deletion from the bucket) without
     // paying the full object-storage existence-check cost for every row every time.
     // Genuinely un-migrated (/uploads/covers/) rows are always fully processed.
+    // In Cursor/local dev, always verify /objstore/ URLs so we heal to /uploads/ when the file is on disk.
     const ALREADY_MIGRATED_SAMPLE_RATE = 0.05;
     const needsVerification = (url: string | null | undefined) =>
-      !!url && (url.startsWith("/uploads/covers/") || Math.random() < ALREADY_MIGRATED_SAMPLE_RATE);
+      !!url && (
+        url.startsWith("/uploads/covers/") ||
+        (localWorkspace && url.startsWith("/objstore/covers/")) ||
+        Math.random() < ALREADY_MIGRATED_SAMPLE_RATE
+      );
 
     // Upload local cover files to object storage and normalize book paths
     const booksResult = await client.query(
@@ -625,11 +645,13 @@ async function fixLocalCoverPaths() {
           let verified = false;
 
           if (coverUrl && needsVerification(coverUrl)) {
-            coverUrl = await ensureCoverPersisted(coverUrl);
+            const healed = await ensureCoverPersisted(coverUrl);
+            if (healed) coverUrl = healed;
             verified = true;
           }
           if (backgroundUrl && needsVerification(backgroundUrl)) {
-            backgroundUrl = await ensureCoverPersisted(backgroundUrl);
+            const healed = await ensureCoverPersisted(backgroundUrl);
+            if (healed) backgroundUrl = healed;
             verified = true;
           }
 
@@ -638,7 +660,8 @@ async function fixLocalCoverPaths() {
               coverUrl = backgroundUrl;
             }
             if (!coverUrl && !backgroundUrl && draft.book_cover_url) {
-              coverUrl = await ensureCoverPersisted(draft.book_cover_url);
+              const healed = await ensureCoverPersisted(draft.book_cover_url);
+              if (healed) coverUrl = healed;
               verified = true;
             }
           }
@@ -764,6 +787,12 @@ async function migrateIllustrationFiles(_batchSize = 5000) {
 
     // Auto-heal: reset markers for any illustration files that are genuinely gone from GCS,
     // then queue illustration-only regeneration so the server self-heals on every restart.
+    if (isStartupAutoResumeDisabled()) {
+      console.log(
+        `[IllustMigration] Auto-heal skipped (local dev / DISABLE_STARTUP_AUTO_RESUME) — ${missingFromGcs.size} file(s) not in GCS will NOT trigger regen`,
+      );
+      return;
+    }
     if (missingFromGcs.size > 0) {
       console.log(`[IllustMigration] Auto-heal: resetting ${missingFromGcs.size} missing illustration markers and queuing regeneration...`);
       try {
@@ -1001,6 +1030,13 @@ async function migrateColoringPageFiles() {
       startMonthlyScheduler();
       
       setTimeout(async () => {
+        if (isStartupAutoResumeDisabled()) {
+          console.log(
+            "[Startup] Auto-resume PAUSED (DISABLE_STARTUP_AUTO_RESUME or NODE_ENV=development). " +
+              "Use Content Studio buttons to run generation manually. Set ENABLE_STARTUP_AUTO_RESUME=true to restore Replit-style boot behavior.",
+          );
+          return;
+        }
         try {
           const resumed = await resumePendingJobs();
           if (resumed > 0) {
@@ -1010,6 +1046,7 @@ async function migrateColoringPageFiles() {
           if (draftResumed > 0) {
             log(`Auto-resuming ${draftResumed} interrupted draft(s)`);
           }
+          await demotePublishedWithoutReachableCover();
           await autoResumeTargetedOrBulk();
           await autoResumeIllustrations();
           await autoResumeBulkPublish();

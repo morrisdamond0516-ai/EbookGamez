@@ -26,6 +26,7 @@ export function Footer() {
               <li><Link href="/games" className="hover:text-primary transition-colors">Play Games</Link></li>
               <li><Link href="/downloads" className="hover:text-primary transition-colors">Download Hub</Link></li>
               <li><Link href="/guides" className="hover:text-primary transition-colors">Gaming Guides</Link></li>
+              <li><Link href="/blog" className="hover:text-primary transition-colors" data-testid="link-footer-blog">Blog</Link></li>
               <li><Link href="/subscription" className="hover:text-primary transition-colors">Reading Pass</Link></li>
               <li><Link href="/about" className="hover:text-primary transition-colors" data-testid="link-footer-about">About</Link></li>
             </ul>

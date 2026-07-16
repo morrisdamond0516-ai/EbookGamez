@@ -9,7 +9,77 @@ import { createCanvas, loadImage, registerFont } from "canvas";
 import epubGenMemory from "epub-gen-memory";
 const epub = (epubGenMemory as any).default || epubGenMemory;
 import * as backupService from "./backupService";
-import { saveCoverFile, localCoverPath, coverFilenameFromUrl } from "./coverStorage";
+import { saveCoverFile, localCoverPath, coverFilenameFromUrl, draftHasPublishableCover } from "./coverStorage";
+import {
+  getIllustrationCapForGenre,
+  isActivityOrWorkbookGenre,
+  needsInteriorIllustrations,
+  isPlannerGenre,
+  isJournalGenre,
+  normalizeActivityBookContent,
+  convertAsciiPuzzleBlocksToIllustrationMarkers,
+  countAsciiPuzzleLines,
+  countUnprocessedIllustrationMarkers,
+  activityBookNeedsStructureRepair,
+  getActivityBookPublishBlockers,
+  prepareActivityBookForIllustrationPipeline,
+  draftColoringBookContentComplete,
+  draftNeedsIllustrationQueueEntry,
+} from "@shared/activityBookContent";
+import {
+  checkStoryWritingGate,
+  mergeCoverCreativeBrief,
+  draftHasStoryForCoverSync,
+  type DraftStoryCoverFields,
+} from "./storyCoverBridge";
+import {
+  parseCharacterBibleFromDescription,
+  withCharacterBibleInDescription,
+  formatCharacterBibleForChapterWriting,
+  formatCharacterBibleForMarkerInjection,
+  type CharacterVisualBible,
+} from "@shared/characterBible";
+import {
+  generateCharacterVisualBible,
+  enrichImagePromptWithCharacterBible,
+  getCharacterBibleForDraftId,
+} from "./characterBible";
+
+export { buildAndSaveCharacterBibleForDraft, getCharacterBibleForDraftId } from "./characterBible";
+import {
+  assessDraftCompleteness,
+  assertBatchMutationAllowed,
+  BatchOperationGuardError,
+  draftNeedsIllustrationDemotion,
+  preflightActivityLineRepair,
+  type BatchPreflightReport,
+} from "./batchOperationGuards";
+import {
+  parseOutlineIllustrationSlots,
+  outlineDescriptionKey,
+  findIllegalAdjacentIllustrations,
+  injectOutlineIllustrationSlots,
+  prunePendingMarkersNotInOutline,
+} from "@shared/outlineIllustrations";
+import {
+  isEducationalGenre,
+  isEducationalDraft,
+  scanEducationalPedagogySignals,
+  repairEmptyInstructionalSections,
+  EDUCATIONAL_EDITORIAL_MIN_SCORE,
+  EDUCATIONAL_INSTRUCTIONAL_MIN_SCORE,
+  INSTRUCTIONAL_ADOPTION_PILLARS,
+} from "@shared/educationalBookQuality";
+import { scanUnderfilledReaderPages } from "@shared/readerPageSplit";
+
+export { BatchOperationGuardError, assessDraftCompleteness, preflightActivityLineRepair } from "./batchOperationGuards";
+export {
+  isEducationalGenre,
+  isEducationalDraft,
+  scanEducationalPedagogySignals,
+  usesSchoolbookPageLayout,
+  INSTRUCTIONAL_ADOPTION_PILLARS,
+} from "@shared/educationalBookQuality";
 
 const ILLUSTRATION_EXEMPT_DRAFT_IDS = new Set<number>([]);
 
@@ -1276,6 +1346,66 @@ function getSecondFallbackClient(): OpenAI {
   return openaiReplit;
 }
 
+/**
+ * Stream long gpt-5.2 completions. Non-streaming chapter calls often die at ~60s on
+ * Windows/Cloudflare paths (UND_ERR_SOCKET / "other side closed") while streaming works.
+ */
+async function streamChatCompletion(options: {
+  client?: OpenAI;
+  model?: string;
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  max_completion_tokens: number;
+}): Promise<{ content: string; finishReason: string | null }> {
+  const client = options.client ?? getContentClient();
+  const stream = await client.chat.completions.create({
+    model: options.model ?? "gpt-5.2",
+    messages: options.messages,
+    max_completion_tokens: options.max_completion_tokens,
+    stream: true,
+  });
+  let content = "";
+  let finishReason: string | null = null;
+  for await (const chunk of stream) {
+    const choice = chunk.choices?.[0];
+    if (choice?.delta?.content) content += choice.delta.content;
+    if (choice?.finish_reason) finishReason = choice.finish_reason;
+  }
+  return { content, finishReason };
+}
+
+function formatOpenAIError(error: any): string {
+  const nested = error?.cause?.cause || error?.cause;
+  const code = nested?.code || error?.code;
+  const detail = nested?.message || error?.cause?.message;
+  if (code || detail) return `${error?.message || "error"}${code ? ` [${code}]` : ""}${detail ? ` — ${detail}` : ""}`;
+  return error?.message || String(error);
+}
+
+/** Transport/network failures that retrying will only burn money — dig deeper after 2. */
+function isTransportFailure(error: any): boolean {
+  const msg = String(error?.message || "").toLowerCase();
+  const nested = error?.cause?.cause || error?.cause;
+  const code = String(nested?.code || error?.code || "");
+  return (
+    msg.includes("connection error") ||
+    msg.includes("fetch failed") ||
+    msg.includes("timeout") ||
+    msg.includes("econnreset") ||
+    msg.includes("socket") ||
+    code === "UND_ERR_SOCKET" ||
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "ENOTFOUND"
+  );
+}
+
+class TransportAbortError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransportAbortError";
+  }
+}
+
 const REFUSAL_PATTERNS = [
   /^I can(?:'t| not) (?:create|write|generate|produce|help|build|draft)/i,
   /^I'm (?:not able to|unable to|sorry,? (?:but )?I can(?:'t| not))/i,
@@ -1344,7 +1474,7 @@ const VISUAL_ENHANCED_GENRES: Record<string, { description: string; illustration
   "Activity Books": {
     description: "Interactive activity book with AI-generated visual puzzles, illustrated exercises, game boards, challenge pages, and activity prompts.",
     illustrationStyle: "activity book illustration, playful layout, puzzle graphics, challenge visuals, engaging game-style art",
-    promptPrefix: "This is a visual-enhanced activity book. Include [ILLUSTRATION: detailed description] markers where AI-generated visual puzzles, illustrated challenges, game boards, activity page layouts, and visual prompts should appear to make the activities engaging and interactive. Each chapter should have 3-5 illustration markers."
+    promptPrefix: "This is a visual-enhanced activity book. Include [ILLUSTRATION: detailed description] markers where AI-generated visual puzzles, illustrated challenges, game boards, activity page layouts, and visual prompts should appear to make the activities engaging and interactive. Every maze, connect-the-dots, spot-the-difference, cipher grid, or printable puzzle page MUST be a [ILLUSTRATION:] marker — NEVER draw puzzles with ASCII characters (+, |, -, #, .). Each chapter should have 3-5 illustration markers minimum, plus one [ILLUSTRATION:] per puzzle page. For text the reader writes in (evidence logs, field notes, answer blanks), use short labeled lines like 'Clue: ______' — never long runs of raw underscores on their own."
   },
   "Art & Design": {
     description: "Art and design guide with AI-generated technique demonstrations, style examples, composition studies, and visual tutorials.",
@@ -1439,6 +1569,11 @@ export function getVisualFirstGenres(): string[] {
 export function isVisualEnhancedGenre(genre: string): boolean {
   if (genre in VISUAL_ENHANCED_GENRES) return true;
   return genre.split(/,\s*/).some(part => part in VISUAL_ENHANCED_GENRES);
+}
+
+/** Illustrated fiction needs a character visual bible for consistent interior art. */
+export function needsCharacterVisualBible(genre: string): boolean {
+  return isFictionGenre(genre) && isVisualEnhancedGenre(genre);
 }
 
 export function getVisualEnhancedConfig(genre: string) {
@@ -1782,6 +1917,16 @@ function getGenreAuthorList(genre: string): { authors: { name: string; signature
       { name: "Veronica Roth", signature: "Identity as the central conflict, dystopian society as metaphor for adolescent belonging, moral complexity in faction/group loyalty, romantic tension under pressure" },
       { name: "S.E. Hinton", signature: "Authentic teen voice without adult filtering, class conflict, brotherhood and loyalty, the tragedy of wasted potential, gritty emotional honesty" },
       { name: "Cassandra Clare", signature: "Complex world mythology, romantic tension sustained across long arcs, chosen family over biological, queer representation, lore-rich world-building" },
+    ]};
+  }
+  if (isEducationalGenre(genre) || lower.includes("textbook") || lower.includes("curriculum") || lower.includes("workbook")) {
+    return { genreLabel: "Instructional Materials / Textbooks", authors: [
+      { name: "Grant Wiggins & Jay McTighe", signature: "Backward design — start from learning goals, then evidence of learning, then instruction; every chapter earns its objectives" },
+      { name: "John Hattie", signature: "Visible learning — clear success criteria, feedback loops, and practice that moves students from surface to deep understanding" },
+      { name: "Barak Rosenshine", signature: "Principles of instruction — small steps, worked examples, guided practice, checks for understanding, spaced review" },
+      { name: "Anita Archer", signature: "Explicit instruction — I do / We do / You do; precise language; high rates of student response" },
+      { name: "Doug Lemov", signature: "Teach Like a Champion techniques — ratio, checking for understanding, exit tickets, crisp explanations" },
+      { name: "Marilyn Burns", signature: "Math teaching clarity — concrete→pictorial→abstract, student misconceptions as teaching fuel, talk-rich practice" },
     ]};
   }
   return { genreLabel: "General Non-Fiction", authors: [
@@ -2593,7 +2738,45 @@ DON MIGUEL RUIZ — Ancient Agreements & Toltec Wisdom:
 COMBINE THESE APPROACHES: Mix Tolle's present-moment awareness with Thich Nhat Hanh's poetic observation. Layer Chopra's scientific bridging over Shetty's modern application. Use Pema Chodron's embrace of difficulty alongside Ruiz's radical simplicity. The best spiritual books don't just inform — they transform.`;
   }
 
-  if (lower.includes("science") || lower.includes("technology") || lower.includes("physics") || lower.includes("biology") || lower.includes("education") || lower.includes("research")) {
+  if (isEducationalGenre(genre) || lower.includes("textbook") || lower.includes("curriculum")) {
+    return `GENRE MASTERY — STUDENT TAKE-HOME TEXTBOOKS (classroom books teachers assign; students read and practice):
+
+PRODUCT SHAPE (NON-NEGOTIABLE):
+- This is a STUDENT textbook/workbook — the reader is the student at the stated grade/level
+- Address the learner as "you". NEVER write to parents or teachers as the primary audience
+- Ban phrases like "your child", "ask your student", "as a parent", "in your classroom", "homeschool routine" in the main lesson body
+- Optional one-line adult tip only inside a clearly labeled **Teacher / Helper Tip** box — rare, optional, never the default voice
+
+BACKWARD DESIGN (Wiggins & McTighe):
+- Open every unit/chapter with clear LEARNING OBJECTIVES the student can achieve
+- Design practice and checks that prove those objectives before moving on
+- Cut content that does not serve an objective
+
+EXPLICIT INSTRUCTION (Rosenshine / Archer):
+- Small steps: explain → worked example (I do) → guided practice (We do) → independent practice (You do)
+- Check for understanding frequently; address common misconceptions explicitly
+- Use precise, grade-appropriate vocabulary with plain-language definitions
+
+CLARITY & SEQUENCE:
+- Logical progression from prior knowledge to new skill — like a full course of study for the stated grade/level
+- Headings, key terms, diagrams, and summaries a student can follow independently
+- Age/grade fit: never write above or below the stated audience
+
+PRACTICE & FORMATIVE ASSESSMENT:
+- Every major concept needs practice items, try-its, or review questions — not lecture-only prose
+- Include brief self-check cues where appropriate
+- Spaced review of earlier skills
+- ONE heading per instructional block: never ## Practice then ### Practice A with an empty banner between; never a bare Example/Practice/Check heading with no items underneath
+
+SUITABILITY FOR SCHOOL / LIBRARY USE:
+- Accurate, careful claims; no fabricated facts presented as true
+- Appropriate for classroom assignment and school-library selection
+- Visuals: diagrams/figures where concepts need them ([ILLUSTRATION:] markers)
+
+COMBINE THESE: objectives first, teach clearly to the student, practice often, check understanding, stay grade-true.`;
+  }
+
+  if (lower.includes("science") || lower.includes("technology") || lower.includes("physics") || lower.includes("biology") || lower.includes("research")) {
     return `GENRE MASTERY — SCIENCE & TECHNOLOGY (Blending techniques from Bill Bryson, Neil deGrasse Tyson, Mary Roach, Yuval Noah Harari, Carl Sagan, Michio Kaku):
 
 BILL BRYSON — Curiosity-Driven & Humorous Discovery:
@@ -2829,6 +3012,58 @@ Be specific and vivid. These details will be used to ensure the book's content m
   }
 }
 
+/** Cross-examine cover imagery with outline before chapter/dialogue writing. */
+async function crossExamineCoverAndOutline(
+  coverAnalysis: string,
+  outline: string,
+  title: string,
+  genre: string,
+): Promise<string> {
+  if (!coverAnalysis.trim() || !outline.trim()) return "";
+
+  try {
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You align book cover visuals with a story outline before prose is written. Output concise, actionable creative notes for the writing team.",
+        },
+        {
+          role: "user",
+          content: `Title: "${title}"
+Genre: ${genre}
+
+COVER VISUAL ANALYSIS:
+${coverAnalysis.substring(0, 2000)}
+
+STORY OUTLINE:
+${outline.substring(0, 3500)}
+
+Cross-examine cover vs outline. Reply with:
+1. ALIGNMENTS — what the cover and outline already agree on (setting, mood, symbols, era)
+2. GAPS — anything the outline must emphasize so the story matches the cover
+3. DIALOGUE/CHARACTER NOTES — voice or relationship hints implied by the cover that dialogue should honor
+
+Keep under 400 words. Be specific.`,
+        },
+      ],
+      max_tokens: 550,
+      temperature: 0.4,
+    });
+
+    const notes = response.choices[0]?.message?.content?.trim() || "";
+    if (notes) {
+      console.log(`[Cover↔Outline Cross-Exam] "${title}": ${notes.substring(0, 120)}...`);
+    }
+    return notes;
+  } catch (err: any) {
+    console.warn(`[Cover↔Outline Cross-Exam] Failed for "${title}":`, err?.message);
+    return "";
+  }
+}
+
 export async function generateEbookOutline(topic: string, genre: string, title?: string, coverAnalysis?: string, creativeDirection?: string): Promise<string> {
   const bookTitle = title || topic;
   const direction = creativeDirection?.trim() || topic;
@@ -2961,43 +3196,62 @@ Include:
 
 The outline should be detailed enough that the resulting book could answer any question a reader might have about "${bookTitle}". Format as a structured outline.`;
 
-  const response = await getContentClient().chat.completions.create({
-    model: "gpt-5.2",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    max_completion_tokens: 8000,
-  });
+  // Must stream — non-streaming outline calls hit UND_ERR_SOCKET (~60s) on Windows paths
+  // the same way long chapter calls do. On transport failure, try the other provider once.
+  const outlineMessages = [
+    { role: "system" as const, content: systemPrompt },
+    { role: "user" as const, content: userPrompt },
+  ];
+  const outlineTokens = 8000;
 
-  const outlineText = response.choices[0]?.message?.content || "";
+  async function streamOutlineWithClient(client: OpenAI, label: string): Promise<string> {
+    console.log(`[Content Gen] Outline via ${label} (streaming) for "${bookTitle}"`);
+    const { content } = await streamChatCompletion({
+      client,
+      messages: outlineMessages,
+      max_completion_tokens: outlineTokens,
+    });
+    return content || "";
+  }
+
+  const primaryLabel = contentAIProvider === "replit" ? "Replit AI" : "OpenAI";
+  const backupClient = contentAIProvider === "replit" ? getFallbackClient() : getSecondFallbackClient();
+  const backupLabel = contentAIProvider === "replit" ? "Direct OpenAI backup" : "Replit AI backup";
+
+  let outlineText = "";
+  try {
+    outlineText = await streamOutlineWithClient(getContentClient(), primaryLabel);
+  } catch (error: any) {
+    if (!isTransportFailure(error)) throw error;
+    console.error(
+      `[Content Gen] Outline transport failure via ${primaryLabel} (1/2):`,
+      formatOpenAIError(error),
+    );
+    try {
+      outlineText = await streamOutlineWithClient(backupClient, backupLabel);
+    } catch (backupError: any) {
+      if (!isTransportFailure(backupError)) throw backupError;
+      console.error(
+        `[Content Gen] Outline transport failure via ${backupLabel} (2/2):`,
+        formatOpenAIError(backupError),
+      );
+      throw new TransportAbortError(
+        `Outline stopped after 2 consecutive transport failures (last: ${formatOpenAIError(backupError)}). ` +
+          `Do not keep retrying — diagnose root cause (streaming/TLS/network/endpoint) before more API spend.`,
+      );
+    }
+  }
 
   if (detectRefusal(outlineText)) {
     console.log(`[Content Gen] REFUSED outline for "${bookTitle}" — trying Direct OpenAI first`);
     console.log(`[Content Gen] Refusal detected in first 200 chars: "${outlineText.substring(0, 200)}"`);
-    const openAIResponse = await getFallbackClient().chat.completions.create({
-      model: "gpt-5.2",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      max_completion_tokens: 8000,
-    });
-    const openAIText = openAIResponse.choices[0]?.message?.content || "";
+    const openAIText = await streamOutlineWithClient(getFallbackClient(), "Direct OpenAI (refusal fallback)");
     if (!detectRefusal(openAIText)) {
       console.log(`[Content Gen] Direct OpenAI accepted outline`);
       return openAIText;
     }
     console.log(`[Content Gen] Direct OpenAI also refused — trying Replit AI as last resort`);
-    const replitResponse = await getSecondFallbackClient().chat.completions.create({
-      model: "gpt-5.2",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      max_completion_tokens: 8000,
-    });
-    const replitText = replitResponse.choices[0]?.message?.content || "";
+    const replitText = await streamOutlineWithClient(getSecondFallbackClient(), "Replit AI (refusal fallback)");
     if (!detectRefusal(replitText)) {
       console.log(`[Content Gen] Replit AI accepted outline`);
       return replitText;
@@ -3087,7 +3341,16 @@ function getGenreChapterSpec(genre: string): { minWordsPerChapter: number; maxWo
     return { minWordsPerChapter: 2000, maxWordsPerChapter: 3500, targetChapters: { min: 8, max: 12 }, pacing: "Evidence-based chapters with practical protocols. Include specific routines, meal plans, or exercise programs readers can follow." };
   }
   if (lower.includes("psychology") || lower.includes("philosophy")) {
-    return { minWordsPerChapter: 2500, maxWordsPerChapter: 4000, targetChapters: { min: 8, max: 12 }, pacing: "Thought-provoking chapters that blend research with relatable examples. Each chapter should shift the reader's perspective." };
+    return { minWordsPerChapter: 2500, maxWordsPerChapter: 4000, targetChapters: { min: 8, max: 12 }, pacing: "Concept-driven chapters that build understanding progressively. Use case studies, thought experiments, and practical applications." };
+  }
+  if (isEducationalGenre(genre) || lower.includes("textbook") || lower.includes("curriculum")) {
+    return {
+      minWordsPerChapter: 1800,
+      maxWordsPerChapter: 3500,
+      targetChapters: { min: 8, max: 16 },
+      pacing:
+        "Each chapter is a STUDENT LESSON in a take-home textbook (the child/teen reads it). Speak to the student as 'you'. Use markdown ## headings for: Learning Objectives, Worked Example, Practice, Check Your Understanding, and Key Terms. Sequence: objectives → explanation → worked example(s) → practice → check. CRITICAL — never stack empty chrome: do NOT write a bare '## Practice' or '## Worked Example' immediately before a more specific '### Practice A' / '### Worked Example: …' with nothing between; use ONE heading per section and put real items under it. Never leave Example/Practice/Check headings with no body. Grade-appropriate language. Include diagram [ILLUSTRATION:] markers where concepts need visuals. Never write as a novel. Never write as a parent/teacher manual.",
+    };
   }
   
   const isFiction = isFictionGenre(genre || "");
@@ -3097,7 +3360,7 @@ function getGenreChapterSpec(genre: string): { minWordsPerChapter: number; maxWo
   return { minWordsPerChapter: 2000, maxWordsPerChapter: 3500, targetChapters: { min: 8, max: 12 }, pacing: "Clear, structured chapters with comprehensive coverage. Each chapter should fully address its topic with examples and takeaways." };
 }
 
-export async function generateEbookContent(outline: string, topic: string, genre?: string, title?: string, coverAnalysis?: string, onChapterComplete?: (contentSoFar: string) => Promise<void>, existingContent?: string, storedChapterCount?: number, stopEpochAtStart?: number, creativeDirection?: string): Promise<string> {
+export async function generateEbookContent(outline: string, topic: string, genre?: string, title?: string, coverAnalysis?: string, onChapterComplete?: (contentSoFar: string) => Promise<void>, existingContent?: string, storedChapterCount?: number, stopEpochAtStart?: number, creativeDirection?: string, characterVisualInstructions?: string): Promise<string> {
   const bookTitle = title || topic;
   const direction = creativeDirection?.trim() || topic;
   const creativeDirectionBlock = direction
@@ -3257,7 +3520,9 @@ CRITICAL: This is a QUOTE BOOK, not a novel. Do NOT write narrative prose with f
 - Writing concise instructional text that explains HOW to complete each activity
 - Including varied activity types: matching, fill-in-the-blank, drawing prompts, reflection questions, projects
 - Making activities progressively more challenging throughout
-CRITICAL: This is a WORKBOOK/ACTIVITY BOOK, not a novel. Do NOT write narrative prose with characters. Create actual exercises, activities, and fill-in sections. Each chapter is a themed set of activities.`;
+CRITICAL: This is a WORKBOOK/ACTIVITY BOOK, not a novel. Do NOT write narrative prose with characters. Create actual exercises, activities, and fill-in sections. Each chapter is a themed set of activities.
+For evidence logs and answer blanks, use labeled fields on one line each (e.g. "Clue: ______", "Location: ______") — not long walls of underscores.
+For mazes, connect-the-dots, spot-the-difference, cipher grids, and printable puzzle pages: use [ILLUSTRATION: detailed black-and-white puzzle description] markers — NEVER ASCII art made from +, |, -, #, or dot characters.`;
   if (['planners'].some(t => g.includes(t)))
     return `You are an expert planner and organizer designer who creates functional, beautiful planning tools. You excel at:
 - Creating structured planning templates with clear sections for goals, tasks, schedules, and reflections
@@ -3365,6 +3630,8 @@ This section appears at the very beginning of the book, BEFORE Chapter 1. Write 
   if (existingChapterTexts.length > 0) {
     previousChapterSummary = existingChapterTexts[existingChapterTexts.length - 1].substring(0, 600);
   }
+  /** After 2 consecutive transport failures, abort — do not burn money on remaining chapters. */
+  let consecutiveTransportFailures = 0;
 
   for (let i = 0; i < totalChapters; i++) {
     const chapterNum = i + 1;
@@ -3395,12 +3662,20 @@ This section appears at the very beginning of the book, BEFORE Chapter 1. Write 
 
     const chapterVisualConfig = getVisualEnhancedConfig(genre || "");
     const chapterVisualInstructions = chapterVisualConfig
-      ? `\n\nVISUAL-ENHANCED CONTENT: This is a visual-enhanced ${genre} book. You MUST include 2-4 [ILLUSTRATION: detailed description] markers within this chapter at natural points where visual examples would help the reader understand the concepts being taught.
+      ? fiction
+        ? `\n\nVISUAL-ENHANCED FICTION: This ${genre} book includes interior illustrations. Include 2-4 [ILLUSTRATION: detailed description] markers at key story moments — emotional beats, action scenes, and world-revealing shots.
+Each marker must be an extremely detailed scene description for AI image generation: who is visible, what they are doing, setting, composition, art style (${chapterVisualConfig.illustrationStyle}), colors, and mood.
+${characterVisualInstructions ? `\n${characterVisualInstructions}\nWhen a recurring character appears, use their EXACT fixed look and the correct outfit (default or listed variant) from the CHARACTER VISUAL BIBLE. Never invent new faces, hair, or clothing.` : "Recurring characters must look identical in every illustration — same face, hair, skin tone, and signature items. Only change clothes when the story explicitly calls for it (e.g. pajamas, rain gear, formal event)."}
+Place each [ILLUSTRATION: ...] marker on its OWN LINE after the paragraph it illustrates.`
+        : `\n\nVISUAL-ENHANCED CONTENT: This is a visual-enhanced ${genre} book. You MUST include 2-4 [ILLUSTRATION: detailed description] markers within this chapter at natural points where visual examples would help the reader understand the concepts being taught.
 Each [ILLUSTRATION: ...] marker must contain an extremely detailed, specific description suitable for AI image generation. Include: subject matter, composition, art style (${chapterVisualConfig.illustrationStyle}), colors, mood, and any text/labels that should appear.
 CRITICAL ILLUSTRATION RULE — NEVER use metaphors, analogies, or symbolic stand-ins in illustration descriptions. Always describe imagery that DIRECTLY depicts the actual subject matter of the book. For example, if this is a cybersecurity book and the text uses the analogy "like brushing your teeth," the illustration must NOT show someone brushing teeth — it must show an actual cybersecurity concept (e.g., a password manager interface, a lock icon over a network diagram). Only describe what a reader would expect to literally SEE in a book about this topic.
+${characterVisualInstructions ? `\n${characterVisualInstructions}` : ""}
 Example for a comics chapter: [ILLUSTRATION: A professional three-panel comic strip demonstrating the rule of thirds in panel composition. Panel 1 shows a close-up of a detective's face with dramatic shadows, Panel 2 shows a wide shot of a rain-soaked city street at night with neon reflections, Panel 3 shows a medium shot of a mysterious figure turning a corner. Bold ink lines, vibrant noir color palette with deep blues and amber highlights, professional comic book art style.]
 Place each [ILLUSTRATION: ...] marker on its OWN LINE (not embedded within a sentence) — right after explaining a concept where a visual example would reinforce the lesson. The marker must be the only content on that line.`
-      : "";
+      : characterVisualInstructions
+        ? `\n\n${characterVisualInstructions}`
+        : "";
 
     const chapterPrompt = isCollectionGenre
       ? `You are writing Story ${chapterNum} of ${totalChapters} for the ${genre || 'Short Story Collection'} "${bookTitle}".
@@ -3528,44 +3803,39 @@ Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the fu
           : "";
         
         const maxTokens = Math.min(16384, Math.max(8000, Math.round(chapterSpec.maxWordsPerChapter * 3)));
-        const response = await getContentClient().chat.completions.create({
-          model: "gpt-5.2",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: chapterPrompt + extraInstruction + truncationFix }
-          ],
+        const messages = [
+          { role: "system" as const, content: systemPrompt },
+          { role: "user" as const, content: chapterPrompt + extraInstruction + truncationFix },
+        ];
+        // Must stream — non-streaming long gpt-5.2 calls get UND_ERR_SOCKET (~60s) on this network path
+        let { content: chapterContent, finishReason } = await streamChatCompletion({
+          messages,
           max_completion_tokens: maxTokens,
         });
-
-        let chapterContent = response.choices[0]?.message?.content || "";
         
         if (detectRefusal(chapterContent)) {
           console.log(`[Content Gen] Chapter ${chapterNum} of "${bookTitle}" REFUSED — trying Direct OpenAI`);
-          const openAIFallback = await getFallbackClient().chat.completions.create({
-            model: "gpt-5.2",
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: chapterPrompt + extraInstruction + truncationFix }
-            ],
+          const openAIFallback = await streamChatCompletion({
+            client: getFallbackClient(),
+            messages,
             max_completion_tokens: maxTokens,
           });
-          const openAIChapter = openAIFallback.choices[0]?.message?.content || "";
+          const openAIChapter = openAIFallback.content;
           if (!detectRefusal(openAIChapter) && openAIChapter.trim().length > 100) {
             chapterContent = openAIChapter;
+            finishReason = openAIFallback.finishReason;
             console.log(`[Content Gen] Direct OpenAI wrote Chapter ${chapterNum}: ${chapterContent.split(/\s+/).length} words`);
           } else {
             console.log(`[Content Gen] Direct OpenAI also refused Chapter ${chapterNum} — trying Replit AI`);
-            const replitFallback = await getSecondFallbackClient().chat.completions.create({
-              model: "gpt-5.2",
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: chapterPrompt + extraInstruction + truncationFix }
-              ],
+            const replitFallback = await streamChatCompletion({
+              client: getSecondFallbackClient(),
+              messages,
               max_completion_tokens: maxTokens,
             });
-            const replitChapter = replitFallback.choices[0]?.message?.content || "";
+            const replitChapter = replitFallback.content;
             if (!detectRefusal(replitChapter) && replitChapter.trim().length > 100) {
               chapterContent = replitChapter;
+              finishReason = replitFallback.finishReason;
             } else {
               chapterContent = openAIChapter.length > replitChapter.length ? openAIChapter : replitChapter;
             }
@@ -3574,7 +3844,6 @@ Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the fu
         }
 
         const chapterWords = chapterContent.split(/\s+/).length;
-        const finishReason = response.choices[0]?.finish_reason;
         
         if (chapterContent.trim().length < 100 || chapterWords < Math.round(chapterSpec.minWordsPerChapter * 0.7)) {
           console.warn(`[Content Gen] Chapter ${chapterNum} attempt ${attempt}: only ${chapterWords} words, ${attempt < MAX_RETRIES ? 'retrying...' : 'using best result'}`);
@@ -3600,6 +3869,7 @@ Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the fu
 
         const wordsSoFar = allChapterContent.reduce((sum, ch) => sum + ch.split(/\s+/).length, 0);
         console.log(`[Content Gen] Chapter ${chapterNum} complete (attempt ${attempt}): ${chapterWords} words, truncated=${truncated}. Total so far: ${wordsSoFar}`);
+        consecutiveTransportFailures = 0;
 
         // ── Chapter Hook Check (DURING) ────────────────────────────────────
         // Only on chapter 1, midpoint, and final chapter to minimise API cost
@@ -3617,7 +3887,18 @@ Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the fu
           await onChapterComplete(progressContent).catch(() => {});
         }
       } catch (error: any) {
-        console.error(`[Content Gen] Chapter ${chapterNum} attempt ${attempt} failed:`, error?.message);
+        console.error(`[Content Gen] Chapter ${chapterNum} attempt ${attempt} failed:`, formatOpenAIError(error));
+        if (isTransportFailure(error)) {
+          consecutiveTransportFailures++;
+          if (consecutiveTransportFailures >= 2) {
+            throw new TransportAbortError(
+              `Stopped after ${consecutiveTransportFailures} consecutive transport failures (last: ${formatOpenAIError(error)}). ` +
+                `Do not keep retrying — diagnose root cause (streaming/TLS/network/endpoint) before more API spend.`,
+            );
+          }
+        } else {
+          consecutiveTransportFailures = 0;
+        }
         if (attempt === MAX_RETRIES) {
           allChapterContent.push(`## Chapter ${chapterNum}\n\n[Content generation failed for this chapter after ${MAX_RETRIES} attempts. Please regenerate this ebook.]`);
         }
@@ -3702,6 +3983,8 @@ export async function autoResumeIllustrations(): Promise<void> {
     genre: draftEbooks.genre,
     content: draftEbooks.content,
     status: draftEbooks.status,
+    coverUrl: draftEbooks.coverUrl,
+    backgroundUrl: draftEbooks.backgroundUrl,
   }).from(draftEbooks).where(
     sql`${draftEbooks.content} IS NOT NULL AND ${draftEbooks.content} LIKE '%[ILLUSTRATION:%'`
   );
@@ -3714,6 +3997,13 @@ export async function autoResumeIllustrations(): Promise<void> {
       const hasImages = fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter(f => f.endsWith('.png')).length >= 20;
       if (!hasImages) pendingIds.push(d.id);
       continue;
+    }
+    if (!draftHasPublishableCover(d)) {
+      if (d.status !== "published") {
+        console.log(`[Auto-Resume Illustrations] Skipping #${d.id} "${d.title}" — cover-first: no publishable cover yet`);
+        continue;
+      }
+      console.log(`[Auto-Resume Illustrations] #${d.id} "${d.title}" — published with pending markers; resuming illustrations despite local cover check`);
     }
     const textMarkers = [...d.content.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)]
       .filter(m => { const src = m[1].trim(); return !(src.startsWith("/") || src.startsWith("http")); });
@@ -3766,39 +4056,105 @@ export async function getIllustrationNeeds(): Promise<{ id: number; title: strin
   const needs: { id: number; title: string; genre: string; status: string; reason: string; actionType: "illustrations-only" | "rewrite-and-illustrate" }[] = [];
 
   for (const d of allDrafts) {
-    if (!d.content || d.status === "generating" || d.status === "draft") continue;
+    if (!d.content || d.status === "generating") continue;
     const genre = d.genre || "";
     if (!isVisualEnhancedGenre(genre) && !isColoringBookGenre(genre)) continue;
 
     if (isColoringBookGenre(genre)) {
       const pageDir = `uploads/coloring-pages/${d.id}`;
-      const hasLocalImages = fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter(f => f.endsWith('.png')).length >= 20;
-      if (!hasLocalImages) {
-        // In production, coloring pages live in GCS not on local disk.
-        // A published coloring book with Page markers was processed through the pipeline
-        // and its pages were uploaded to GCS at generation time — don't flag as missing.
-        const hasPageContent = /\*\*Page\s+\d+:\*\*/i.test(d.content);
-        const isProcessed = d.status === 'published' && hasPageContent;
-        if (!isProcessed) {
-          needs.push({ id: d.id, title: d.title || "", genre, status: d.status || "", reason: "Coloring book missing pages", actionType: "illustrations-only" });
-        }
+      const hasLocalImages =
+        fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter((f) => f.endsWith(".png")).length >= 20;
+      if (hasLocalImages || draftColoringBookContentComplete(d.content, d.pdfUrl)) {
+        continue;
+      }
+      let hasGcsImages = false;
+      try {
+        const { objStoreExists } = await import("./objectStorage");
+        hasGcsImages = await objStoreExists(`public/coloring-pages/${d.id}/page-001.png`);
+      } catch {
+        /* treat as missing if check fails */
+      }
+      if (!hasGcsImages) {
+        needs.push({
+          id: d.id,
+          title: d.title || "",
+          genre,
+          status: d.status || "",
+          reason: "Coloring book missing pages",
+          actionType: "illustrations-only",
+        });
       }
     } else if (isVisualEnhancedGenre(genre)) {
-      const hasInlineImages = d.content.includes('/uploads/illustrations/') || d.content.includes('/objstore/illustrations/');
-      if (!hasInlineImages) {
-        const hasMarkers = d.content.includes('[ILLUSTRATION:');
-        if (hasMarkers) {
-          needs.push({ id: d.id, title: d.title || "", genre, status: d.status || "", reason: "Has markers, needs image generation", actionType: "illustrations-only" });
-        } else {
-          const headingCount = (d.content.match(/^##\s/gm) || []).length;
-          const bulletCount = (d.content.match(/^[\s]*[-*]\s/gm) || []).length;
-          const structuralMarkers = (d.content.match(/\*\*Exercise|\*\*Step|\*\*Practice|\*\*Worksheet|\*\*Template|\*\*Checklist|\*\*Try This|\*\*Action|\*\*Quick Guide|\*\*How to|\*\*Pro Tip|\*\*Key Takeaway|\*\*Summary|\*\*Week |\*\*Day |\*\*Phase |\*\*Tool|\*\*Tip|\*\*Rule|\*\*Strategy|```/gi) || []).length;
-          const isStructured = headingCount >= 20 && bulletCount >= 50;
-          if (isStructured) {
-            needs.push({ id: d.id, title: d.title || "", genre, status: d.status || "", reason: "Written correctly, just needs art added", actionType: "illustrations-only" });
-          } else {
-            needs.push({ id: d.id, title: d.title || "", genre, status: d.status || "", reason: "Written like a novel, needs rewrite + illustrations", actionType: "rewrite-and-illustrate" });
-          }
+      const resolvedCount = (d.content.match(/\[ILLUSTRATION:\s*\/(?:uploads|objstore)\/illustrations\//g) || []).length;
+      const allMarkers = [...d.content.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)];
+      const pendingMarkers = allMarkers.filter((m) => {
+        const src = m[1].trim();
+        return !(src.startsWith("/") || src.startsWith("http"));
+      }).length;
+      const chapterCount = (d.content.match(/##\s*Chapter\s+\d+/gi) || []).length;
+      const needsPuzzleArt = needsInteriorIllustrations(genre) || genre === "Children's Fiction";
+
+      if (pendingMarkers > 0) {
+        const queueEntry = draftNeedsIllustrationQueueEntry(d.content, genre);
+        if (queueEntry.needs) {
+          needs.push({
+            id: d.id,
+            title: d.title || "",
+            genre,
+            status: d.status || "",
+            reason: queueEntry.reason,
+            actionType: "illustrations-only",
+          });
+        }
+      } else if (needsPuzzleArt && allMarkers.length === 0) {
+        needs.push({
+          id: d.id,
+          title: d.title || "",
+          genre,
+          status: d.status || "",
+          reason: "No illustration markers — visual puzzles/scenes missing",
+          actionType: "rewrite-and-illustrate",
+        });
+      } else if (needsPuzzleArt && resolvedCount < Math.max(1, Math.min(chapterCount, 3))) {
+        needs.push({
+          id: d.id,
+          title: d.title || "",
+          genre,
+          status: d.status || "",
+          reason: `Only ${resolvedCount} illustration image(s) for ${chapterCount || "?"} chapter(s)`,
+          actionType: "illustrations-only",
+        });
+      } else if (resolvedCount === 0 && allMarkers.length > 0) {
+        needs.push({
+          id: d.id,
+          title: d.title || "",
+          genre,
+          status: d.status || "",
+          reason: "Has markers, needs image generation",
+          actionType: "illustrations-only",
+        });
+      } else if (resolvedCount === 0) {
+        const headingCount = (d.content.match(/^##\s/gm) || []).length;
+        const bulletCount = (d.content.match(/^[\s]*[-*]\s/gm) || []).length;
+        const isStructured = headingCount >= 20 && bulletCount >= 50;
+        if (isStructured) {
+          needs.push({
+            id: d.id,
+            title: d.title || "",
+            genre,
+            status: d.status || "",
+            reason: "Written correctly, just needs art added",
+            actionType: "illustrations-only",
+          });
+        } else if (!needsPuzzleArt) {
+          needs.push({
+            id: d.id,
+            title: d.title || "",
+            genre,
+            status: d.status || "",
+            reason: "Written like a novel, needs rewrite + illustrations",
+            actionType: "rewrite-and-illustrate",
+          });
         }
       }
     }
@@ -3816,12 +4172,17 @@ export async function getIllustrationNeeds(): Promise<{ id: number; title: strin
 // ─── 1. EDITORIAL BRIEF (BEFORE) ─────────────────────────────────────────────
 // Evaluates a new outline against editorial & manuscript-assessment standards
 // before a single word of the book is written.
+/** Fiction outlines below this score are regenerated before chapter writing. */
+export const EDITORIAL_BRIEF_MIN_SCORE = 6;
+export const EDITORIAL_BRIEF_MAX_ATTEMPTS = 3;
+
 export async function runEditorialBrief(
   outline: string,
   genre: string,
   title: string,
   fiction: boolean
 ): Promise<{ score: number; strengths: string[]; concerns: string[]; recommendations: string[] }> {
+  const educational = isEducationalGenre(genre);
   const prompt = fiction
     ? `You are a senior literary agent and manuscript assessor specializing in ${genre} fiction.
 A new novel outline has been submitted: "${title}".
@@ -3847,6 +4208,30 @@ JSON only:
   "recommendations": ["Actionable recommendation for the writing phase"]
 }
 Score 1-10: 8-10=strong, 6-7=solid, 4-5=structural gaps, <4=fundamental problems.`
+    : educational
+    ? `You are a senior instructional materials reviewer (state adoption / district HQIM / school-library selection).
+Evaluate this OUTLINE for the educational title "${title}" (${genre}) BEFORE any chapters are written.
+
+Score against the same pillars boards and libraries use:
+1. STANDARDS / CURRICULUM FIT: Clear grade or course level? Objectives cover a coherent year/course sequence?
+2. LEARNING OBJECTIVES: Each unit/chapter states what students will be able to do?
+3. PEDAGOGY: Objective → explain → worked example → practice → check for understanding?
+4. GRADE APPROPRIATENESS: Vocabulary and topics match the stated audience (K–12, college, or trade)?
+5. PRACTICE & ASSESSMENT: Regular practice, try-its, or formative checks — not lecture-only?
+6. ACCURACY & SUITABILITY: Careful factual framing; appropriate for school/library use?
+7. ORGANIZATION & VISUALS: Logical sequence; diagrams/figures planned where concepts need them?
+
+OUTLINE:
+${outline.substring(0, 5000)}
+
+JSON only:
+{
+  "score": 7,
+  "strengths": ["Specific strength"],
+  "concerns": ["Specific concern — with fix"],
+  "recommendations": ["Actionable recommendation for the writing phase"]
+}
+Score 1-10: 8-10=adoption-ready structure, 6-7=solid teachable plan, 4-5=gaps a district would reject, <4=not instructional.`
     : `You are a senior non-fiction acquisitions editor specializing in ${genre}.
 Evaluate this outline for "${title}" BEFORE any prose is written.
 
@@ -3873,7 +4258,9 @@ JSON only:
     const response = await getContentClient().chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Professional literary editor. Respond ONLY with valid JSON." },
+        { role: "system", content: educational
+          ? "Professional instructional materials reviewer. Respond ONLY with valid JSON."
+          : "Professional literary editor. Respond ONLY with valid JSON." },
         { role: "user", content: prompt },
       ],
       max_tokens: 600,
@@ -4165,6 +4552,9 @@ export async function runAntiAITellsPass(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function checkDialogueQuality(content: string, title: string, genre: string, outline?: string): Promise<{ pass: boolean; issues: string[]; summary: string }> {
+  if (isEducationalGenre(genre)) {
+    return checkInstructionalMaterialsQuality(content, title, genre, outline);
+  }
   const fiction = isFictionGenre(genre);
 
   const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
@@ -4295,6 +4685,138 @@ SCORING: Set "pass" to true if score >= 6. Be fair — minor stylistic preferenc
   if (allIssues.length > 0) {
     console.log(`[Dialogue Check] All issues: ${allIssues.join('; ')}`);
   }
+
+  return { pass, issues: allIssues, summary };
+}
+
+/**
+ * Instructional materials quality — modeled on US state adoption / district HQIM /
+ * school-library selection pillars (standards fit, accuracy, grade fit, pedagogy,
+ * practice, suitability). Used for Textbooks / Education / Learning instead of
+ * fiction dialogue or generic nonfiction prose checks.
+ */
+export async function checkInstructionalMaterialsQuality(
+  content: string,
+  title: string,
+  genre: string,
+  outline?: string,
+): Promise<{ pass: boolean; issues: string[]; summary: string }> {
+  const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+  if (chapterMatches.length === 0) {
+    return { pass: true, issues: [], summary: "No chapters found to check" };
+  }
+
+  const MAX_CHARS_PER_CHUNK = 380000;
+  const fullText = content;
+  const chunks: string[] = [];
+  if (fullText.length <= MAX_CHARS_PER_CHUNK) {
+    chunks.push(fullText);
+  } else {
+    let pos = 0;
+    while (pos < fullText.length) {
+      let end = Math.min(pos + MAX_CHARS_PER_CHUNK, fullText.length);
+      if (end < fullText.length) {
+        const chapterBreak = fullText.lastIndexOf("\n## Chapter", end);
+        if (chapterBreak > pos + MAX_CHARS_PER_CHUNK * 0.5) {
+          end = chapterBreak;
+        }
+      }
+      chunks.push(fullText.substring(pos, end));
+      pos = end;
+    }
+  }
+
+  console.log(
+    `[Instructional Check] "${title}" — analyzing educational book (${fullText.length} chars, ${chunks.length} chunk(s), ${chapterMatches.length} chapters)`,
+  );
+
+  const pillarList = INSTRUCTIONAL_ADOPTION_PILLARS.map(
+    (p) => `${p.id}: ${p.name} — ${p.ourCheck}`,
+  ).join("\n");
+
+  const allIssues: string[] = [];
+  const allScores: number[] = [];
+  const allSummaries: string[] = [];
+
+  for (let ci = 0; ci < chunks.length; ci++) {
+    const chunkLabel = chunks.length > 1 ? ` (part ${ci + 1}/${chunks.length})` : "";
+    const chunkText = chunks[ci];
+    const outlineSection =
+      outline && outline.trim().length > 100
+        ? `\n\nBOOK OUTLINE (planned instructional sequence):\n${outline.length > 4000 ? outline.slice(0, 4000) + "\n...[outline truncated]" : outline}\n`
+        : "";
+
+    const prompt = `You are an instructional materials reviewer for US schools and school libraries (state adoption / district HQIM / ALA selection criteria).
+Review the ${genre} educational book "${title}"${chunkLabel}.
+
+Evaluate against these adoption-style pillars:
+${pillarList}
+
+Also fail if the book reads like a novel or popular-science essay with no teachable structure.
+
+${outlineSection}
+FULL BOOK TEXT:
+${chunkText}
+
+Respond in this exact JSON format:
+{
+  "pass": true/false,
+  "score": 1-10,
+  "issues": ["Chapter X: specific issue", "..."],
+  "summary": "One sentence overall assessment for school/library readiness"
+}
+
+SCORING: pass=true if score >= ${EDUCATIONAL_INSTRUCTIONAL_MIN_SCORE}.
+8-10 = district/library-ready instructional design; 6-7 = solid teachable book with minor gaps; below 6 = would not pass a serious materials review.`;
+
+    try {
+      const response = await getContentClient().chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an instructional materials reviewer. Read the ENTIRE text. Respond ONLY with valid JSON, no markdown.",
+          },
+          { role: "user", content: prompt },
+        ],
+        max_completion_tokens: 2000,
+        temperature: 0.3,
+      });
+
+      const raw = response.choices[0]?.message?.content?.trim() || "";
+      const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+      const result = JSON.parse(cleaned);
+
+      allScores.push(result.score || 5);
+      allSummaries.push(result.summary || "No summary");
+      if (Array.isArray(result.issues)) {
+        allIssues.push(...result.issues);
+      }
+
+      console.log(
+        `[Instructional Check] "${title}"${chunkLabel} — score: ${result.score}/10, pass: ${result.pass}, issues: ${(result.issues || []).length}`,
+      );
+    } catch (err: any) {
+      console.error(`[Instructional Check] Failed for "${title}"${chunkLabel}:`, err.message || err);
+      allScores.push(7);
+      allSummaries.push("Check failed for this section — not blocking");
+    }
+  }
+
+  const avgScore =
+    allScores.length > 0
+      ? Math.round((allScores.reduce((a, b) => a + b, 0) / allScores.length) * 10) / 10
+      : 7;
+  const pass = avgScore >= EDUCATIONAL_INSTRUCTIONAL_MIN_SCORE;
+  const summary =
+    allSummaries.length === 1
+      ? allSummaries[0]
+      : `Average score ${avgScore}/10 across ${chunks.length} sections. ${allSummaries[allSummaries.length - 1]}`;
+
+  console.log(
+    `[Instructional Check] "${title}" FINAL — score: ${avgScore}/10, pass: ${pass}, total issues: ${allIssues.length}, summary: ${summary}`,
+  );
 
   return { pass, issues: allIssues, summary };
 }
@@ -4456,11 +4978,17 @@ REQUIREMENTS:
     const chapterOutline = draft.outline ? parseChaptersFromOutline(draft.outline)[sectionNumber - 1] || "" : "";
     
     const chapterTechniques = buildChapterTechniqueDirective(sectionNumber, storyArchitectPlan, genre, fiction);
+    const creativeDirection = getCreativeDirectionForDraft(draft);
+    const voiceBrief =
+      creativeDirection.includes("Dialogue guidance") || creativeDirection.includes("Character voices")
+        ? `\n\nAUTHOR BRIEF (binding for dialogue and voice in this chapter):\n${creativeDirection}\n\nDIALOGUE PRIORITY: Distinct character voices, natural flow, subtext over exposition — readers must feel engaged, not lectured.`
+        : "";
     
     rewritePrompt = fiction
       ? `You are REWRITING Chapter ${sectionNumber} of ${totalChapters} for the ${genre} novel "${title}".
 
 ${chapterTechniques}
+${voiceBrief}
 
 ${draft.outline ? `FULL BOOK OUTLINE (for context):\n${draft.outline.substring(0, 3000)}\n` : ""}
 ${chapterOutline ? `THIS CHAPTER'S OUTLINE:\n${chapterOutline}\n` : ""}
@@ -4516,8 +5044,7 @@ Place each [ILLUSTRATION: ...] marker on its OWN LINE (not embedded within a sen
   try {
     const maxTokens = sectionNumber === 0 ? 4000 : Math.min(16384, Math.max(8000, Math.round(chapterSpec.maxWordsPerChapter * 3)));
     
-    const response = await getContentClient().chat.completions.create({
-      model: "gpt-5.2",
+    const { content: newContent } = await streamChatCompletion({
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: rewritePrompt },
@@ -4525,7 +5052,6 @@ Place each [ILLUSTRATION: ...] marker on its OWN LINE (not embedded within a sen
       max_completion_tokens: maxTokens,
     });
     
-    const newContent = response.choices[0]?.message?.content || "";
     if (newContent.trim().length < 100) throw new Error("Generated content too short");
     
     const newWords = newContent.split(/\s+/).length;
@@ -4667,6 +5193,18 @@ export async function generateContentForDraft(draftId: number): Promise<string> 
   const topic = draft.topic || draft.title || "Untitled";
   const genre = draft.genre || "General";
   const title = draft.title || topic;
+
+  const storyGate = checkStoryWritingGate(draft);
+  if (!storyGate.allowed) {
+    console.log(`[Content Gen] BLOCKED "${title}" (ID ${draftId}): ${storyGate.reason}`);
+    throw new Error(storyGate.reason);
+  }
+  if (storyGate.mode === "resume") {
+    console.log(`[Content Gen] "${title}" — ${storyGate.reason}`);
+  } else {
+    console.log(`[Content Gen] "${title}" — cover-first gate passed; outline↔cover cross-exam before dialogue`);
+  }
+
   const creativeDirection = getCreativeDirectionForDraft(draft);
   if (parseWritingBriefFromDescription(draft.description)) {
     console.log(`[Content Gen] "${title}" — using market research writing brief for outline, dialogue, and Story Architect`);
@@ -4723,32 +5261,123 @@ export async function generateContentForDraft(draftId: number): Promise<string> 
     }
 
     const existingOutline = hasMultiAuthorOutline && draft.outline && draft.outline.trim().length > 100 ? draft.outline : null;
-    const outline = existingOutline || await generateEbookOutline(topic, genre, title, coverAnalysis, creativeDirection);
+    let outline = existingOutline || await generateEbookOutline(topic, genre, title, coverAnalysis, creativeDirection);
     if (!existingOutline) {
-      const markedOutline = outline + `\n\n<!-- Story Architect Multi-Author Pipeline -->`;
-      await db.update(draftEbooks).set({ outline: markedOutline }).where(eq(draftEbooks.id, draftId));
+      let markedOutline = outline + `\n\n<!-- Story Architect Multi-Author Pipeline -->`;
+      let briefScore = 0;
+      let lastConcerns: string[] = [];
 
-      // ── Editorial Brief (BEFORE) ────────────────────────────────────────
-      // Evaluate the outline against manuscript-assessor standards before writing
-      try {
-        const brief = await runEditorialBrief(outline, genre, title, isFictionGenre(genre));
-        console.log(`[Editorial Brief] "${title}" outline score: ${brief.score}/10`);
-        if (brief.strengths.length) console.log(`[Editorial Brief] ✓ Strengths: ${brief.strengths.join(" | ")}`);
-        if (brief.concerns.length) console.log(`[Editorial Brief] ⚠ Concerns: ${brief.concerns.join(" | ")}`);
-        if (brief.recommendations.length) console.log(`[Editorial Brief] → Recommendations: ${brief.recommendations.join(" | ")}`);
-        // Append brief notes to saved outline for future reference
-        const briefNote = `\n\n<!-- EditorialBrief score:${brief.score}/10 | concerns:${brief.concerns.length} | recs:${brief.recommendations.join("; ")} -->`;
-        await db.update(draftEbooks).set({ outline: markedOutline + briefNote }).where(eq(draftEbooks.id, draftId));
-      } catch (briefErr: any) {
-        console.error(`[Editorial Brief] Failed (non-blocking):`, briefErr?.message);
+      // ── Editorial Brief (BEFORE) — blocking for fiction until outline scores well ──
+      for (let attempt = 1; attempt <= EDITORIAL_BRIEF_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 1) {
+          const revisionNotes = lastConcerns.length
+            ? lastConcerns.join("; ")
+            : isEducationalGenre(genre)
+              ? "Strengthen learning objectives, grade-appropriate sequence, worked examples, practice, and checks for understanding."
+              : "Strengthen hook, stakes, character arc, pacing variety, and a clear climax/resolution.";
+          console.log(
+            `[Editorial Brief] "${title}" — regenerating outline (attempt ${attempt}/${EDITORIAL_BRIEF_MAX_ATTEMPTS})`,
+          );
+          outline = await generateEbookOutline(
+            topic,
+            genre,
+            title,
+            coverAnalysis,
+            isEducationalGenre(genre)
+              ? `${creativeDirection}\n\nOUTLINE REVISION REQUIRED (previous score ${briefScore}/10): ${revisionNotes}. Ensure a full teachable course sequence a school or library reviewer would accept.`
+              : `${creativeDirection}\n\nOUTLINE REVISION REQUIRED (previous score ${briefScore}/10): ${revisionNotes}. Ensure inciting incident, rising tension, climax, and satisfying resolution that will engage readers and earn return visits.`,
+          );
+          markedOutline = outline + `\n\n<!-- Story Architect Multi-Author Pipeline -->`;
+        }
+
+        try {
+          const brief = await runEditorialBrief(outline, genre, title, isFictionGenre(genre));
+          briefScore = brief.score;
+          lastConcerns = brief.concerns;
+          console.log(`[Editorial Brief] "${title}" outline score: ${brief.score}/10 (attempt ${attempt})`);
+          if (brief.strengths.length) console.log(`[Editorial Brief] ✓ Strengths: ${brief.strengths.join(" | ")}`);
+          if (brief.concerns.length) console.log(`[Editorial Brief] ⚠ Concerns: ${brief.concerns.join(" | ")}`);
+          if (brief.recommendations.length) {
+            console.log(`[Editorial Brief] → Recommendations: ${brief.recommendations.join(" | ")}`);
+          }
+          const briefNote = `\n\n<!-- EditorialBrief score:${brief.score}/10 | concerns:${brief.concerns.length} | recs:${brief.recommendations.join("; ")} -->`;
+          await db.update(draftEbooks).set({ outline: markedOutline + briefNote }).where(eq(draftEbooks.id, draftId));
+
+          const needsBlockingOutlineQuality = isFictionGenre(genre) || isEducationalGenre(genre);
+          const minOutlineScore = isEducationalGenre(genre)
+            ? EDUCATIONAL_EDITORIAL_MIN_SCORE
+            : EDITORIAL_BRIEF_MIN_SCORE;
+          if (!needsBlockingOutlineQuality || brief.score >= minOutlineScore) {
+            break;
+          }
+          if (attempt === EDITORIAL_BRIEF_MAX_ATTEMPTS) {
+            console.error(
+              `[Editorial Brief] "${title}" — outline still below ${minOutlineScore}/10 after ${EDITORIAL_BRIEF_MAX_ATTEMPTS} attempts — blocking chapter writing`,
+            );
+            await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
+            activeGenerationCount = Math.max(0, activeGenerationCount - 1);
+            throw new Error(
+              isEducationalGenre(genre)
+                ? `Outline quality too low (${brief.score}/10). Strengthen instructional design (objectives, sequence, practice, grade fit) and retry content generation.`
+                : `Outline quality too low (${brief.score}/10). Strengthen story architecture (hook, stakes, climax) and retry content generation.`,
+            );
+          }
+        } catch (briefErr: any) {
+          if (briefErr?.message?.includes("Outline quality too low")) throw briefErr;
+          console.error(`[Editorial Brief] Failed (non-blocking):`, briefErr?.message);
+          await db.update(draftEbooks).set({ outline: markedOutline }).where(eq(draftEbooks.id, draftId));
+          break;
+        }
       }
     } else {
       console.log(`[Content Gen] Reusing existing multi-author outline for "${title}"`);
     }
 
-    let content = await generateEbookContent(outline, topic, genre, title, coverAnalysis, async (contentSoFar) => {
+    let coverContextForWriting = coverAnalysis;
+    if (coverAnalysis && outline.trim()) {
+      const syncNotes = await crossExamineCoverAndOutline(coverAnalysis, outline, title, genre);
+      if (syncNotes) {
+        coverContextForWriting = `${coverAnalysis}\n\nCOVER↔OUTLINE SYNC (binding for prose, setting, and dialogue):\n${syncNotes}`;
+        console.log(`[Content Gen] "${title}" — cover↔outline cross-exam complete before chapter writing`);
+      }
+    } else if (storyGate.mode === "cover-first" && !coverAnalysis) {
+      console.warn(`[Content Gen] "${title}" — cover present but visual analysis empty; proceeding with outline only`);
+    }
+
+    let characterBible: CharacterVisualBible | null = parseCharacterBibleFromDescription(draft.description);
+    if (needsCharacterVisualBible(genre) && outline.trim()) {
+      if (!characterBible) {
+        try {
+          characterBible = await generateCharacterVisualBible({
+            title,
+            genre,
+            outline,
+            coverAnalysis: coverContextForWriting || coverAnalysis,
+            creativeDirection,
+          });
+          await db
+            .update(draftEbooks)
+            .set({ description: withCharacterBibleInDescription(draft.description, characterBible) })
+            .where(eq(draftEbooks.id, draftId));
+          console.log(
+            `[Character Bible] "${title}" — ${characterBible.characters.map((c) => c.name).join(", ")}`,
+          );
+        } catch (bibleErr: any) {
+          console.error(`[Character Bible] Failed (non-blocking):`, bibleErr?.message);
+        }
+      } else {
+        console.log(
+          `[Character Bible] "${title}" — reusing ${characterBible.characters.map((c) => c.name).join(", ")}`,
+        );
+      }
+    }
+    const characterVisualInstructions = characterBible
+      ? formatCharacterBibleForChapterWriting(characterBible)
+      : "";
+
+    let content = await generateEbookContent(outline, topic, genre, title, coverContextForWriting, async (contentSoFar) => {
       await db.update(draftEbooks).set({ content: contentSoFar }).where(eq(draftEbooks.id, draftId));
-    }, existingContent || undefined, draft.outlineChapterCount || undefined, myEpoch, creativeDirection);
+    }, existingContent || undefined, draft.outlineChapterCount || undefined, myEpoch, creativeDirection, characterVisualInstructions);
     let wordCount = content.split(/\s+/).length;
     
     if (wordCount < 50) {
@@ -4817,21 +5446,43 @@ export async function generateContentForDraft(draftId: number): Promise<string> 
     }
 
     if (isVisualEnhancedGenre(genre)) {
-      console.log(`[Visual Enhanced] "${title}" is a ${genre} book — running illustration pipeline after content generation...`);
+      console.log(`[Visual Enhanced] "${title}" is a ${genre} book — illustration pipeline after content...`);
+      if (isActivityOrWorkbookGenre(genre)) {
+        const prepared = prepareActivityBookForIllustrationPipeline(content, genre);
+        if (prepared.content !== content || prepared.asciiBlocksConverted > 0) {
+          content = prepared.content;
+          console.log(
+            `[Visual Enhanced] "${title}" — normalized activity lines; ${prepared.asciiBlocksConverted} ASCII puzzle block(s) → illustration markers`,
+          );
+          await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+        }
+      }
       const markerCount = (content.match(/\[ILLUSTRATION:/g) || []).length;
       if (markerCount === 0) {
         console.log(`[Visual Enhanced] "${title}" has no illustration markers — injecting them before generating images...`);
-        content = await injectIllustrationMarkers(content, genre, title);
+        content = await injectIllustrationMarkers(content, genre, title, characterBible, draftId, draft.outline);
         await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
       }
-      content = await generateIllustrations(content, genre, title, draftId);
-      wordCount = content.split(/\s+/).length;
+      if (parseOutlineIllustrationSlots(draft.outline).length > 0) {
+        const pruned = prunePendingMarkersNotInOutline(content, draft.outline);
+        if (pruned.removed > 0) {
+          content = pruned.content;
+          console.log(`[Visual Enhanced] "${title}" — pruned ${pruned.removed} pending marker(s) not in outline`);
+          await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+        }
+      }
+      if (!draftHasPublishableCover(draft)) {
+        console.log(`[Visual Enhanced] "${title}" — deferring illustration images until cover exists (cover-first workflow)`);
+      } else {
+        content = await generateIllustrations(content, genre, title, draftId, characterBible);
+        wordCount = content.split(/\s+/).length;
+      }
     }
 
     let hasIllustrationIssues = false;
     if (isVisualEnhancedGenre(genre)) {
       const genChapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
-      const illQuality = checkIllustrationQuality(content, genChapterMatches);
+      const illQuality = checkIllustrationQuality(content, genChapterMatches, genre, draft.outline);
       if (illQuality.issues.length > 0) {
         hasIllustrationIssues = illQuality.hasBlockingIssues;
         for (const issue of illQuality.issues) {
@@ -4960,8 +5611,7 @@ Format: Start with "## Chapter ${nextChapterNum}: [Chapter Title]" then write th
     let chapterContent = "";
     for (let attempt = 0; attempt < 3; attempt++) {
       console.log(`[Append Chapter] Attempt ${attempt + 1}...`);
-      const response = await getContentClient().chat.completions.create({
-        model: "gpt-5.2",
+      const streamed = await streamChatCompletion({
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: chapterPrompt }
@@ -4969,8 +5619,8 @@ Format: Start with "## Chapter ${nextChapterNum}: [Chapter Title]" then write th
         max_completion_tokens: maxTokens,
       });
 
-      const finishReason = response.choices[0]?.finish_reason || "unknown";
-      chapterContent = response.choices[0]?.message?.content || "";
+      const finishReason = streamed.finishReason || "unknown";
+      chapterContent = streamed.content;
       console.log(`[Append Chapter] Attempt ${attempt + 1}: finish_reason=${finishReason}, content length=${chapterContent.length} chars`);
       if (chapterContent.trim().length >= 100) break;
       console.log(`[Append Chapter] Attempt ${attempt + 1} produced only ${chapterContent.trim().length} chars, retrying...`);
@@ -4987,7 +5637,13 @@ Format: Start with "## Chapter ${nextChapterNum}: [Chapter Title]" then write th
 
     console.log(`[Append Chapter] Chapter ${nextChapterNum} generated: ${chapterWords} words. Total: ${totalWords} words.`);
 
-    await db.update(draftEbooks).set({ content: updatedContent, status: "ready" }).where(eq(draftEbooks.id, draftId));
+    const freeGate = passesFreeIllustrationAndOutlineGate(updatedContent, genre, outline);
+    const newStatus = freeGate.pass ? "ready" : "draft";
+    if (!freeGate.pass) {
+      console.log(`[Append Chapter] "${title}" — free illustration/outline gate failed: ${freeGate.issues.join("; ")} — keeping draft`);
+    }
+
+    await db.update(draftEbooks).set({ content: updatedContent, status: newStatus }).where(eq(draftEbooks.id, draftId));
 
     const pdfUrl = await createPdfFromContent(title, updatedContent);
     await db.update(draftEbooks).set({ pdfUrl }).where(eq(draftEbooks.id, draftId));
@@ -5128,6 +5784,7 @@ export async function repairIncompleteChapters(draftId: number): Promise<string>
 
   console.log(`[Chapter Repair] "${title}" — ${incompleteChapters.length} placeholder [${incompleteChapters.join(', ')}], ${truncatedChapters.length} truncated [${truncatedChapters.join(', ')}], ${missingChapters.length} missing [${missingChapters.join(', ')}], ${tooShortChapters.length} too-short [${tooShortChapters.join(', ')}], ${tbcChapters.length} TBC [${tbcChapters.join(', ')}]. Planned: ${totalPlannedChapters} chapters.`);
 
+  let consecutiveTransportFailures = 0;
   activeGenerationCount++;
   console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
   await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draftId));
@@ -5219,7 +5876,18 @@ Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the fu
           if (streamedContent.length > 500) {
             console.log(`[Chapter Repair] Stream interrupted but captured ${streamedContent.split(/\s+/).length} words — saving partial for next restart`);
             chapterContent = streamedContent;
+            consecutiveTransportFailures = 0;
+          } else if (isTransportFailure(streamErr)) {
+            consecutiveTransportFailures++;
+            console.error(`[Chapter Repair] Transport failure (${consecutiveTransportFailures}/2):`, formatOpenAIError(streamErr));
+            if (consecutiveTransportFailures >= 2) {
+              throw new TransportAbortError(
+                `Chapter repair stopped after ${consecutiveTransportFailures} consecutive transport failures (last: ${formatOpenAIError(streamErr)}). Diagnose before more API spend.`,
+              );
+            }
+            throw streamErr;
           } else {
+            consecutiveTransportFailures = 0;
             throw streamErr;
           }
         }
@@ -5232,7 +5900,10 @@ Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the fu
           console.log(`[Chapter Repair] Chapter ${chapterNum} is truncated and short — retrying`);
           continue;
         }
-        if (chapterContent.trim().length >= 200 && words >= Math.round(chapterSpec.minWordsPerChapter * 0.3)) break;
+        if (chapterContent.trim().length >= 200 && words >= Math.round(chapterSpec.minWordsPerChapter * 0.3)) {
+          consecutiveTransportFailures = 0;
+          break;
+        }
       }
 
       if (chapterContent.trim().length < 100) {
@@ -5300,7 +5971,7 @@ Format: Start with "## Chapter ${chapterNum}: [Chapter Title]" then write the fu
     let hasRepairIllustrationIssues = false;
     if (isVisualEnhancedGenre(genre)) {
       const repairChMatches = [...currentContent.matchAll(/##\s*Chapter\s+(\d+)/gi)];
-      const repairIllQuality = checkIllustrationQuality(currentContent, repairChMatches);
+      const repairIllQuality = checkIllustrationQuality(currentContent, repairChMatches, genre);
       if (repairIllQuality.issues.length > 0) {
         hasRepairIllustrationIssues = repairIllQuality.hasBlockingIssues;
         for (const issue of repairIllQuality.issues) {
@@ -5393,28 +6064,94 @@ function detectChapterTruncation(chapterText: string): { truncated: boolean; rea
   return { truncated: false, reason: "complete" };
 }
 
-export function checkIllustrationQuality(content: string, chapterMatches: RegExpMatchArray[]): { issues: string[]; hasBlockingIssues: boolean } {
+export function checkIllustrationQuality(
+  content: string,
+  chapterMatches: RegExpMatchArray[],
+  genre?: string | null,
+  outline?: string | null,
+): { issues: string[]; hasBlockingIssues: boolean } {
   const issues: string[] = [];
   let hasBlockingIssues = false;
+
+  // Planners never use interior illustrations — skip illustration density/ASCII checks.
+  if (isPlannerGenre(genre)) {
+    return { issues, hasBlockingIssues };
+  }
+
+  const resolvedIllus =
+    (content.match(/\[ILLUSTRATION:\s*\/(?:uploads|objstore)\/illustrations\//g) || []).length;
+  if (isJournalGenre(genre) && resolvedIllus >= 20) {
+    return { issues, hasBlockingIssues };
+  }
+
   const illMarkers = [...content.matchAll(/\[ILLUSTRATION:[^\]]+\]/g)];
-  if (illMarkers.length === 0) return { issues, hasBlockingIssues };
+
+  const visualGenre = genre && isVisualEnhancedGenre(genre);
+  const activityOrWorkbook = needsInteriorIllustrations(genre);
+  const minResolvedPerChapter = activityOrWorkbook ? 1 : visualGenre ? 1 : 0;
+
+  if (visualGenre && illMarkers.length === 0) {
+    hasBlockingIssues = true;
+    issues.push("Visual genre has zero [ILLUSTRATION:] markers — puzzle/scene images required");
+  }
 
   let backToBackCount = 0;
   let sparseSegmentCount = 0;
+  let lonelyInstructionalIslands = 0;
+  const outlineSlots = parseOutlineIllustrationSlots(outline);
+  const outlineDriven = outlineSlots.length > 0;
   for (let i = 0; i < illMarkers.length - 1; i++) {
     const endOfCurrent = illMarkers[i].index! + illMarkers[i][0].length;
     const startOfNext = illMarkers[i + 1].index!;
     const textBetween = content.substring(endOfCurrent, startOfNext).trim();
     const wordsBetween = textBetween.split(/\s+/).filter(w => w.length > 0).length;
-    if (wordsBetween <= 5) backToBackCount++;
-    else if (wordsBetween < 30) sparseSegmentCount++;
+    if (wordsBetween <= 5) {
+      if (outlineDriven) {
+        const d1 = outlineDescriptionKey(illMarkers[i][0].replace(/\[ILLUSTRATION:\s*/i, "").replace(/\]$/, "").trim().split("|")[0]);
+        const idx = outlineSlots.findIndex((s) => outlineDescriptionKey(s.description) === d1);
+        if (idx >= 0 && outlineSlots[idx].allowAdjacentWithNext) continue;
+      }
+      backToBackCount++;
+    } else if (wordsBetween < 30) {
+      sparseSegmentCount++;
+      // Schoolbooks: bullet/header-only islands between figures become near-empty pages.
+      if (isEducationalGenre(genre) && wordsBetween <= 20) {
+        const lines = textBetween
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l && l !== "---");
+        const lonely =
+          lines.length > 0 &&
+          lines.length <= 4 &&
+          lines.every(
+            (l) =>
+              /^[-•*]\s+/.test(l) ||
+              /^\d+\.\s+/.test(l) ||
+              /^#{1,6}\s/.test(l) ||
+              /^\*\*[^*]+\*\*\s*:?\s*$/.test(l),
+          );
+        if (lonely) lonelyInstructionalIslands++;
+      }
+    }
   }
   if (backToBackCount > 0) {
     hasBlockingIssues = true;
     issues.push(`${backToBackCount} back-to-back illustrations with no meaningful text between them`);
   }
-  if (sparseSegmentCount > 3) {
-    issues.push(`${sparseSegmentCount} illustration segments with very sparse text (<30 words between images)`);
+  if (outlineDriven) {
+    const outlineAdjacentIssues = findIllegalAdjacentIllustrations(content, outline);
+    if (outlineAdjacentIssues.length > 0) {
+      hasBlockingIssues = true;
+      issues.push(...outlineAdjacentIssues);
+    }
+  }
+  // Fiction can enjoy dense illustration pacing. Educational books must not leave
+  // one bullet/short header stranded between figures (empty-looking workbook pages).
+  if (isEducationalGenre(genre) && lonelyInstructionalIslands > 3) {
+    hasBlockingIssues = true;
+    issues.push(
+      `${lonelyInstructionalIslands} lonely instructional islands between illustrations (short bullets/headers only) — schoolbook pages look empty. Add a short teach/explain paragraph between figures, or space illustrations farther apart.`,
+    );
   }
 
   const unprocessedMarkers = (content.match(/\[ILLUSTRATION:[^\]]*\]/g) || []).filter(m => !m.includes('/uploads/illustrations/') && !m.includes('/objstore/illustrations/'));
@@ -5429,8 +6166,22 @@ export function checkIllustrationQuality(content: string, chapterMatches: RegExp
     const chapterEnd = i + 1 < chapterMatches.length ? chapterMatches[i + 1].index! : content.length;
     const chapterText = content.substring(chapterStart, chapterEnd);
     const chIllustrations = (chapterText.match(/\[ILLUSTRATION:/g) || []).length;
-    if (chIllustrations > 8) {
-      issues.push(`Ch${chapterNum} has ${chIllustrations} illustrations — excessive density`);
+    const chResolved = (chapterText.match(/\[ILLUSTRATION:\s*\/(?:uploads|objstore)\/illustrations\//g) || []).length;
+    // High illustration counts are OK when images match the story — no density cap.
+    if (minResolvedPerChapter > 0 && chapterMatches.length > 0 && chResolved < minResolvedPerChapter) {
+      if (outlineDriven) {
+        const chapterOutlineSlots = outlineSlots.filter((s) => s.chapterNum === chapterNum);
+        if (chapterOutlineSlots.length === 0) continue;
+      }
+      hasBlockingIssues = true;
+      issues.push(
+        `Ch${chapterNum} has ${chResolved} resolved illustration(s) — need at least ${minResolvedPerChapter} for ${genre}`,
+      );
+    }
+    const asciiPuzzleLines = countAsciiPuzzleLines(chapterText);
+    if (needsInteriorIllustrations(genre) && asciiPuzzleLines >= 2) {
+      hasBlockingIssues = true;
+      issues.push(`Ch${chapterNum} has ${asciiPuzzleLines} ASCII puzzle line(s) — use [ILLUSTRATION:] markers instead`);
     }
   }
 
@@ -5443,6 +6194,11 @@ export function checkOutlineIllustrationCoverage(content: string, outline: strin
   const outlineStr = typeof outline === 'string' ? outline : JSON.stringify(outline);
   if (!outlineStr.includes('[ILLUSTRATION:')) return issues;
 
+  const slots = parseOutlineIllustrationSlots(outline);
+  const chapterSpecific = slots.filter((s) => s.chapterNum > 0);
+  // Global outline slots (chapterNum 0) are distributed across the book — skip per-chapter coverage.
+  if (chapterSpecific.length === 0) return issues;
+
   for (let i = 0; i < chapterMatches.length; i++) {
     const chNum = parseInt(chapterMatches[i][1]);
     const chStart = chapterMatches[i].index!;
@@ -5450,13 +6206,7 @@ export function checkOutlineIllustrationCoverage(content: string, outline: strin
     const chText = content.substring(chStart, chEnd);
     const contentImgs = (chText.match(/\[ILLUSTRATION:\s*\/(?:uploads|objstore)\/illustrations\//g) || []).length;
 
-    const outlineChPattern = new RegExp(
-      `(?:chapter\\s*${chNum}\\b)([\\s\\S]*?)(?=chapter\\s*${chNum + 1}\\b|$)`, 'i'
-    );
-    const outlineMatch = outlineStr.match(outlineChPattern);
-    if (!outlineMatch) continue;
-    const outlineMarkers = (outlineMatch[1].match(/\[ILLUSTRATION:/gi) || []).length;
-
+    const outlineMarkers = chapterSpecific.filter((s) => s.chapterNum === chNum).length;
     if (outlineMarkers > 0 && contentImgs === 0) {
       issues.push(`Ch${chNum}: outline specifies ${outlineMarkers} illustration(s) but chapter has none — text may reference missing images`);
     }
@@ -5476,6 +6226,23 @@ export function checkOutlineIllustrationCoverage(content: string, outline: strin
   }
 
   return issues;
+}
+
+/** Free gate (no API): illustration placement, outline coverage, visual blockers. */
+export function passesFreeIllustrationAndOutlineGate(
+  content: string,
+  genre: string | null | undefined,
+  outline: string | null | undefined,
+): { pass: boolean; issues: string[] } {
+  const chapterMatches = [...content.matchAll(/##\s*Chapter\s+(\d+)/gi)];
+  const illQ = checkIllustrationQuality(content, chapterMatches, genre, outline);
+  const issues = [...illQ.issues];
+  if (illQ.hasBlockingIssues) return { pass: false, issues };
+  const cov = checkOutlineIllustrationCoverage(content, outline, chapterMatches);
+  if (cov.length > 0) return { pass: false, issues: [...issues, ...cov] };
+  const visual = getVisualPublishBlockers(content, genre);
+  if (visual.length > 0) return { pass: false, issues: [...issues, ...visual] };
+  return { pass: true, issues };
 }
 
 export async function scanContentCompleteness(draftIds?: number[]): Promise<Array<{
@@ -5593,7 +6360,7 @@ export async function scanContentCompleteness(draftIds?: number[]): Promise<Arra
       }
     }
 
-    const illQualityResult = checkIllustrationQuality(content, chapterMatches);
+    const illQualityResult = checkIllustrationQuality(content, chapterMatches, draft.genre, draft.outline);
     issues.push(...illQualityResult.issues);
 
     const outlineCoverageIssues = checkOutlineIllustrationCoverage(content, draft.outline, chapterMatches);
@@ -5771,7 +6538,7 @@ export async function bulkPublishReady(options?: { subscriberExclusive?: boolean
   let skipped = 0;
 
   const LIGHTWEIGHT_GENRE_KEYWORDS = [
-    "coloring book", "activity book", "quote book", "journal",
+    "coloring book", "quote book", "journal",
   ];
   const VISUAL_GENRE_KEYWORDS = [
     "comic", "graphic novel", "photography book", "art book",
@@ -5807,6 +6574,20 @@ export async function bulkPublishReady(options?: { subscriberExclusive?: boolean
     const isVisual = !isTextVisual && (isVisualGenre(genre) || isVisualEnhancedGenre(genre));
 
     console.log(`[Bulk Publish] "${title}" (ID ${draft.id}) — "${genre}" — running content verification...`);
+
+    if (!draftHasPublishableCover(draft)) {
+      console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — NO COVER — keeping as ready`);
+      details.push({
+        id: draft.id,
+        title,
+        action: "failed_no_cover",
+        issues: ["Cover image required before publish — generate in Cover Review first"],
+      });
+      failed++;
+      await new Promise(resolve => setTimeout(resolve, 300));
+      continue;
+    }
+
     const genreCheck = await verifyGenreContent(content, title, genre, draft.outline || undefined);
 
     if (!genreCheck.pass) {
@@ -5850,6 +6631,34 @@ export async function bulkPublishReady(options?: { subscriberExclusive?: boolean
         failed++;
       }
       await new Promise(resolve => setTimeout(resolve, 500));
+      continue;
+    }
+
+    if (isActivityOrWorkbookGenre(genre)) {
+      const issues = getActivityBookPublishBlockers(content, genre);
+      const structScan = await scanContentCompleteness([draft.id]);
+      const structuralIssues = structScan.length > 0 ? structScan[0].issues : [];
+      for (const si of structuralIssues) {
+        if (!issues.includes(si)) issues.push(si);
+      }
+      if (issues.length > 0) {
+        console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — ACTIVITY: ${issues.join("; ")} — keeping as ready`);
+        details.push({ id: draft.id, title, action: "failed_activity_illustrations", issues });
+        failed++;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        continue;
+      }
+      try {
+        await publishDraft(draft.id, options);
+        console.log(`[Bulk Publish] PUBLISHED "${title}" (ID ${draft.id}) — activity book with illustrations — passed`);
+        details.push({ id: draft.id, title, action: "published" });
+        published++;
+      } catch (pubErr: any) {
+        console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — PUBLISH ERROR: ${pubErr.message}`);
+        details.push({ id: draft.id, title, action: "failed_publish_error", issues: [pubErr.message] });
+        failed++;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
       continue;
     }
 
@@ -5944,6 +6753,266 @@ export async function bulkPublishReady(options?: { subscriberExclusive?: boolean
   return { published, failed, skipped, details };
 }
 
+/**
+ * Full pre-publish pipeline gate — structural scan, visual/illustration blockers, cover, optional genre + dialogue.
+ * Mirrors bulkPublishReady + publish route checks in one place for re-audits.
+ */
+export type PublishPipelineGateOptions = {
+  verifyGenre?: boolean;
+  dialogueCheck?: boolean;
+  /** Fiction only — requires hasClimax and score ≥ 6. Never for educational books. */
+  climaxCheck?: boolean;
+  /** Full reader-quality path: genre + dialogue/instructional + climax (fiction); outline required for fiction & educational. */
+  strict?: boolean;
+};
+
+export async function runPublishPipelineGate(
+  draft: {
+    id: number;
+    title?: string | null;
+    topic?: string | null;
+    genre?: string | null;
+    content?: string | null;
+    outline?: string | null;
+    coverUrl?: string | null;
+    backgroundUrl?: string | null;
+    description?: string | null;
+    publishedAt?: Date | string | null;
+    pdfUrl?: string | null;
+  },
+  options?: PublishPipelineGateOptions,
+): Promise<{ pass: boolean; issues: string[] }> {
+  const genre = draft.genre || "General";
+  const fiction = isFictionGenre(genre);
+  const educational = isEducationalDraft({ genre, description: draft.description });
+  const isColoring = isColoringBookGenre(genre);
+  const isActivity = isActivityOrWorkbookGenre(genre);
+  const gateOpts: PublishPipelineGateOptions = options?.strict
+    ? {
+        verifyGenre: options.verifyGenre !== false,
+        dialogueCheck: options.dialogueCheck !== false && !isColoring,
+        climaxCheck:
+          options.climaxCheck !== false && fiction && !isActivity && !isColoring && !educational,
+      }
+    : { ...options };
+
+  let content = draft.content || "";
+  const title = draft.title || draft.topic || "Untitled";
+  const issues: string[] = [];
+
+  if (educational && content.trim().length >= 200) {
+    const shellFix = repairEmptyInstructionalSections(content);
+    if (shellFix.removed > 0) {
+      content = shellFix.content;
+      await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draft.id));
+      console.log(
+        `[PublishGate] Draft #${draft.id}: removed ${shellFix.removed} empty duplicate instructional section shell(s)`,
+      );
+    }
+  }
+
+  if (options?.strict && (fiction || educational) && !isActivity) {
+    const { draftHasSatisfactoryOutline } = await import("./storyCoverBridge");
+    if (!draftHasSatisfactoryOutline(draft)) {
+      issues.push(
+        educational
+          ? "Missing satisfactory instructional outline — educational books need a unit/lesson sequence (objectives → teach → practice) before publish"
+          : "Missing satisfactory Story Architect outline — run full content generation (cover-first) before publish",
+      );
+    }
+  }
+
+  if (genre.startsWith("Classic")) {
+    return { pass: true, issues: [] };
+  }
+
+  if (!content.trim() || content.trim().length < 100) {
+    issues.push("Draft has no meaningful content");
+  }
+
+  if (!draftHasPublishableCover(draft)) {
+    issues.push("Cover image required before publish — generate in Cover Review first");
+  }
+
+  issues.push(...getVisualPublishBlockers(content, genre));
+
+  if (educational && content.trim().length >= 100) {
+    issues.push(...scanEducationalPedagogySignals(content).issues);
+    const pageScan = scanUnderfilledReaderPages(content, {
+      smallIllustrations: true,
+      chapterLimit: 4,
+    });
+    issues.push(...pageScan.issues);
+  }
+
+  if (isColoringBookGenre(genre)) {
+    const pageDir = `uploads/coloring-pages/${draft.id}`;
+    const hasPages = fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter((f) => f.endsWith(".png")).length >= 10;
+    const hasPdf = !!draft.pdfUrl;
+    if (!hasPages && !hasPdf) {
+      issues.push("Coloring book missing pages or PDF");
+    }
+  }
+
+  const structScan = await scanContentCompleteness([draft.id]);
+  const structuralIssues = structScan.length > 0 ? structScan[0].issues : [];
+  issues.push(...structuralIssues);
+
+  const cheapIssues = [...new Set(issues.filter(Boolean))];
+  if (cheapIssues.length > 0) {
+    // Skip paid AI checks when cheap gates already failed — saves API cost on broken books.
+    return { pass: false, issues: cheapIssues };
+  }
+
+  if (gateOpts.verifyGenre) {
+    const genreCheck = await verifyGenreContent(content, title, genre, draft.outline || undefined);
+    if (!genreCheck.pass) {
+      issues.push(...genreCheck.issues);
+      if (genreCheck.suggestedGenre) {
+        issues.push(`AI suggests reclassifying as: "${genreCheck.suggestedGenre}"`);
+      }
+    }
+  }
+
+  if (gateOpts.dialogueCheck) {
+    const qualityResult = educational
+      ? await checkInstructionalMaterialsQuality(content, title, genre, draft.outline || undefined)
+      : await checkDialogueQuality(content, title, genre, draft.outline || undefined);
+    if (!qualityResult.pass) {
+      issues.push(
+        educational
+          ? `Instructional materials quality failed: ${qualityResult.summary}`
+          : `Dialogue quality failed: ${qualityResult.summary}`,
+      );
+      for (const issue of qualityResult.issues) {
+        issues.push(educational ? `Instructional: ${issue}` : `Dialogue: ${issue}`);
+      }
+    }
+  }
+
+  if (gateOpts.climaxCheck && fiction && !educational) {
+    const chapterCount = (content.match(/##\s*Chapter\s+\d+/gi) || []).length;
+    if (chapterCount >= 3) {
+      const climax = await checkClimaxPresence(content, title, genre);
+      if (!climax.hasClimax || climax.score < EDITORIAL_BRIEF_MIN_SCORE) {
+        issues.push(
+          `Climax check failed (score ${climax.score}/10): ${climax.analysis || "no satisfying climax"}`,
+        );
+      }
+    }
+  }
+
+  const unique = [...new Set(issues.filter(Boolean))];
+  return { pass: unique.length === 0, issues: unique };
+}
+
+/** Re-run publish pipeline gates on live published drafts; demote failures to ready and hide catalog. */
+export async function reauditPublishedDrafts(options?: {
+  minId?: number;
+  maxId?: number;
+  draftIds?: number[];
+  dryRun?: boolean;
+  verifyGenre?: boolean;
+  dialogueCheck?: boolean;
+  /** Required to demote/hide catalog when not a dry run. */
+  confirmedAfterPreflight?: boolean;
+}): Promise<{
+  scanned: number;
+  passed: number;
+  failed: number;
+  demoted: number;
+  results: Array<{ id: number; title: string; pass: boolean; issues: string[]; demoted: boolean }>;
+}> {
+  let publishedDrafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "published"));
+
+  if (options?.draftIds?.length) {
+    const idSet = new Set(options.draftIds);
+    publishedDrafts = publishedDrafts.filter((d) => idSet.has(d.id));
+  }
+  if (options?.minId != null) {
+    publishedDrafts = publishedDrafts.filter((d) => d.id >= options.minId!);
+  }
+  if (options?.maxId != null) {
+    publishedDrafts = publishedDrafts.filter((d) => d.id <= options.maxId!);
+  }
+
+  publishedDrafts.sort((a, b) => a.id - b.id);
+  console.log(`[Pipeline Re-Audit] Scanning ${publishedDrafts.length} published draft(s)...`);
+
+  if (!options?.dryRun && !options?.confirmedAfterPreflight) {
+    throw new BatchOperationGuardError(
+      `Re-audit can demote published books and hide catalog rows. Run with dryRun: true first, then confirmedAfterPreflight: true.`,
+      {
+        operation: "reaudit-published",
+        wouldModify: publishedDrafts.map((d) =>
+          assessDraftCompleteness({
+            id: d.id,
+            title: d.title,
+            genre: d.genre,
+            content: d.content,
+            pdfUrl: d.pdfUrl,
+            publishedAt: d.publishedAt,
+          }),
+        ),
+        wouldSkip: [],
+        requiresConfirmation: true,
+        summary: `${publishedDrafts.length} published draft(s) would be scanned; demotion requires confirmation`,
+      },
+    );
+  }
+
+  const results: Array<{ id: number; title: string; pass: boolean; issues: string[]; demoted: boolean }> = [];
+  let passed = 0;
+  let failed = 0;
+  let demoted = 0;
+
+  for (const draft of publishedDrafts) {
+    const title = draft.title || draft.topic || "Untitled";
+    const gate = await runPublishPipelineGate(draft, {
+      verifyGenre: options?.verifyGenre,
+      // Dialogue review is paid API — off by default; use --dialogue only when you need it.
+      dialogueCheck: options?.dialogueCheck === true,
+    });
+
+    let wasDemoted = false;
+    if (!gate.pass) {
+      failed++;
+      console.log(`[Pipeline Re-Audit] FAIL #${draft.id} "${title}": ${gate.issues.join("; ")}`);
+      if (!options?.dryRun) {
+        await db.update(draftEbooks).set({
+          status: "ready",
+          publishedAt: null,
+        }).where(eq(draftEbooks.id, draft.id));
+
+        const catalogRows = await db.select({ id: books.id })
+          .from(books)
+          .where(eq(books.sourceDraftId, draft.id));
+        for (const book of catalogRows) {
+          await db.update(books).set({ visible: false }).where(eq(books.id, book.id));
+        }
+        wasDemoted = true;
+        demoted++;
+        console.log(
+          `[Pipeline Re-Audit] Demoted #${draft.id} to ready` +
+          (catalogRows.length ? `; hid catalog #${catalogRows.map((b) => b.id).join(", #")}` : ""),
+        );
+      }
+    } else {
+      passed++;
+      console.log(`[Pipeline Re-Audit] PASS #${draft.id} "${title}"`);
+    }
+
+    results.push({ id: draft.id, title, pass: gate.pass, issues: gate.issues, demoted: wasDemoted });
+    await new Promise((resolve) => setTimeout(resolve, options?.verifyGenre || options?.dialogueCheck !== false ? 800 : 200));
+  }
+
+  console.log(
+    `[Pipeline Re-Audit] Complete: ${passed} passed, ${failed} failed` +
+    (options?.dryRun ? " (dry run — no demotions)" : `, ${demoted} demoted`),
+  );
+  return { scanned: publishedDrafts.length, passed, failed, demoted, results };
+}
+
 export async function auditPublishedBooks(): Promise<{
   total: number;
   passed: number;
@@ -5972,10 +7041,13 @@ export async function auditPublishedBooks(): Promise<{
 
     const structScan = await scanContentCompleteness([draft.id]);
     const structuralIssues = structScan.length > 0 ? structScan[0].issues : [];
+    const visualIssues = getVisualPublishBlockers(content, genre);
+    const coverIssues = draftHasPublishableCover(draft) ? [] : ["Cover image required / not reachable"];
+    const allStructural = [...new Set([...structuralIssues, ...visualIssues, ...coverIssues])];
 
-    if (structuralIssues.length > 0) {
-      console.log(`[Audit Published] "${title}" (ID ${draft.id}) — STRUCTURAL ISSUES: ${structuralIssues.join('; ')}`);
-      results.push({ id: draft.id, title, wordCount: words, structuralIssues, dialoguePass: false, dialogueSummary: "Skipped — structural issues found", dialogueIssues: [] });
+    if (allStructural.length > 0) {
+      console.log(`[Audit Published] "${title}" (ID ${draft.id}) — PIPELINE ISSUES: ${allStructural.join('; ')}`);
+      results.push({ id: draft.id, title, wordCount: words, structuralIssues: allStructural, dialoguePass: false, dialogueSummary: "Skipped — pipeline issues found", dialogueIssues: [] });
       issues++;
       continue;
     }
@@ -6201,6 +7273,8 @@ export async function generateMissingContent(): Promise<void> {
     content: draftEbooks.content,
     status: draftEbooks.status,
     outline: draftEbooks.outline,
+    coverUrl: draftEbooks.coverUrl,
+    backgroundUrl: draftEbooks.backgroundUrl,
   }).from(draftEbooks);
 
   const hasMultiAuthorOutline = (d: typeof allDrafts[0]) => {
@@ -6253,7 +7327,20 @@ export async function generateMissingContent(): Promise<void> {
     return false;
   });
 
-  if (needsWork.length === 0) {
+  const coverBlocked = needsWork.filter(d => !checkStoryWritingGate(d).allowed);
+  if (coverBlocked.length > 0) {
+    console.log(
+      `[Bulk Content] Skipping ${coverBlocked.length} draft(s) — cover-first gate (generate covers in Cover Review first): ${coverBlocked.map(d => `#${d.id}`).join(", ")}`,
+    );
+  }
+  const eligible = needsWork.filter(d => checkStoryWritingGate(d).allowed);
+
+  if (eligible.length === 0) {
+    if (coverBlocked.length > 0) {
+      throw new Error(
+        `${coverBlocked.length} ebook(s) need covers before story writing. Use Cover Review first.`,
+      );
+    }
     throw new Error("All ebooks already have content");
   }
 
@@ -6262,7 +7349,7 @@ export async function generateMissingContent(): Promise<void> {
   const multiAuthorComplete: typeof needsWork = [];
   const freshWrites: typeof needsWork = [];
 
-  for (const d of needsWork) {
+  for (const d of eligible) {
     const isMA = hasMultiAuthorOutline(d);
     const words = d.content ? d.content.split(/\s+/).length : 0;
     const chapters = d.content ? (d.content.match(/##\s*Chapter\s+\d+/gi) || []).length : 0;
@@ -6293,13 +7380,13 @@ export async function generateMissingContent(): Promise<void> {
 
   const prioritized = [...multiAuthorRecheck, ...multiAuthorRepair, ...multiAuthorComplete, ...freshWrites];
 
-  console.log(`[Bulk Content] Starting for ${needsWork.length} ebooks — PRIORITY ORDER:`);
+  console.log(`[Bulk Content] Starting for ${eligible.length} ebooks (${coverBlocked.length} skipped for cover-first) — PRIORITY ORDER:`);
   console.log(`[Bulk Content]   0) ${multiAuthorRecheck.length} multi-author RECHECK (full content, need quality gate re-run)`);
   console.log(`[Bulk Content]   1) ${multiAuthorRepair.length} REPAIRS (5000w+, structural issues to fix)`);
   console.log(`[Bulk Content]   2) ${multiAuthorComplete.length} REWRITES (pre-system stubs — not multi-author, need full rewrite)`);
   console.log(`[Bulk Content]   3) ${freshWrites.length} fresh writes (no content yet)`);
 
-  contentGenProgress = { total: needsWork.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
+  contentGenProgress = { total: eligible.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
 
   (async () => {
     for (let pi = 0; pi < prioritized.length; pi++) {
@@ -6318,7 +7405,7 @@ export async function generateMissingContent(): Promise<void> {
         const isPreSystemStub = !isMA && !isVisualEnhancedGenre(draft.genre || "") && !isColoringBookGenre(draft.genre || "") && words > 0 && words < MIN_WORD_COUNT;
 
         if (isMA && words >= MIN_WORD_COUNT && chapters >= 2 && issues.length === 0) {
-          console.log(`[Bulk Content] RECHECK ${contentGenProgress.completed + 1}/${needsWork.length} [ID ${draft.id}]: ${draft.title} (${words}w, ${chapters}ch — running quality gate)`);
+          console.log(`[Bulk Content] RECHECK ${contentGenProgress.completed + 1}/${eligible.length} [ID ${draft.id}]: ${draft.title} (${words}w, ${chapters}ch — running quality gate)`);
           await db.update(draftEbooks).set({ status: "generating" }).where(eq(draftEbooks.id, draft.id));
           activeGenerationCount++;
           console.log(`[Generation Guard] Active generations: ${activeGenerationCount}`);
@@ -6341,7 +7428,13 @@ export async function generateMissingContent(): Promise<void> {
               const recheckGenre = freshDraft?.genre || draft.genre || 'General';
               const recheckOutline = freshDraft?.outline || draft.outline || undefined;
               const dialogueResult = await checkDialogueQuality(recheckContent, recheckTitle, recheckGenre, recheckOutline);
-              if (dialogueResult.pass) {
+              const freeGate = passesFreeIllustrationAndOutlineGate(recheckContent, recheckGenre, recheckOutline);
+              if (!freeGate.pass) {
+                console.log(`[Bulk Content] RECHECK "${draft.title}" FAILED free illustration/outline gate: ${freeGate.issues.join("; ")} — keeping draft`);
+                await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
+                activeGenerationCount--;
+                console.log(`[Generation Guard] Recheck complete. Active: ${activeGenerationCount}`);
+              } else if (dialogueResult.pass) {
                 console.log(`[Bulk Content] RECHECK "${draft.title}" PASSED quality gate — marking ready. ${dialogueResult.summary}`);
                 await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
                 activeGenerationCount--;
@@ -6360,7 +7453,7 @@ export async function generateMissingContent(): Promise<void> {
             await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
           }
         } else if (words >= MIN_WORD_COUNT && chapters >= 2 && issues.length > 0) {
-          console.log(`[Bulk Content] REPAIR ${contentGenProgress.completed + 1}/${needsWork.length} [ID ${draft.id}]: ${draft.title} (${words}w, ${chapters}ch, issues: ${issues.join(', ')})`);
+          console.log(`[Bulk Content] REPAIR ${contentGenProgress.completed + 1}/${eligible.length} [ID ${draft.id}]: ${draft.title} (${words}w, ${chapters}ch, issues: ${issues.join(', ')})`);
           if (issues.includes("duplicates")) {
             console.log(`[Bulk Content] Running deduplication first for ID ${draft.id}...`);
             await deduplicateChapters([draft.id]);
@@ -6377,7 +7470,10 @@ export async function generateMissingContent(): Promise<void> {
               const repOutline = repairedDraft.outline || undefined;
               activeGenerationCount++;
               const dialogueResult = await checkDialogueQuality(repContent, repTitle, repGenre, repOutline);
-              if (dialogueResult.pass) {
+              const freeGate = passesFreeIllustrationAndOutlineGate(repContent, repGenre, repOutline);
+              if (!freeGate.pass) {
+                console.log(`[Bulk Content] REPAIR "${draft.title}" FAILED free illustration/outline gate: ${freeGate.issues.join("; ")} — keeping draft`);
+              } else if (dialogueResult.pass) {
                 console.log(`[Bulk Content] REPAIR "${draft.title}" PASSED quality gate — marking ready. ${dialogueResult.summary}`);
                 await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
               } else {
@@ -6394,14 +7490,14 @@ export async function generateMissingContent(): Promise<void> {
           }
         } else if ((isMA && words < MIN_WORD_COUNT) || isPreSystemStub) {
           const reason = isPreSystemStub ? `pre-system stub (${words}w — not multi-author, wiping for full rewrite)` : `has outline, need chapters written`;
-          console.log(`[Bulk Content] REWRITE ${contentGenProgress.completed + 1}/${needsWork.length} [ID ${draft.id}]: ${draft.title} (${words}w, ${chapters}ch — ${reason})`);
+          console.log(`[Bulk Content] REWRITE ${contentGenProgress.completed + 1}/${eligible.length} [ID ${draft.id}]: ${draft.title} (${words}w, ${chapters}ch — ${reason})`);
           if (isPreSystemStub) {
             await db.update(draftEbooks).set({ content: null }).where(eq(draftEbooks.id, draft.id));
           }
           await generateContentForDraft(draft.id);
         } else {
           const label = words === 0 ? "WRITE" : `FULL REWRITE (${words}w old content)`;
-          console.log(`[Bulk Content] ${label} ${contentGenProgress.completed + 1}/${needsWork.length} [ID ${draft.id}]: ${draft.title}`);
+          console.log(`[Bulk Content] ${label} ${contentGenProgress.completed + 1}/${eligible.length} [ID ${draft.id}]: ${draft.title}`);
           await generateContentForDraft(draft.id);
         }
         contentGenProgress.completed++;
@@ -6455,6 +7551,7 @@ export async function generateContentForSelected(ids: number[]): Promise<void> {
   contentGenProgress = { total: selected.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
 
   (async () => {
+    let consecutiveTransportFailures = 0;
     for (let si = 0; si < selected.length; si++) {
       const draft = selected[si];
       if (!contentGenProgress.running) break;
@@ -6467,10 +7564,29 @@ export async function generateContentForSelected(ids: number[]): Promise<void> {
         console.log(`[Selected Content] Writing ${contentGenProgress.completed + 1}/${selected.length}: ${draft.title}`);
         await generateContentForDraft(draft.id);
         contentGenProgress.completed++;
-      } catch (error) {
-        console.error(`[Selected Content] Failed: "${draft.title}":`, error);
+        consecutiveTransportFailures = 0;
+      } catch (error: any) {
+        const transport = isTransportFailure(error) || error?.name === "TransportAbortError";
+        console.error(
+          `[Selected Content] Failed: "${draft.title}":`,
+          transport ? formatOpenAIError(error) : error,
+        );
         contentGenProgress.failed.push(draft.title || `ID ${draft.id}`);
         contentGenProgress.completed++;
+        if (transport) {
+          consecutiveTransportFailures++;
+          if (consecutiveTransportFailures >= 2) {
+            const msg =
+              `Selected Content stopped after ${consecutiveTransportFailures} consecutive transport failures ` +
+              `(last: ${formatOpenAIError(error)}). Diagnose streaming/TLS/network before more API spend.`;
+            console.error(`[Selected Content] ${msg}`);
+            contentGenProgress.running = false;
+            break;
+          }
+          console.log(`[Selected Content] Transport failure ${consecutiveTransportFailures}/2 — will try next book once`);
+        } else {
+          consecutiveTransportFailures = 0;
+        }
       }
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
@@ -6816,9 +7932,40 @@ export async function rewriteVisualEnhancedBooks(): Promise<void> {
   });
 }
 
-async function injectIllustrationMarkers(content: string, genre: string, title: string): Promise<string> {
+async function injectIllustrationMarkers(
+  content: string,
+  genre: string,
+  title: string,
+  characterBible?: CharacterVisualBible | null,
+  draftId?: number,
+  outline?: string | null,
+): Promise<string> {
   const visualConfig = getVisualEnhancedConfig(genre);
   if (!visualConfig) return content;
+
+  let bible = characterBible ?? null;
+  let draftOutline = outline ?? null;
+  if (draftId) {
+    if (!bible) bible = await getCharacterBibleForDraftId(draftId);
+    if (!draftOutline) {
+      const [row] = await db
+        .select({ outline: draftEbooks.outline })
+        .from(draftEbooks)
+        .where(eq(draftEbooks.id, draftId));
+      draftOutline = row?.outline ?? null;
+    }
+  }
+
+  const outlineSlots = parseOutlineIllustrationSlots(draftOutline);
+  if (outlineSlots.length > 0) {
+    const { content: updated, injected } = injectOutlineIllustrationSlots(content, outlineSlots);
+    console.log(
+      `[Illustration Inject] "${title}" — ${injected} marker(s) from outline (${outlineSlots.length} outline slot(s); GPT fallback skipped)`,
+    );
+    return updated;
+  }
+
+  let bibleForAi = bible;
 
   const chapters = content.split(/(?=^## )/m).filter(c => c.trim().length > 200);
   if (chapters.length === 0) return content;
@@ -6854,11 +8001,13 @@ async function injectIllustrationMarkers(content: string, genre: string, title: 
 
 IMPORTANT: Use as few illustrations as possible while still enhancing the reader's experience. Each illustration costs money to generate, so only place a marker when an image would genuinely help the reader understand something better or when the visual impact is truly worth it. Skip sections where text alone is sufficient. Aim for quality over quantity — most books need 1-2 illustrations per chapter at most. Only place more if this chapter is exceptionally visual (e.g., a step-by-step technique, a key diagram, or a vivid scene that anchors the reader). Return fewer than ${remaining} if the chapter does not warrant that many.
 
+NEVER place two illustration markers back-to-back unless the book outline explicitly lists consecutive [ILLUSTRATION:] markers for that chapter. Leave at least one full paragraph of text between markers unless the outline calls for adjacent images.
+
 Output ONLY a JSON array of objects with:
 - "after": the exact sentence or phrase after which the illustration should be placed (copy it exactly from the text)
 - "description": a detailed illustration description for AI image generation. Include: subject, composition, art style (${visualConfig.illustrationStyle}), colors, mood, and any details. Be extremely specific and visual.
 
-Return up to ${remaining} illustration placements, but return FEWER if the chapter doesn't warrant that many. Quality over quantity — only place markers where images genuinely add value.`
+Return up to ${remaining} illustration placements, but return FEWER if the chapter doesn't warrant that many. Quality over quantity — only place markers where images genuinely add value.${characterBible ? formatCharacterBibleForMarkerInjection(characterBible) : bibleForAi ? formatCharacterBibleForMarkerInjection(bibleForAi) : ""}`
           },
           {
             role: "user",
@@ -7054,6 +8203,191 @@ Return exactly ${needed} illustration placement(s). Choose the most impactful lo
   })();
 }
 
+export type ActivityBookLineRepairResult = {
+  draftId: number;
+  title: string;
+  asciiBlocksReplaced: number;
+  asciiLinesBefore: number;
+  asciiLinesAfter: number;
+  unprocessedMarkers: number;
+};
+
+/** Normalize exercise lines and convert ASCII puzzle grids to illustration markers. */
+export async function repairActivityBookLinesForDraft(
+  draftId: number,
+  options?: { convertAscii?: boolean; force?: boolean },
+): Promise<ActivityBookLineRepairResult> {
+  const [draft] = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    content: draftEbooks.content,
+    pdfUrl: draftEbooks.pdfUrl,
+    publishedAt: draftEbooks.publishedAt,
+  }).from(draftEbooks).where(eq(draftEbooks.id, draftId));
+
+  if (!draft) throw new Error(`Draft ${draftId} not found`);
+  if (!isActivityOrWorkbookGenre(draft.genre)) {
+    throw new Error(`"${draft.title}" is not an activity/workbook genre`);
+  }
+  if (!draft.content?.trim()) {
+    throw new Error(`"${draft.title}" has no content`);
+  }
+
+  const guard = assessDraftCompleteness({
+    id: draft.id,
+    title: draft.title,
+    genre: draft.genre,
+    content: draft.content,
+    pdfUrl: draft.pdfUrl,
+    publishedAt: draft.publishedAt,
+  });
+  if (guard.libraryComplete && !options?.force) {
+    throw new BatchOperationGuardError(
+      `#${draftId} "${draft.title}" is library-complete (${guard.signals.join("; ")}). Pass force: true to override.`,
+      preflightActivityLineRepair([
+        {
+          id: draft.id,
+          title: draft.title,
+          genre: draft.genre,
+          content: draft.content,
+          pdfUrl: draft.pdfUrl,
+          publishedAt: draft.publishedAt,
+        },
+      ]),
+    );
+  }
+
+  const asciiLinesBefore = countAsciiPuzzleLines(draft.content);
+  let content = normalizeActivityBookContent(draft.content);
+  let replacedCount = 0;
+  if (options?.convertAscii !== false) {
+    const converted = convertAsciiPuzzleBlocksToIllustrationMarkers(content, draft.genre || "");
+    content = converted.content;
+    replacedCount = converted.replacedCount;
+  }
+  const asciiLinesAfter = countAsciiPuzzleLines(content);
+  const unprocessedMarkers = countUnprocessedIllustrationMarkers(content);
+
+  await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+
+  console.log(
+    `[Activity Line Repair] #${draftId} "${draft.title}": ${replacedCount} ASCII block(s) → illustration markers, ${asciiLinesBefore}→${asciiLinesAfter} puzzle lines`,
+  );
+
+  return {
+    draftId,
+    title: draft.title || `Draft #${draftId}`,
+    asciiBlocksReplaced: replacedCount,
+    asciiLinesBefore,
+    asciiLinesAfter,
+    unprocessedMarkers,
+  };
+}
+
+/** Scan and repair all activity/workbook drafts with line/structure issues. */
+export async function preflightActivityLineRepairDrafts(
+  draftIds?: number[],
+): Promise<BatchPreflightReport> {
+  const allDrafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    content: draftEbooks.content,
+    pdfUrl: draftEbooks.pdfUrl,
+    publishedAt: draftEbooks.publishedAt,
+  }).from(draftEbooks);
+
+  const candidates = allDrafts.filter((d) => {
+    if (!isActivityOrWorkbookGenre(d.genre) || !d.content?.trim()) return false;
+    if (draftIds?.length && !draftIds.includes(d.id)) return false;
+    return true;
+  });
+
+  return preflightActivityLineRepair(candidates);
+}
+
+export async function repairAllActivityBookLines(options?: {
+  draftIds?: number[];
+  regenerateIllustrations?: boolean;
+  /** When false, only normalize writing lines — keep ASCII until illustration regen. Default true. */
+  convertAscii?: boolean;
+  /** Required after reviewing preflight when multiple or library-complete-adjacent targets. */
+  confirmedAfterPreflight?: boolean;
+  dryRun?: boolean;
+}): Promise<ActivityBookLineRepairResult[]> {
+  const allDrafts = await db.select({
+    id: draftEbooks.id,
+    title: draftEbooks.title,
+    genre: draftEbooks.genre,
+    content: draftEbooks.content,
+    pdfUrl: draftEbooks.pdfUrl,
+    publishedAt: draftEbooks.publishedAt,
+  }).from(draftEbooks);
+
+  const convertAscii = options?.convertAscii !== false;
+
+  const targets = allDrafts.filter((d) => {
+    if (!isActivityOrWorkbookGenre(d.genre) || !d.content?.trim()) return false;
+    if (options?.draftIds?.length && !options.draftIds.includes(d.id)) return false;
+    return activityBookNeedsStructureRepair(d.content, d.genre || "");
+  });
+
+  const preflight = preflightActivityLineRepair(targets);
+  console.log(`[Activity Line Repair Preflight] ${preflight.summary}`);
+  for (const skip of preflight.wouldSkip) {
+    console.log(`[Activity Line Repair Preflight] SKIP #${skip.draftId} ${skip.title}: ${skip.reason}`);
+  }
+
+  if (options?.dryRun) {
+    return preflight.wouldModify.map((d) => ({
+      draftId: d.draftId,
+      title: d.title,
+      asciiBlocksReplaced: 0,
+      asciiLinesBefore: d.asciiLines,
+      asciiLinesAfter: d.asciiLines,
+      unprocessedMarkers: d.pendingMarkers,
+    }));
+  }
+
+  assertBatchMutationAllowed(preflight, {
+    confirmedAfterPreflight: options?.confirmedAfterPreflight,
+  });
+
+  const modifyIds = new Set(preflight.wouldModify.map((d) => d.draftId));
+  const toRepair = targets.filter((d) => modifyIds.has(d.id));
+
+  console.log(`[Activity Line Repair] Repairing ${toRepair.length} draft(s) after preflight (${preflight.wouldSkip.length} skipped)`);
+
+  const results: ActivityBookLineRepairResult[] = [];
+  for (const draft of toRepair) {
+    try {
+      const result = await repairActivityBookLinesForDraft(draft.id, {
+        convertAscii,
+      });
+      results.push(result);
+
+      if (options?.regenerateIllustrations && result.unprocessedMarkers > 0) {
+        const [fresh] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draft.id));
+        if (fresh?.content) {
+          const updated = await generateIllustrations(
+            fresh.content,
+            fresh.genre || "Activity Books",
+            fresh.title || "Untitled",
+            draft.id,
+          );
+          await db.update(draftEbooks).set({ content: updated }).where(eq(draftEbooks.id, draft.id));
+          console.log(`[Activity Line Repair] Regenerated illustrations for #${draft.id}`);
+        }
+      }
+    } catch (err: any) {
+      console.error(`[Activity Line Repair] Failed #${draft.id}:`, err?.message);
+    }
+  }
+
+  return results;
+}
+
 export async function repairIllustrationDistribution(draftIds: number[]): Promise<void> {
   if (contentGenProgress.running) {
     throw new Error("Content generation is already running");
@@ -7229,8 +8563,8 @@ Output ONLY a JSON array of 2 objects with:
 }
 
 export async function generateIllustrationsOnly(draftIds: number[]): Promise<void> {
-  if (contentGenProgress.running) {
-    throw new Error("Content generation is already running");
+  if (illustrationProgress.running) {
+    throw new Error("Illustration generation is already running");
   }
 
   const drafts = await db.select({
@@ -7272,24 +8606,28 @@ export async function generateIllustrationsOnly(draftIds: number[]): Promise<voi
     console.log(`  - [${d.status}] ${d.genre}: "${d.title}" (ID ${d.id})`);
   }
 
-  contentGenProgress = { total: eligible.length, completed: 0, current: "", currentId: null, nextTitle: "", nextId: null, running: true, failed: [] };
-  illustrationProgress = { running: true, bookId: null, bookTitle: "", totalBooks: eligible.length, completedBooks: 0, currentImage: 0, totalImages: 0, lastGeneratedFile: "" };
+  illustrationProgress = {
+    running: true,
+    bookId: null,
+    bookTitle: "",
+    totalBooks: eligible.length,
+    completedBooks: 0,
+    currentImage: 0,
+    totalImages: 0,
+    lastGeneratedFile: "",
+  };
 
   (async () => {
+    let succeeded = 0;
+    const failed: string[] = [];
     for (let ii = 0; ii < eligible.length; ii++) {
       const draft = eligible[ii];
-      if (!contentGenProgress.running) break;
       try {
-        contentGenProgress.current = draft.title || "Unknown";
-        contentGenProgress.currentId = draft.id;
-        const nextD = ii + 1 < eligible.length ? eligible[ii + 1] : null;
-        contentGenProgress.nextTitle = nextD?.title || "";
-        contentGenProgress.nextId = nextD?.id || null;
         illustrationProgress.bookId = draft.id;
         illustrationProgress.bookTitle = draft.title || "Unknown";
         illustrationProgress.currentImage = 0;
         illustrationProgress.totalImages = 0;
-        console.log(`[Illustrations Only] Processing ${contentGenProgress.completed + 1}/${eligible.length}: "${draft.title}" (${draft.genre})`);
+        console.log(`[Illustrations Only] Processing ${ii + 1}/${eligible.length}: "${draft.title}" (${draft.genre})`);
 
         if (isColoringBookGenre(draft.genre || "")) {
           console.log(`[Illustrations Only] "${draft.title}" is a coloring book — generating coloring pages...`);
@@ -7302,7 +8640,7 @@ export async function generateIllustrationsOnly(draftIds: number[]): Promise<voi
           });
           if (existingMarkers.length === 0 && isVisualEnhancedGenre(draft.genre || "")) {
             console.log(`[Illustrations Only] "${draft.title}" has no markers — injecting illustration markers first...`);
-            currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+            currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "", null, draft.id);
             await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draft.id));
           }
           let updatedContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
@@ -7313,13 +8651,12 @@ export async function generateIllustrationsOnly(draftIds: number[]): Promise<voi
           }
         }
 
-        contentGenProgress.completed++;
+        succeeded++;
         illustrationProgress.completedBooks++;
         console.log(`[Illustrations Only] Completed "${draft.title}"`);
       } catch (error) {
         console.error(`[Illustrations Only] Failed: "${draft.title}":`, error);
-        contentGenProgress.failed.push(draft.title || `ID ${draft.id}`);
-        contentGenProgress.completed++;
+        failed.push(draft.title || `ID ${draft.id}`);
         illustrationProgress.completedBooks++;
       }
       // Longer pause between books to let V8 GC reclaim image buffer memory
@@ -7329,16 +8666,13 @@ export async function generateIllustrationsOnly(draftIds: number[]): Promise<voi
         console.log("[Illustrations Only] GC triggered between books");
       }
     }
-    contentGenProgress.running = false;
-    contentGenProgress.current = "";
     illustrationProgress.running = false;
     illustrationProgress.bookId = null;
     illustrationProgress.bookTitle = "";
-    console.log(`[Illustrations Only] Complete: ${contentGenProgress.completed - contentGenProgress.failed.length} succeeded, ${contentGenProgress.failed.length} failed`);
+    console.log(`[Illustrations Only] Complete: ${succeeded} succeeded, ${failed.length} failed`);
     await runPendingIllustrations();
   })().catch(err => {
     console.error("[Illustrations Only] Batch failed:", err);
-    contentGenProgress.running = false;
     illustrationProgress.running = false;
     runPendingIllustrations();
   });
@@ -7440,6 +8774,21 @@ export async function rewriteSpecificDrafts(draftIds: number[]): Promise<void> {
 
     if (ILLUSTRATION_EXEMPT_DRAFT_IDS.has(d.id)) {
       console.log(`[Targeted Rewrite] "${d.title}" (ID ${d.id}) — illustration-exempt, skipping`);
+      continue;
+    }
+
+    const pendingIllusCount = (contentText.match(/\[ILLUSTRATION:\s*(?!\/|http)[^\]]+\]/gi) || []).length;
+    const resolvedIllusCount = (contentText.match(/\[ILLUSTRATION:\s*\/(?:uploads|objstore)\/illustrations\//g) || []).length;
+    if (
+      isActivityOrWorkbookGenre(d.genre || "") &&
+      pendingIllusCount > 0 &&
+      contentWords >= 3000
+    ) {
+      workItems.push({
+        draft: d,
+        action: "illustrations-only",
+        reason: `${pendingIllusCount} pending illustration marker(s) (${resolvedIllusCount} already rendered) — art only, no rewrite`,
+      });
       continue;
     }
 
@@ -7623,7 +8972,7 @@ Return the COMPLETE fixed chapter starting with the heading "${ch.heading}". Kee
             const markerCount = (currentContent.match(/\[ILLUSTRATION:/g) || []).length;
             if (markerCount === 0) {
               console.log(`[Intro Repair] "${draft.title}" — injecting illustration markers...`);
-              currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+              currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "", null, draft.id);
             }
             currentContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
           }
@@ -7634,7 +8983,13 @@ Return the COMPLETE fixed chapter starting with the heading "${ch.heading}". Kee
             await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
             console.log(`[Intro Repair] Restored published status for "${draft.title}"`);
           } else {
-            await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+            const freeGate = passesFreeIllustrationAndOutlineGate(currentContent, draft.genre, draft.outline);
+            if (freeGate.pass) {
+              await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+            } else {
+              console.log(`[Intro Repair] "${draft.title}" — free gate failed: ${freeGate.issues.join("; ")} — keeping draft`);
+              await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
+            }
           }
         } else if (work.action === "chapter-repair") {
           console.log(`[Chapter Repair] Analyzing "${draft.title}" chapter-by-chapter to find what needs fixing...`);
@@ -7746,7 +9101,7 @@ Return the COMPLETE rewritten chapter starting with the heading "${ch.heading}".
             const markerCount = (currentContent.match(/\[ILLUSTRATION:/g) || []).length;
             if (markerCount === 0) {
               console.log(`[Chapter Repair] Injecting illustration markers...`);
-              currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+              currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "", null, draft.id);
             }
             currentContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
           }
@@ -7757,7 +9112,13 @@ Return the COMPLETE rewritten chapter starting with the heading "${ch.heading}".
             await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
             console.log(`[Chapter Repair] Restored published status for "${draft.title}"`);
           } else {
-            await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+            const freeGate = passesFreeIllustrationAndOutlineGate(currentContent, draft.genre, draft.outline);
+            if (freeGate.pass) {
+              await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+            } else {
+              console.log(`[Chapter Repair] "${draft.title}" — free gate failed: ${freeGate.issues.join("; ")} — keeping draft`);
+              await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
+            }
           }
         } else if (work.action === "continue-content") {
           console.log(`[Targeted Rewrite] Resuming interrupted content generation for "${draft.title}"...`);
@@ -7770,7 +9131,7 @@ Return the COMPLETE rewritten chapter starting with the heading "${ch.heading}".
             const markerCount = (currentContent.match(/\[ILLUSTRATION:/g) || []).length;
             if (markerCount === 0) {
               console.log(`[Targeted Rewrite] "${draft.title}" — injecting illustration markers after content resume...`);
-              currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+              currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "", null, draft.id);
             }
             currentContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
             await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draft.id));
@@ -7780,7 +9141,14 @@ Return the COMPLETE rewritten chapter starting with the heading "${ch.heading}".
             await db.update(draftEbooks).set({ status: "published" }).where(eq(draftEbooks.id, draft.id));
             console.log(`[Targeted Rewrite] Restored published status for "${draft.title}" after content resume`);
           } else {
-            await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+            const [fresh] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draft.id));
+            const resumeContent = fresh?.content || updated?.content || "";
+            const freeGate = passesFreeIllustrationAndOutlineGate(resumeContent, draft.genre, fresh?.outline ?? draft.outline);
+            if (freeGate.pass) {
+              await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+            } else {
+              console.log(`[Targeted Rewrite] "${draft.title}" — free gate failed: ${freeGate.issues.join("; ")} — keeping draft`);
+            }
           }
         } else if (work.action === "illustrations-only") {
           console.log(`[Targeted Rewrite] Adding illustrations to existing content for "${draft.title}"...`);
@@ -7788,7 +9156,7 @@ Return the COMPLETE rewritten chapter starting with the heading "${ch.heading}".
           const existingMarkers = (currentContent.match(/\[ILLUSTRATION:/g) || []).length;
           if (existingMarkers === 0) {
             console.log(`[Targeted Rewrite] "${draft.title}" has no markers — injecting illustration markers first...`);
-            currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "");
+            currentContent = await injectIllustrationMarkers(currentContent, draft.genre || "", draft.title || "", null, draft.id);
             await db.update(draftEbooks).set({ content: currentContent }).where(eq(draftEbooks.id, draft.id));
           }
           let updatedContent = await generateIllustrations(currentContent, draft.genre || "", draft.title || "", draft.id);
@@ -9389,6 +10757,12 @@ export async function generateColoringBookContent(draftId: number): Promise<stri
   const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
   if (!draft) throw new Error("Draft not found");
 
+  const storyGate = checkStoryWritingGate(draft);
+  if (!storyGate.allowed) {
+    console.log(`[Coloring Book] BLOCKED "${draft.title}" (ID ${draftId}): ${storyGate.reason}`);
+    throw new Error(storyGate.reason);
+  }
+
   const title = draft.title || "Coloring Book";
   const topic = draft.topic || title;
   const theme = getColoringThemeForBook(title);
@@ -9828,6 +11202,16 @@ export type ResearchWritingBrief = {
   characterVoices: string[];
   narrativeBeats: string[];
   themes: string[];
+  /** Educational books: grade band (e.g. "Kindergarten", "Grade 5", "College", "Trade"). */
+  gradeBand?: string;
+  /** Educational books: subject area (e.g. "Mathematics", "HVAC"). */
+  subjectArea?: string;
+  /** Educational books: standards focus (e.g. Common Core Math K, NGSS). */
+  standardsFocus?: string[];
+  /** Educational books: measurable learning objectives. */
+  learningObjectives?: string[];
+  /** Educational books: default "objective → explain → example → practice → check". */
+  instructionalPattern?: string;
 };
 
 const WRITING_BRIEF_START = "---WRITING_BRIEF_START---";
@@ -9866,6 +11250,17 @@ export function getCreativeDirectionForDraft(draft: {
     `Why this book now: ${brief.marketRationale}`,
     `Tone & narrative voice: ${brief.toneAndVoice}`,
     `Dialogue guidance: ${brief.dialogueGuidance}`,
+    brief.gradeBand ? `Grade / level: ${brief.gradeBand}` : "",
+    brief.subjectArea ? `Subject area: ${brief.subjectArea}` : "",
+    brief.standardsFocus?.length
+      ? `Standards focus: ${brief.standardsFocus.join("; ")}`
+      : "",
+    brief.learningObjectives?.length
+      ? `Learning objectives:\n${brief.learningObjectives.map((o) => `- ${o}`).join("\n")}`
+      : "",
+    brief.instructionalPattern
+      ? `Instructional pattern: ${brief.instructionalPattern}`
+      : "",
     brief.characterVoices?.length
       ? `Character voices:\n${brief.characterVoices.map((v) => `- ${v}`).join("\n")}`
       : "",
@@ -9878,11 +11273,21 @@ export function getCreativeDirectionForDraft(draft: {
     .join("\n");
 }
 
+/** Cover AI brief: research brief + outline/story when manuscript already exists (#723–#728, repairs). */
+export function getCoverCreativeBriefForDraft(draft: DraftStoryCoverFields): string {
+  const base = getCreativeDirectionForDraft(draft);
+  return mergeCoverCreativeBrief(base, draft);
+}
+
 /** Strip internal writing brief — use for storefront catalog descriptions only. */
 export function getCatalogDescriptionFromDraft(description: string | null | undefined, fallback: string): string {
   if (!description) return fallback;
   const withoutBrief = description
     .replace(/---WRITING_BRIEF_START---[\s\S]*?---WRITING_BRIEF_END---\s*/g, "")
+    .replace(/---CHARACTER_VISUAL_BIBLE---[\s\S]*?---END_CHARACTER_VISUAL_BIBLE---\s*/g, "")
+    .replace(/---PROD_SYNC---[\s\S]*?---END_PROD_SYNC---\s*/g, "")
+    .replace(/---QUALITY_DEFERRAL---[\s\S]*?---END_QUALITY_DEFERRAL---\s*/g, "")
+    .replace(/---COVER_DEFERRED---[\s\S]*?---END_COVER_DEFERRED---\s*/g, "")
     .trim();
   return withoutBrief || fallback;
 }
@@ -10211,9 +11616,150 @@ export async function regenerateDraftTitle(draftId: number): Promise<{ title: st
   return { title: newTitle };
 }
 
-export async function generateIllustrations(content: string, genre: string, title: string, saveDraftId?: number): Promise<string> {
+/**
+ * Generate a single illustration and replace one text-only [ILLUSTRATION: description] marker.
+ * Bypasses per-chapter cap trimming — use for surgical swaps (wrong PNG for caption).
+ */
+export async function resolveOneIllustrationMarker(
+  content: string,
+  markerDescription: string,
+  genre: string,
+  title: string,
+  saveDraftId?: number,
+): Promise<{ content: string; filename: string | null }> {
+  const visualConfig = getVisualEnhancedConfig(genre);
+  if (!visualConfig) return { content, filename: null };
+
+  const needle = markerDescription.trim();
+  const pattern = new RegExp(
+    `\\[ILLUSTRATION:\\s*${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`,
+    "i",
+  );
+  const match = content.match(pattern);
+  if (!match) {
+    throw new Error(`Pending marker not found: ${needle.slice(0, 80)}`);
+  }
+  const fullMarker = match[0];
+
+  let bible: CharacterVisualBible | null = null;
+  if (saveDraftId) {
+    const [row] = await db
+      .select({ description: draftEbooks.description })
+      .from(draftEbooks)
+      .where(eq(draftEbooks.id, saveDraftId));
+    bible = parseCharacterBibleFromDescription(row?.description);
+  }
+
+  const framingInstruction =
+    "CRITICAL FRAMING RULES — apply these BEFORE composing anything else: Maintain a strict 15% safe-zone margin on the TOP and BOTTOM edges, and 12% on the left and right. NO element — hair, head, sky, ground, foot, tail, leaf tip, or any scene detail — may touch or cross any edge. The complete main subject must be fully visible with clear space around it. For people: always show the full head with at least 15% clear space above it; if showing a full figure, both feet must be fully visible with clear space below. For landscapes and scenes: the top of the sky and the bottom of the ground must both be fully inside the frame with visible margin. Center the composition with generous breathing room on all sides. When in doubt, zoom out — it is always better to show too much than to clip anything.";
+  let topicGuard = `SUBJECT DOMAIN: This illustration is for the ${genre} book "${title}". Generate an image that is directly and literally relevant to ${genre} — do NOT depict unrelated metaphors or analogies. If the description below uses an analogy, translate it into imagery that directly represents the actual ${genre} concept instead. `;
+  if (genre === "Children's Fiction") {
+    topicGuard +=
+      "CHILDREN'S STORYBOOK RULE: Illustrate ONLY the characters, setting, and action described below. NO educational diagrams, telescopes, science equipment, infographics, classroom posters, or textbook-style labeled charts unless the description explicitly names them. ";
+  }
+  const imagePrompt = enrichImagePromptWithCharacterBible(
+    `${framingInstruction} ${topicGuard}${needle}. Style: ${visualConfig.illustrationStyle}. Professional quality, high detail, suitable for a published ${genre} book.`,
+    bible,
+    needle,
+  );
+
+  const illustrationDir = "uploads/illustrations";
+  if (!fs.existsSync(illustrationDir)) {
+    fs.mkdirSync(illustrationDir, { recursive: true });
+  }
+
+  let imageData: string | undefined;
+  try {
+    const response = await openaiDirectForImages.images.generate({
+      model: IMAGE_MODEL_PRIMARY,
+      prompt: imagePrompt,
+      n: 1,
+      size: "1024x1536" as any,
+    });
+    imageData = response.data?.[0]?.b64_json;
+  } catch (primaryErr: any) {
+    console.warn(`[Illustrations] ${IMAGE_MODEL_PRIMARY} failed, trying ${IMAGE_MODEL_FALLBACK}: ${primaryErr.message}`);
+    const fallbackResponse = await openaiReplit.images.generate({
+      model: IMAGE_MODEL_FALLBACK,
+      prompt: imagePrompt,
+      n: 1,
+      size: "1024x1536" as any,
+    });
+    imageData = fallbackResponse.data?.[0]?.b64_json;
+  }
+  if (!imageData) {
+    throw new Error("Image generation returned no data");
+  }
+
+  const buffer = Buffer.from(imageData, "base64");
+  const timestamp = Date.now();
+  const filename = `illust-${timestamp}-swap.png`;
+  fs.writeFileSync(path.join(illustrationDir, filename), buffer);
+
+  let imageUrl = `/uploads/illustrations/${filename}`;
+  try {
+    const { uploadToObjStore } = await import("./objectStorage");
+    const uploaded = await uploadToObjStore(buffer, `public/illustrations/${filename}`, "image/png");
+    if (uploaded) imageUrl = `/objstore/illustrations/${filename}`;
+  } catch (uploadErr: any) {
+    console.warn(`[Illustrations] ObjStore upload failed for ${filename}: ${uploadErr.message}`);
+  }
+
+  const rawFirstSentence = needle.split(/(?<=[.!?])\s/)[0].trim().replace(/[.!?]$/, "");
+  const captionText =
+    rawFirstSentence.length > 110 ? rawFirstSentence.substring(0, 107) + "…" : rawFirstSentence;
+  const updatedContent = content.replace(fullMarker, `[ILLUSTRATION: ${imageUrl} | ${captionText}]`);
+  console.log(`[Illustrations] Single swap generated: ${filename}`);
+
+  if (saveDraftId) {
+    await db.update(draftEbooks).set({ content: updatedContent }).where(eq(draftEbooks.id, saveDraftId));
+  }
+  return { content: updatedContent, filename };
+}
+
+export async function generateIllustrations(content: string, genre: string, title: string, saveDraftId?: number, characterBible?: CharacterVisualBible | null): Promise<string> {
   const visualConfig = getVisualEnhancedConfig(genre);
   if (!visualConfig) return content;
+
+  let workingContent = content;
+  if (saveDraftId) {
+    const [row] = await db
+      .select({ outline: draftEbooks.outline })
+      .from(draftEbooks)
+      .where(eq(draftEbooks.id, saveDraftId));
+    if (parseOutlineIllustrationSlots(row?.outline).length > 0) {
+      const pruned = prunePendingMarkersNotInOutline(workingContent, row?.outline);
+      if (pruned.removed > 0) {
+        workingContent = pruned.content;
+        console.log(`[Illustrations] "${title}" — pruned ${pruned.removed} pending marker(s) not in outline`);
+        await db.update(draftEbooks).set({ content: workingContent }).where(eq(draftEbooks.id, saveDraftId));
+      }
+      // If prune wiped everything (common when chapter prose invented different markers),
+      // re-place outline-exact slots so generation can proceed.
+      const remaining = (workingContent.match(/\[ILLUSTRATION:/gi) || []).length;
+      if (remaining === 0) {
+        const reinjected = injectOutlineIllustrationSlots(workingContent, parseOutlineIllustrationSlots(row?.outline));
+        if (reinjected.injected > 0) {
+          workingContent = reinjected.content;
+          console.log(`[Illustrations] "${title}" — re-injected ${reinjected.injected} outline marker(s) after prune wiped content`);
+          await db.update(draftEbooks).set({ content: workingContent }).where(eq(draftEbooks.id, saveDraftId));
+        }
+      }
+    }
+  }
+  content = workingContent;
+
+  let bible = characterBible ?? null;
+  if (!bible && saveDraftId) {
+    const [row] = await db
+      .select({ description: draftEbooks.description })
+      .from(draftEbooks)
+      .where(eq(draftEbooks.id, saveDraftId));
+    bible = parseCharacterBibleFromDescription(row?.description);
+    if (bible) {
+      console.log(`[Illustrations] "${title}" — character bible: ${bible.characters.map((c) => c.name).join(", ")}`);
+    }
+  }
 
   const illustrationPattern = /\[ILLUSTRATION:\s*(.+?)\]/gi;
   const allMatches = [...content.matchAll(illustrationPattern)];
@@ -10243,7 +11789,7 @@ export async function generateIllustrations(content: string, genre: string, titl
     return content;
   }
 
-  const MAX_IMAGES_PER_CHAPTER = 2;
+  const MAX_IMAGES_PER_CHAPTER = getIllustrationCapForGenre(genre);
   const chapterLines = content.split('\n');
   const chapterBounds: { start: number; end: number }[] = [];
   for (let li = 0; li < chapterLines.length; li++) {
@@ -10257,6 +11803,7 @@ export async function generateIllustrations(content: string, genre: string, titl
   }
   if (chapterBounds.length > 0) {
     const markersToRemove: string[] = [];
+    const skipCapTrim = isActivityOrWorkbookGenre(genre);
     for (const bound of chapterBounds) {
       const chapterText = chapterLines.slice(bound.start, bound.end).join('\n');
       const allInChapter = [...chapterText.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)];
@@ -10264,7 +11811,7 @@ export async function generateIllustrations(content: string, genre: string, titl
         const src = m[1].trim();
         return src.startsWith("/") || src.startsWith("http");
       }).length;
-      if (existingImages >= MAX_IMAGES_PER_CHAPTER) {
+      if (!skipCapTrim && existingImages >= MAX_IMAGES_PER_CHAPTER) {
         const pendingInChapter = allInChapter.filter(m => {
           const src = m[1].trim();
           return !(src.startsWith("/") || src.startsWith("http"));
@@ -10324,15 +11871,24 @@ export async function generateIllustrations(content: string, genre: string, titl
       illustrationProgress.currentImage = i + 1;
       console.log(`[Illustrations] Generating ${i + 1}/${matches.length}: ${description.substring(0, 80)}...`);
 
-      const isChart = /chart|diagram|flowchart|comparison|table|layout|template|infographic|timeline|process|step.by.step|labeled/i.test(description);
+      const isChart =
+        genre !== "Children's Fiction" &&
+        /chart|diagram|flowchart|comparison|table|layout|template|infographic|timeline|process|step.by.step|labeled/i.test(
+          description,
+        );
       const framingInstruction = "CRITICAL FRAMING RULES — apply these BEFORE composing anything else: Maintain a strict 15% safe-zone margin on the TOP and BOTTOM edges, and 12% on the left and right. NO element — hair, head, sky, ground, foot, tail, leaf tip, or any scene detail — may touch or cross any edge. The complete main subject must be fully visible with clear space around it. For people: always show the full head with at least 15% clear space above it; if showing a full figure, both feet must be fully visible with clear space below. For landscapes and scenes: the top of the sky and the bottom of the ground must both be fully inside the frame with visible margin. Center the composition with generous breathing room on all sides. When in doubt, zoom out — it is always better to show too much than to clip anything.";
-      // Topic guard: ensures the image model stays on-subject even if the description
-      // contains an analogy (e.g. "brushing teeth" in a cybersecurity book). The guard
-      // is prepended so the model establishes subject domain before reading the description.
-      const topicGuard = `SUBJECT DOMAIN: This illustration is for the ${genre} book "${title}". Generate an image that is directly and literally relevant to ${genre} — do NOT depict unrelated metaphors or analogies. If the description below uses an analogy, translate it into imagery that directly represents the actual ${genre} concept instead. `;
-      const imagePrompt = isChart
-        ? `${framingInstruction} ${topicGuard}${description}. Style: clean, professional infographic with clear labels fully inside the frame. Use simple shapes. Professional quality, suitable for a published ${genre} book.`
-        : `${framingInstruction} ${topicGuard}${description}. Style: ${visualConfig.illustrationStyle}. Professional quality, high detail, suitable for a published ${genre} book.`;
+      let topicGuard = `SUBJECT DOMAIN: This illustration is for the ${genre} book "${title}". Generate an image that is directly and literally relevant to ${genre} — do NOT depict unrelated metaphors or analogies. If the description below uses an analogy, translate it into imagery that directly represents the actual ${genre} concept instead. `;
+      if (genre === "Children's Fiction") {
+        topicGuard +=
+          "CHILDREN'S STORYBOOK RULE: Illustrate ONLY the characters, setting, and action described below. NO educational diagrams, telescopes, science equipment, infographics, classroom posters, or textbook-style labeled charts unless the description explicitly names them. ";
+      }
+      const imagePrompt = enrichImagePromptWithCharacterBible(
+        isChart
+          ? `${framingInstruction} ${topicGuard}${description}. Style: clean, professional infographic with clear labels fully inside the frame. Use simple shapes. Professional quality, suitable for a published ${genre} book.`
+          : `${framingInstruction} ${topicGuard}${description}. Style: ${visualConfig.illustrationStyle}. Professional quality, high detail, suitable for a published ${genre} book.`,
+        bible,
+        description,
+      );
 
       const imageSize = "1024x1536";
 
@@ -10435,7 +11991,7 @@ export async function generateSingleEbook(genre: string, topic: string): Promise
       const markerCount = (content.match(/\[ILLUSTRATION:/g) || []).length;
       if (markerCount === 0) {
         console.log(`[Visual Enhanced] "${cleanTitle}" has no illustration markers — injecting them before generating images...`);
-        content = await injectIllustrationMarkers(content, genre, cleanTitle);
+        content = await injectIllustrationMarkers(content, genre, cleanTitle, null, draft.id);
         await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draft.id));
       }
       content = await generateIllustrations(content, genre, cleanTitle, draft.id);
@@ -10735,6 +12291,101 @@ export async function autoResumeBulkGeneration(): Promise<void> {
 
 let bulkPublishRunning = false;
 
+/**
+ * Unpublish drafts that are live without a reachable cover file.
+ * Hides matching catalog rows so broken covers cannot stay on the storefront.
+ */
+export async function demotePublishedWithoutReachableCover(): Promise<number> {
+  const { draftHasPublishableCover, draftCoverIsReachable } = await import("./coverStorage");
+  const { isCoverRegenDeferred } = await import("@shared/coverMetadata");
+  const published = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "published"));
+  let demoted = 0;
+
+  for (const draft of published) {
+    const coverDeferred = isCoverRegenDeferred(draft);
+    let reachable = draftHasPublishableCover(draft);
+    if (reachable && (draft.coverUrl || draft.backgroundUrl)) {
+      reachable = await draftCoverIsReachable(draft.coverUrl, draft.backgroundUrl, {
+        publishedAt: draft.publishedAt,
+        coverDeferred,
+      });
+    }
+    if (reachable) continue;
+
+    await db.update(draftEbooks).set({
+      status: "ready",
+      publishedAt: null,
+      overlayApproved: false,
+    }).where(eq(draftEbooks.id, draft.id));
+
+    const catalogRows = await db.select({ id: books.id, title: books.title })
+      .from(books)
+      .where(eq(books.sourceDraftId, draft.id));
+    for (const book of catalogRows) {
+      await db.update(books).set({ visible: false }).where(eq(books.id, book.id));
+    }
+
+    demoted++;
+    console.log(
+      `[Cover Gate] Demoted #${draft.id} "${draft.title}" — published without reachable cover (URLs preserved for recovery)` +
+      (catalogRows.length ? `; hid catalog #${catalogRows.map((b) => b.id).join(", #")}` : ""),
+    );
+  }
+
+  if (demoted > 0) {
+    console.log(`[Cover Gate] Demoted ${demoted} published ebook(s) missing covers — regenerate in Cover Review`);
+  }
+  return demoted;
+}
+
+/**
+ * Unpublish visual books that reached the storefront without finished puzzle/scene art.
+ * Manual / confirmed only — not run on server startup.
+ */
+export async function demotePublishedWithIncompleteIllustrations(options?: {
+  confirmedAfterPreflight?: boolean;
+}): Promise<number> {
+  if (!options?.confirmedAfterPreflight) {
+    throw new Error(
+      "demotePublishedWithIncompleteIllustrations requires confirmedAfterPreflight: true after reviewing preflight.",
+    );
+  }
+
+  const published = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "published"));
+  let demoted = 0;
+
+  for (const draft of published) {
+    const demotion = draftNeedsIllustrationDemotion(draft.content || "", draft.genre);
+    if (!demotion.demote) continue;
+
+    const blockers = getVisualPublishBlockers(draft.content || "", draft.genre);
+    if (blockers.length === 0) continue;
+
+    await db.update(draftEbooks).set({
+      status: "ready",
+      publishedAt: null,
+    }).where(eq(draftEbooks.id, draft.id));
+
+    const catalogRows = await db.select({ id: books.id })
+      .from(books)
+      .where(eq(books.sourceDraftId, draft.id));
+    for (const book of catalogRows) {
+      await db.update(books).set({ visible: false }).where(eq(books.id, book.id));
+    }
+
+    demoted++;
+    console.log(
+      `[Illustration Gate] Demoted #${draft.id} "${draft.title}" — ${demotion.reason}; ${blockers.join("; ")}` +
+      (catalogRows.length ? `; hid catalog #${catalogRows.map((b) => b.id).join(", #")}` : ""),
+    );
+  }
+
+  if (demoted > 0) {
+    console.log(`[Illustration Gate] Demoted ${demoted} published ebook(s) with incomplete illustrations`);
+  }
+  return demoted;
+}
+
 export async function autoResumeBulkPublish(): Promise<void> {
   const readyDrafts = await db.select({ id: draftEbooks.id }).from(draftEbooks).where(eq(draftEbooks.status, "ready"));
 
@@ -10759,6 +12410,146 @@ export async function autoResumeBulkPublish(): Promise<void> {
       bulkPublishRunning = false;
     }
   }, 15000);
+}
+
+const RESEARCH_BATCH_IDS = [707, 708, 709, 710, 711, 712, 713, 714, 715, 716, 717, 718, 719, 720, 721, 722, 723, 724, 725, 726, 727, 728];
+const RESEARCH_CONTENT_PLACERS = [709, 710, 711, 712, 713, 714, 715, 716];
+const RESEARCH_PARTIAL = [717, 725];
+const RESEARCH_ILLUSTRATION_QUEUE = [727];
+
+let overnightPipelineScheduled = false;
+let overnightPipelineRunning = false;
+
+async function waitForPipelineIdle(label: string, maxMs = 12 * 60 * 60 * 1000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const generating = await db
+      .select({ id: draftEbooks.id, title: draftEbooks.title })
+      .from(draftEbooks)
+      .where(eq(draftEbooks.status, "generating"));
+    const localBusy =
+      contentGenProgress.running || illustrationProgress.running || activeGenerationCount > 0;
+    if (generating.length === 0 && !localBusy) {
+      console.log(`[Overnight] ${label} — pipeline idle`);
+      return;
+    }
+    const names = generating.map((d) => `#${d.id}`).join(", ") || "none";
+    console.log(
+      `[Overnight] ${label} — waiting (dbGenerating=${names}, localBusy=${localBusy})`,
+    );
+    await new Promise((r) => setTimeout(r, 45000));
+  }
+  console.log(`[Overnight] ${label} — timed out waiting for idle`);
+}
+
+async function researchIdsNeedingContent(): Promise<number[]> {
+  const candidates = [...RESEARCH_CONTENT_PLACERS, ...RESEARCH_PARTIAL];
+  const ids: number[] = [];
+  for (const id of candidates) {
+    const [d] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, id));
+    if (!d || d.status === "published" || d.status === "ready") continue;
+    const words = (d.content || "").split(/\s+/).length;
+    if (words <= 10) {
+      ids.push(id);
+      continue;
+    }
+    const gate = await runPublishPipelineGate(d, { strict: true });
+    if (!gate.pass) ids.push(id);
+  }
+  return ids;
+}
+
+/** Runs while you sleep: publish ready → research content → illustrations → publish again. */
+export async function runOvernightPipeline(): Promise<void> {
+  if (overnightPipelineRunning) {
+    console.log("[Overnight] Pipeline already running — skipping duplicate start");
+    return;
+  }
+  overnightPipelineRunning = true;
+  console.log("[Overnight] ===== Pipeline started =====");
+
+  try {
+    await waitForPipelineIdle("before publish (pass 1)");
+    console.log("[Overnight] Pass 1 — publishing ready drafts...");
+    const pub1 = await bulkPublishReady();
+    console.log(`[Overnight] Pass 1 publish: ${pub1.published} published, ${pub1.failed} failed`);
+
+    await waitForPipelineIdle("before research content");
+    const contentIds = await researchIdsNeedingContent();
+    if (contentIds.length > 0) {
+      console.log(`[Overnight] Starting content for research batch: ${contentIds.join(", ")}`);
+      await generateContentForSelected(contentIds);
+      await waitForPipelineIdle("after research content");
+    } else {
+      console.log("[Overnight] No research drafts need content generation");
+    }
+
+    await waitForPipelineIdle("before illustrations");
+    const illusIds = [...RESEARCH_ILLUSTRATION_QUEUE];
+    for (const id of illusIds) {
+      const [d] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, id));
+      if (!d?.content) continue;
+      const pending = [...d.content.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)].filter((m) => {
+        const p = m[1].trim();
+        return !(p.startsWith("/") || p.startsWith("http"));
+      }).length;
+      if (pending === 0) {
+        console.log(`[Overnight] #${id} has no pending illustrations — skipping`);
+        continue;
+      }
+      console.log(`[Overnight] Illustrations for #${id} (${pending} pending)...`);
+      try {
+        await generateIllustrationsOnly([id]);
+      } catch (err: any) {
+        if (err?.message?.includes("already running")) {
+          queueIllustrations([id]);
+          console.log(`[Overnight] Queued #${id} illustrations (pipeline busy)`);
+        } else {
+          throw err;
+        }
+      }
+      await waitForPipelineIdle(`after illustrations #${id}`);
+    }
+
+    await waitForPipelineIdle("before publish (pass 2)");
+    console.log("[Overnight] Pass 2 — publishing newly ready drafts...");
+    const pub2 = await bulkPublishReady();
+    console.log(`[Overnight] Pass 2 publish: ${pub2.published} published, ${pub2.failed} failed`);
+
+    const ready = await db.select({ id: draftEbooks.id, title: draftEbooks.title }).from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+    const published = await db
+      .select({ id: draftEbooks.id, title: draftEbooks.title })
+      .from(draftEbooks)
+      .where(eq(draftEbooks.status, "published"));
+    const research = await db.select().from(draftEbooks).where(inArray(draftEbooks.id, RESEARCH_BATCH_IDS));
+    console.log(`[Overnight] ===== Complete ===== ready=${ready.length} published=${published.length}`);
+    for (const d of research) {
+      const gate = await runPublishPipelineGate(d, { strict: true });
+      console.log(`[Overnight]   #${d.id} [${d.status}] gate=${gate.pass ? "PASS" : "FAIL"} | ${(d.title || "").slice(0, 40)}`);
+    }
+  } catch (err: any) {
+    console.error("[Overnight] Pipeline error:", err?.message || err);
+  } finally {
+    overnightPipelineRunning = false;
+    overnightPipelineScheduled = false;
+  }
+}
+
+/** Schedule overnight work on the running server (waits for current generation first). */
+export function scheduleOvernightPipeline(): boolean {
+  if (overnightPipelineScheduled || overnightPipelineRunning) {
+    return false;
+  }
+  overnightPipelineScheduled = true;
+  console.log("[Overnight] Scheduled — will start when current work finishes (keep dev server running)");
+  setTimeout(() => {
+    runOvernightPipeline().catch((err) => console.error("[Overnight] Unhandled:", err?.message));
+  }, 5000);
+  return true;
+}
+
+export function isOvernightPipelineActive(): boolean {
+  return overnightPipelineScheduled || overnightPipelineRunning;
 }
 
 export function calculateEbookPrice(draft: {
@@ -11159,6 +12950,10 @@ export async function pushPublishedDraftToStorefront(
   if (!draft.content || draft.content.trim().length < 100) {
     throw new Error("Draft has no content — write content before publishing to the storefront");
   }
+  if (!draftHasPublishableCover(draft)) {
+    throw new Error("Cover image required before publishing to the storefront — generate cover in Cover Review first");
+  }
+  assertDraftReadyForVisualPublish(draft);
 
   const existingByDraft = await findCatalogBookBySourceDraftId(draftId);
   if (existingByDraft) {
@@ -11202,6 +12997,48 @@ export async function pushPublishedDraftToStorefront(
   return book.id;
 }
 
+/** Shared publish gate for visual genres — activity books, children's fiction, etc. */
+export function getVisualPublishBlockers(content: string, genre: string | null | undefined): string[] {
+  const g = genre || "";
+  if (isActivityOrWorkbookGenre(g)) {
+    return getActivityBookPublishBlockers(content, g);
+  }
+  if (!isVisualEnhancedGenre(g)) return [];
+
+  const issues: string[] = [];
+  const allMarkers = [...content.matchAll(/\[ILLUSTRATION:\s*(.+?)\]/gi)];
+  const pendingMarkers = allMarkers.filter((m) => {
+    const payload = m[1].trim();
+    return !payload.startsWith("/") && !payload.startsWith("http");
+  }).length;
+  const resolvedCount = (content.match(/\[ILLUSTRATION:\s*\/(?:uploads|objstore)\/illustrations\//g) || []).length;
+
+  if (pendingMarkers > 0) {
+    issues.push(`${pendingMarkers} pending illustration marker(s) need image generation`);
+  }
+  if (resolvedCount === 0 && allMarkers.length > 0) {
+    issues.push("Illustration markers exist but no images have been generated yet");
+  }
+  if (resolvedCount === 0 && allMarkers.length === 0 && (g === "Children's Fiction" || isVisualEnhancedGenre(g))) {
+    issues.push("Visual genre has no illustration images");
+  }
+  return issues;
+}
+
+function assertDraftReadyForVisualPublish(draft: {
+  content: string | null;
+  genre: string | null;
+  title?: string | null;
+}): void {
+  const content = draft.content || "";
+  const issues = getVisualPublishBlockers(content, draft.genre);
+  if (issues.length > 0) {
+    throw new Error(
+      `Cannot publish "${draft.title || "draft"}" — illustration pipeline incomplete: ${issues.join("; ")}`,
+    );
+  }
+}
+
 export async function publishDraft(draftId: number, options?: { subscriberExclusive?: boolean }): Promise<number> {
   const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
   if (!draft) throw new Error("Draft not found");
@@ -11211,12 +13048,14 @@ export async function publishDraft(draftId: number, options?: { subscriberExclus
   if (!draft.content || draft.content.trim().length < 100) {
     throw new Error("Draft has no content — write content before publishing");
   }
+  if (!draftHasPublishableCover(draft)) {
+    throw new Error("Cover image required before publishing — generate cover in Cover Review first");
+  }
+  assertDraftReadyForVisualPublish(draft);
 
-  const existingBooks = await db.select({ id: books.id, title: books.title }).from(books).where(eq(books.visible, true));
-  const duplicateBook = existingBooks.find(
-    b => b.title.trim().toLowerCase() === draft.title.trim().toLowerCase(),
-  );
-  
+  // Prefer linked/hidden catalog rows (e.g. demoted for rewrite) over inserting duplicates.
+  const existingCatalog = await findCatalogBookForDraft(draftId, draft.title);
+
   const smartPrice = calculateEbookPrice({
     content: draft.content,
     genre: draft.genre,
@@ -11224,8 +13063,11 @@ export async function publishDraft(draftId: number, options?: { subscriberExclus
     title: draft.title,
   });
 
-  if (duplicateBook) {
-    console.log(`[Publish] Exact title match — updating existing Book #${duplicateBook.id} with improved content from Draft #${draftId}`);
+  if (existingCatalog) {
+    console.log(
+      `[Publish] Updating catalog Book #${existingCatalog.id} from Draft #${draftId}` +
+        (existingCatalog.visible ? "" : " (restoring visibility after demotion)"),
+    );
     const catalogDesc = getCatalogDescriptionFromDraft(draft.description, "");
     await db.update(books).set({
       genre: draft.genre,
@@ -11234,7 +13076,8 @@ export async function publishDraft(draftId: number, options?: { subscriberExclus
       coverUrl: draft.coverUrl || draft.backgroundUrl || undefined,
       description: catalogDesc || undefined,
       sourceDraftId: draftId,
-    }).where(eq(books.id, duplicateBook.id));
+      visible: true,
+    }).where(eq(books.id, existingCatalog.id));
 
     await db.update(draftEbooks).set({
       status: "published",
@@ -11242,7 +13085,7 @@ export async function publishDraft(draftId: number, options?: { subscriberExclus
       suggestedPrice: smartPrice,
     }).where(eq(draftEbooks.id, draftId));
 
-    return duplicateBook.id;
+    return existingCatalog.id;
   }
 
   const subscriberExclusiveUntil = options?.subscriberExclusive
@@ -11876,12 +13719,12 @@ function getClassic239TitleInstructions(title: string): { fontDesc: string; layo
   const fontDesc = titleFonts[Math.floor(Math.random() * titleFonts.length)];
 
   const layout = titleWords.length > 4
-    ? `This is a longer title - use 2-3 lines of SMALLER text, placed in the CENTER of the image (not at the top edge). Leave at least 15% blank margin at the top and bottom.`
+    ? `This is a longer title - use 2-3 lines of SMALLER text, placed in the CENTER of the artwork (not at the extreme top edge). Keep title letters fully inside the art with a little breathing room — but the SCENE must still fill the entire canvas.`
     : titleWords.length > 2
-    ? `Use 1-2 lines, placed in the CENTER of the image (not at the top edge). Leave at least 15% blank margin at the top and bottom.`
-    : `Place the title in the CENTER of the image. Leave at least 15% blank margin at the top and bottom.`;
+    ? `Use 1-2 lines, placed in the CENTER of the artwork (not at the extreme top edge). Keep title letters fully inside the art with a little breathing room — but the SCENE must still fill the entire canvas.`
+    : `Place the title in the CENTER of the artwork. Keep title letters fully inside the art with a little breathing room — but the SCENE must still fill the entire canvas.`;
 
-  const titleSection = `\n\nTITLE: "${shortTitle}" in ${fontDesc}. Spelled: ${spelledOut}. ${layout}`;
+  const titleSection = `\n\nTITLE (this is the ONLY title — do not leave empty space for a second title): "${shortTitle}" in ${fontDesc}. Spelled: ${spelledOut}. ${layout}`;
 
   return { fontDesc, layout, spelledOut, titleSection };
 }
@@ -12000,18 +13843,21 @@ async function generateAIBackgroundOnly(title: string, genre: string, draftId: n
   const selectedFont = titleFonts[Math.floor(Math.random() * titleFonts.length)];
 
   const titleLayout = titleWords.length > 4
-    ? `This is a longer title - use 2-3 lines of SMALLER text, placed in the CENTER of the image (not at the top edge). Leave at least 15% blank margin at the top and bottom.`
+    ? `This is a longer title - use 2-3 lines of SMALLER text, placed in the CENTER of the artwork (not at the extreme top edge). Keep title letters fully inside the art — scene still fills the entire canvas.`
     : titleWords.length > 2
-    ? `Use 1-2 lines, placed in the CENTER of the image (not at the top edge). Leave at least 15% blank margin at the top and bottom.`
-    : `Place the title in the CENTER of the image. Leave at least 15% blank margin at the top and bottom.`;
+    ? `Use 1-2 lines, placed in the CENTER of the artwork (not at the extreme top edge). Keep title letters fully inside the art — scene still fills the entire canvas.`
+    : `Place the title in the CENTER of the artwork. Keep title letters fully inside the art — scene still fills the entire canvas.`;
 
-  const fullPrompt = `A framed ebook cover design displayed on a dark background. The cover artwork is INSET with a visible dark border/margin on ALL four sides (top, bottom, left, right). The cover never bleeds to the image edges.
+  const fullPrompt = `FULL-BLEED ebook cover — the artwork fills the ENTIRE canvas edge to edge.
 
 COVER ARTWORK: Photorealistic CGI render, cinematic movie poster quality. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Ultra-detailed, dramatic cinematic lighting, sharp focus, depth of field, volumetric light rays, professional color grading.
 
 TITLE: "${title}" in ${selectedFont}. Spelled: ${spelledOut}. ${titleLayout}
 
-COMPOSITION: The entire cover design including all artwork and title text must float INSIDE the canvas with dark padding around it. Imagine the cover is a rectangle placed on a larger dark surface - we see the complete cover with space around all edges. Nothing is cropped or cut off.`;
+COMPOSITION RULES (critical):
+- Fill the entire canvas edge to edge with the scene — NO black bars, NO letterboxing, NO dark padding, NO inset frame, NO floating cover on a dark background.
+- The title above is the ONLY title. Do not leave empty black bands for another title overlay.
+- Title lettering sits on top of the full-bleed artwork and must remain fully readable and uncropped.`;
 
   console.log(`[Classic-239] Visual concept: ${concept.focalSubject.substring(0, 80)}`);
   console.log(`[Classic-239] Font: ${selectedFont}`);
@@ -12439,7 +14285,7 @@ async function generateAIVisualConcept(title: string, genre: string, description
 
 Title: "${title}"
 Genre: ${genre}
-${description ? `Description/Dialog: ${description.substring(0, 300)}` : ""}
+${description ? `Description/Dialog: ${description.substring(0, 2800)}` : ""}
 
 CRITICAL RULES:
 - The imagery must DIRECTLY and LITERALLY represent what the title means
@@ -12544,7 +14390,7 @@ async function generateAIBackgroundExperimental239(title: string, genre: string,
 
 Title: "${title}"
 Genre: ${genre}
-${description ? `Description/Dialog: ${description.substring(0, 300)}` : ""}
+${description ? `Description/Dialog: ${description.substring(0, 2800)}` : ""}
 
 Analyze the TITLE, GENRE, and DESCRIPTION/DIALOG to create a scene that DIRECTLY visualizes the book's content.
 Use the description to understand the story's mood, characters, and key themes.
@@ -12905,7 +14751,7 @@ Genre: ${genre} (${keywords})${context}
 
 Create beautiful art featuring a compelling ${randomSubjectType} that embodies the book's essence. Dramatic lighting, rich atmosphere, layered depth. Professional 8K quality.
 
-NO TEXT. Keep top 15% clear for overlay.`;
+NO TEXT. Fill the ENTIRE canvas edge to edge — NO black bars, NO letterboxing.`;
 
   console.log(`[TEST-STYLE-F] Art prompt (${compactPrompt.length} chars): ${compactPrompt}`);
 
@@ -14011,7 +15857,7 @@ Interpret this visually to tell the story of "${title}". The focal subject embod
 
 QUALITY: Hyper-realistic cinematic art, ultra-detailed textures, 8K masterpiece quality, professional book cover.
 
-CRITICAL: NO TEXT anywhere. Keep top/bottom 15% clear for text overlay.`;
+CRITICAL: NO TEXT anywhere. Fill the ENTIRE canvas edge to edge — NO black bars, NO letterboxing.`;
 
   console.log(`Generating ARTISTIC-PAINTERLY style AI background for: "${title}" (ID: ${draftId})`);
   console.log(`HYBRID style: Vivid Atmospheric pools + 239-253 cinematic elements`);
@@ -14079,7 +15925,7 @@ Genre: ${genre} (${keywords})${context}
 
 Create beautiful art featuring a compelling ${randomSubjectType} that embodies the book's essence. Dramatic lighting, rich atmosphere, layered depth. Professional 8K quality.
 
-NO TEXT. Keep top/bottom 15% clear for overlay.`;
+NO TEXT. Fill the ENTIRE canvas edge to edge — NO black bars, NO letterboxing.`;
 
   console.log(`Generating ARTISTIC-COMPACT style AI background for: "${title}" (ID: ${draftId})`);
   console.log(`Compact prompt (${compactPrompt.length} chars): ${compactPrompt}`);
@@ -14482,7 +16328,7 @@ async function generateAIBackgroundVividAtmospheric(title: string, genre: string
   const selectedScene = genreScenes[Math.floor(Math.random() * genreScenes.length)];
   
   // Include book description if available for richer context
-  const descriptionContext = description ? `\n\nBOOK DESCRIPTION: ${description.substring(0, 300)}` : "";
+  const descriptionContext = description ? `\n\nBOOK DESCRIPTION: ${description.substring(0, 2800)}` : "";
   
   const prompt = `You are an expert ebook cover designer and art director. Create the perfect cover artwork for this book:
 
@@ -14521,7 +16367,7 @@ STEP 5 — FINAL RULES:
 - Clear depth layers: foreground framing, midground action, background scale
 - BRIGHT and LUMINOUS — avoid large dark areas
 
-CRITICAL: NO TEXT, NO LETTERS, NO WORDS, NO TYPOGRAPHY anywhere. Pure visual art only. Keep top and bottom 15% relatively clear for text overlay.`;
+CRITICAL: NO TEXT, NO LETTERS, NO WORDS, NO TYPOGRAPHY anywhere. Pure visual art only. Fill the ENTIRE canvas edge to edge — NO black bars, NO letterboxing, NO dark empty margins.`;
 
   console.log(`Generating VIVID-ATMOSPHERIC style for: "${title}" (ID: ${draftId})`);
   console.log(`Using gpt-image-1 with signature cinematic atmospheric style`);
@@ -14655,7 +16501,7 @@ EMOTIONAL TONE: ${aiDirection.emotionalTone}
 
 STYLE: Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Dramatic cinematic composition. Professional movie poster quality. Every texture visible.
 
-CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Keep top 15% clear for text overlay.`;
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS anywhere in the image — a title bar will be added later in code (do NOT paint a title yourself). Fill the ENTIRE canvas edge to edge with the scene. NO black bars, NO letterboxing, NO dark empty margins, NO inset frame.`;
   } else {
     console.log(`[STANDALONE-SCENES] Using proven fallback elements`);
     const selectedSubject = randomPick(focalSubjects);
@@ -14680,7 +16526,7 @@ COLORS: ${selectedPalette}
 
 STYLE: Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Dramatic cinematic composition. Professional movie poster quality. Every texture visible.
 
-CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Keep top 15% clear for text overlay.`;
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS anywhere in the image — a title bar will be added later in code (do NOT paint a title yourself). Fill the ENTIRE canvas edge to edge with the scene. NO black bars, NO letterboxing, NO dark empty margins, NO inset frame.`;
   }
 
   console.log(`[STANDALONE-SCENES] Prompt (${prompt.length} chars)`);
@@ -14967,7 +16813,7 @@ For this ebook, create a UNIQUE, CREATIVE visual direction:
 
 TITLE: "${title}"
 GENRE: ${genre}
-${description ? `DESCRIPTION: ${description.substring(0, 400)}` : ""}
+${description ? `DESCRIPTION: ${description.substring(0, 2800)}` : ""}
 
 Brainstorm an original visual concept that will create a STUNNING, VIVID ebook cover. Think beyond clichés. Consider:
 - What visual metaphor perfectly captures this book's essence?
@@ -15065,7 +16911,7 @@ async function getAIStyleRecommendation(
 
 TITLE: "${title}"
 GENRE: ${genre}
-${description ? `DESCRIPTION / CREATIVE BRIEF: ${description.substring(0, 600)}` : ""}
+${description ? `DESCRIPTION / CREATIVE BRIEF: ${description.substring(0, 2200)}` : ""}
 
 AVAILABLE STYLES (choose ONLY from this list):
 ${styleList}
@@ -15380,7 +17226,7 @@ EMOTIONAL TONE: ${aiDirection.emotionalTone}
 
 STYLE: Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Dramatic cinematic composition. Professional movie poster quality. Every texture visible - fabric weaves, metal reflections, skin pores, stone grain. Depth through foreground framing elements and atmospheric perspective.
 
-CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Keep top and bottom 15% clear for text overlay.`;
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Fill the ENTIRE canvas edge to edge — NO black bars, NO letterboxing, NO dark empty margins.`;
   } else {
     // Fallback to proven random elements from covers 239-253
     console.log(`[Vivid Painterly Pro] Using proven fallback elements`);
@@ -15406,7 +17252,7 @@ COLORS: ${selectedPalette}
 
 STYLE: Ultra-vivid photorealistic digital art with extreme detail. Rich saturated colors. Dramatic cinematic composition. Professional movie poster quality. Every texture visible - fabric weaves, metal reflections, skin pores, stone grain. Depth through foreground framing elements and atmospheric perspective.
 
-CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Keep top and bottom 15% clear for text overlay.`;
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS. Pure visual art only. Fill the ENTIRE canvas edge to edge — NO black bars, NO letterboxing, NO dark empty margins.`;
   }
 
   console.log(`Generating VIVID-PAINTERLY-PRO style for: "${title}" (ID: ${draftId})`);
@@ -15553,7 +17399,7 @@ QUALITY: Ultra-high definition photorealistic digital art. Cinematic movie poste
 
 COMPOSITION: Clear foreground framing elements, sharp midground action, epic scale background with atmospheric perspective.
 
-CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS, NO TYPOGRAPHY. Pure visual art. Keep top and bottom 15% relatively clear for text overlay.`;
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS, NO TYPOGRAPHY. Pure visual art. Fill the ENTIRE canvas edge to edge — NO black bars, NO letterboxing, NO dark empty margins.`;
   } else {
     // Fallback to proven random elements from covers 243-253
     console.log(`[Atmospheric Cinema] Using proven fallback elements`);
@@ -15584,7 +17430,7 @@ QUALITY: Ultra-high definition photorealistic digital art. Cinematic movie poste
 
 COMPOSITION: Clear foreground framing elements, sharp midground action, epic scale background with atmospheric perspective.
 
-CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS, NO TYPOGRAPHY. Pure visual art. Keep top and bottom 15% relatively clear for text overlay.`;
+CRITICAL: NO TEXT, NO TITLE, NO LETTERS, NO WORDS, NO TYPOGRAPHY. Pure visual art. Fill the ENTIRE canvas edge to edge — NO black bars, NO letterboxing, NO dark empty margins.`;
   }
 
   console.log(`Generating ATMOSPHERIC-CINEMA style for: "${title}" (ID: ${draftId})`);
@@ -15634,12 +17480,15 @@ export async function generateWithTitleEmbedSync(
   const basePrompt = stylePromptMap[modelStyleId] ||
     `Professional ebook cover, cinematic quality. ${concept.focalSubject}. ${concept.sceneDescription}. Color palette: ${concept.colorPalette}. ${concept.atmosphere}. Ultra-detailed, dramatic lighting, sharp focus.`;
 
-  const fullPrompt = `A framed ebook cover design displayed on a dark background. The cover artwork is INSET with a visible dark border/margin on ALL four sides.
+  const fullPrompt = `FULL-BLEED ebook cover — the artwork fills the ENTIRE canvas edge to edge.
 
 COVER ARTWORK: ${basePrompt}
 ${titleInstructions.titleSection}
 
-COMPOSITION: The entire cover design including all artwork and title text must float INSIDE the canvas with dark padding around it. Nothing is cropped or cut off.`;
+COMPOSITION RULES (critical):
+- Fill the entire canvas edge to edge with the scene — NO black bars, NO letterboxing, NO dark padding, NO inset frame, NO floating cover on a dark background.
+- The title in the instructions above is the ONLY title. Do not leave empty black bands for another title overlay.
+- Title lettering sits on top of the full-bleed artwork and must remain fully readable and uncropped.`;
 
   console.log(`[Title-Embed-Sync] Style: ${modelStyleId}, Font: ${titleInstructions.fontDesc}`);
   console.log(`[Title-Embed-Sync] Prompt length: ${fullPrompt.length}`);
@@ -15745,7 +17594,10 @@ export async function regenerateSelectedBackgrounds(draftIds: number[], useOrigi
       const title = draft.title || draft.topic || "Untitled";
       draftTitle = title;
       const genre = draft.genre || "Fiction";
-      const description = getCreativeDirectionForDraft(draft) || draft.topic || draft.outline?.substring(0, 500) || "";
+      const description = getCoverCreativeBriefForDraft(draft);
+      if (draftHasStoryForCoverSync(draft)) {
+        console.log(`[Cover Gen] "${title}" (ID ${draftId}) — story/outline sync active for cover AI prompts`);
+      }
 
       let modelStyleId = defaultModelStyleId;
       if (smartStyleSelection) {
