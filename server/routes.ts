@@ -5762,7 +5762,33 @@ Respond in JSON format only:
   app.post("/api/content-studio/stop-content-gen", (req, res) => {
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
     contentStudio.stopContentGeneration();
-    res.json({ success: true, message: "Content generation stopped" });
+    res.json({
+      success: true,
+      message: "Writing / dialogue generation stopped",
+      content: contentStudio.getContentGenProgress(),
+      illustrations: contentStudio.getIllustrationProgress(),
+    });
+  });
+
+  app.post("/api/content-studio/stop-illustrations", (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    contentStudio.stopIllustrationGeneration();
+    res.json({
+      success: true,
+      message: "Illustration generation stopped",
+      illustrations: contentStudio.getIllustrationProgress(),
+    });
+  });
+
+  app.post("/api/content-studio/stop-all-gen", (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    contentStudio.stopAllGeneration();
+    res.json({
+      success: true,
+      message: "All writing and illustration generation stopped",
+      content: contentStudio.getContentGenProgress(),
+      illustrations: contentStudio.getIllustrationProgress(),
+    });
   });
 
   app.post("/api/content-studio/append-chapter/:id", async (req, res) => {

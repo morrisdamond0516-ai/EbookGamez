@@ -23,7 +23,13 @@ if (existsSync(envPath)) {
   }
 }
 
-// Avoid OpenAI TLS failures on Windows (UNABLE_TO_VERIFY_LEAF_SIGNATURE).
-if (!process.env.NODE_OPTIONS?.includes("use-system-ca")) {
-  process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, "--use-system-ca"].filter(Boolean).join(" ");
+// Windows only: help child processes avoid OpenAI TLS leaf errors.
+// Do not set on Linux/Replit — Node rejects --use-system-ca in NODE_OPTIONS there.
+if (
+  process.platform === "win32" &&
+  !process.env.NODE_OPTIONS?.includes("use-system-ca")
+) {
+  process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, "--use-system-ca"]
+    .filter(Boolean)
+    .join(" ");
 }

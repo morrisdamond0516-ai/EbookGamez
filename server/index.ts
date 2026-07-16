@@ -787,6 +787,13 @@ async function migrateIllustrationFiles(_batchSize = 5000) {
 
     // Auto-heal: reset markers for any illustration files that are genuinely gone from GCS,
     // then queue illustration-only regeneration so the server self-heals on every restart.
+    // Auto-heal can burn large image API spend on restart. Require explicit opt-in.
+    if (process.env.ENABLE_ILLUST_AUTO_HEAL !== "true") {
+      console.log(
+        `[IllustMigration] Auto-heal DISABLED (set ENABLE_ILLUST_AUTO_HEAL=true to allow). ${missingFromGcs.size} missing file(s) will not trigger regen.`,
+      );
+      return;
+    }
     if (isStartupAutoResumeDisabled()) {
       console.log(
         `[IllustMigration] Auto-heal skipped (local dev / DISABLE_STARTUP_AUTO_RESUME) — ${missingFromGcs.size} file(s) not in GCS will NOT trigger regen`,

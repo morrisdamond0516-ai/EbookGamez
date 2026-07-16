@@ -7521,6 +7521,22 @@ export async function generateMissingContent(): Promise<void> {
 
 export function stopContentGeneration() {
   contentGenProgress.running = false;
+  bumpStopEpoch();
+  console.log("[Stop] Content / dialogue generation flagged to stop");
+}
+
+/** Stop image generation only (does not stop prose/dialogue writing). */
+export function stopIllustrationGeneration() {
+  illustrationProgress.running = false;
+  pendingIllustrationIds = [];
+  console.log("[Stop] Illustration generation flagged to stop; queue cleared");
+}
+
+/** Emergency: halt writing and art. */
+export function stopAllGeneration() {
+  stopContentGeneration();
+  stopIllustrationGeneration();
+  console.log("[Stop] All generation flagged to stop");
 }
 
 export async function generateContentForSelected(ids: number[]): Promise<void> {
@@ -8622,6 +8638,10 @@ export async function generateIllustrationsOnly(draftIds: number[]): Promise<voi
     const failed: string[] = [];
     for (let ii = 0; ii < eligible.length; ii++) {
       const draft = eligible[ii];
+      if (!illustrationProgress.running) {
+        console.log(`[Illustrations Only] Stopped by user before "${draft.title}"`);
+        break;
+      }
       try {
         illustrationProgress.bookId = draft.id;
         illustrationProgress.bookTitle = draft.title || "Unknown";
@@ -11863,6 +11883,10 @@ export async function generateIllustrations(content: string, genre: string, titl
   let failedCount = 0;
 
   for (let i = 0; i < matches.length; i++) {
+    if (!illustrationProgress.running && !contentGenProgress.running) {
+      console.log(`[Illustrations] Stopped by user mid-book "${title}" at image ${i + 1}/${matches.length}`);
+      break;
+    }
     const match = matches[i];
     const description = match[1].trim();
     const fullMarker = match[0];

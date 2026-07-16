@@ -1361,9 +1361,50 @@ function ContentStudioMain() {
         headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
       });
       setContentGenRunning(false);
-      toast({ title: "Stopped", description: "Content generation has been stopped" });
+      toast({ title: "Writing stopped", description: "Prose / dialogue generation was told to stop." });
     } catch {
-      toast({ title: "Error", description: "Failed to stop", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to stop writing", variant: "destructive" });
+    }
+  };
+
+  const stopIllustrationGen = async () => {
+    try {
+      const resp = await fetch("/api/content-studio/stop-illustrations", {
+        method: "POST",
+        headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+      });
+      // Older servers may only have stop-content-gen — fall back.
+      if (!resp.ok) {
+        await fetch("/api/content-studio/stop-content-gen", {
+          method: "POST",
+          headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+        });
+      }
+      setIllustrationGenRunning(false);
+      setIllustrationLiveProgress((prev) => ({ ...prev, running: false }));
+      toast({ title: "Art stopped", description: "Illustration generation was told to stop. If it keeps going, stop the Replit process." });
+    } catch {
+      toast({ title: "Error", description: "Failed to stop illustrations — stop the Replit app to halt spend", variant: "destructive" });
+    }
+  };
+
+  const stopAllGen = async () => {
+    try {
+      const resp = await fetch("/api/content-studio/stop-all-gen", {
+        method: "POST",
+        headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+      });
+      if (!resp.ok) {
+        await stopContentGen();
+        await stopIllustrationGen();
+        return;
+      }
+      setContentGenRunning(false);
+      setIllustrationGenRunning(false);
+      setIllustrationLiveProgress((prev) => ({ ...prev, running: false }));
+      toast({ title: "Everything stopped", description: "Writing/dialogue and illustrations were told to stop." });
+    } catch {
+      toast({ title: "Error", description: "Failed to stop all jobs", variant: "destructive" });
     }
   };
 
@@ -1455,8 +1496,9 @@ function ContentStudioMain() {
   };
 
   useEffect(() => {
+    const token = localStorage.getItem("ebgz_admin_token") || "";
     fetch("/api/content-studio/content-gen-status", {
-      headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+      headers: { "x-admin-token": token },
     })
       .then(r => r.json())
       .then(data => {
@@ -1467,10 +1509,23 @@ function ContentStudioMain() {
         }
       })
       .catch(() => {});
+    fetch("/api/content-studio/illustration-progress", {
+      headers: { "x-admin-token": token },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.running) {
+          setIllustrationLiveProgress(data);
+          setIllustrationGenRunning(true);
+        }
+      })
+      .catch(() => {});
     fetchIllustrationNeeds();
     const illustPollInterval = pollIllustrationProgress();
     return () => clearInterval(illustPollInterval);
   }, []);
+
+  const anyGenRunning = contentGenRunning || illustrationLiveProgress.running || illustrationGenRunning;
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -1492,6 +1547,56 @@ function ContentStudioMain() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Always-visible stop controls — enabled when a job is running */}
+      <div
+        className={`sticky top-0 z-50 border-b px-4 py-2 ${anyGenRunning ? "border-red-500/50 bg-red-950/95" : "border-white/10 bg-background/95"} backdrop-blur`}
+        data-testid="banner-emergency-stop-gen"
+      >
+        <div className="container mx-auto flex flex-wrap items-center justify-between gap-2">
+          <p className={`text-sm ${anyGenRunning ? "text-red-100" : "text-muted-foreground"}`}>
+            {contentGenRunning && illustrationLiveProgress.running
+              ? "Writing/dialogue and illustrations are running — stop either one, or stop everything."
+              : contentGenRunning
+                ? "Writing / dialogue work is running."
+                : illustrationLiveProgress.running || illustrationGenRunning
+                  ? "Illustration generation is running."
+                  : "Stop controls (enabled when a job is running)"}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-amber-400/70 text-amber-200 h-8"
+              onClick={stopContentGen}
+              disabled={!contentGenRunning}
+              data-testid="button-stop-writing-banner"
+            >
+              Stop writing/dialogue
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-purple-300/70 text-purple-100 h-8"
+              onClick={stopIllustrationGen}
+              disabled={!illustrationLiveProgress.running && !illustrationGenRunning}
+              data-testid="button-stop-art-banner"
+            >
+              Stop art
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-8"
+              onClick={stopAllGen}
+              disabled={!anyGenRunning}
+              data-testid="button-stop-all-gen"
+            >
+              <X className="h-4 w-4 mr-1" />
+              Stop everything
+            </Button>
+          </div>
+        </div>
+      </div>
       <div className="container mx-auto px-4 py-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -1565,7 +1670,20 @@ function ContentStudioMain() {
           
           <Card className={`bg-card/50 ${contentGenRunning ? 'border-amber-500/50' : 'border-white/10'}`} data-testid="card-active-jobs">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-display text-primary">Active Jobs</CardTitle>
+              <CardTitle className="text-lg font-display text-primary flex items-center justify-between gap-2">
+                <span>Writing / Dialogue</span>
+                {contentGenRunning && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-7 px-2 text-xs"
+                    onClick={stopContentGen}
+                    data-testid="button-stop-writing-card"
+                  >
+                    Stop writing
+                  </Button>
+                )}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {contentGenRunning ? (
@@ -1573,7 +1691,7 @@ function ContentStudioMain() {
                   <div className="text-3xl font-bold text-amber-400" data-testid="text-active-jobs-count">
                     {contentGenProgress.completed}/{contentGenProgress.total}
                   </div>
-                  <p className="text-xs text-amber-400/80">books written — writing in progress</p>
+                  <p className="text-xs text-amber-400/80">books — writing / dialogue in progress</p>
                   {contentGenProgress.current && (
                     <p className="text-xs text-muted-foreground mt-1 truncate" title={`ID ${contentGenProgress.currentId}: ${contentGenProgress.current}`}>
                       Current: <span className="text-amber-300 font-mono">#{contentGenProgress.currentId}</span> {contentGenProgress.current.length > 35 ? contentGenProgress.current.substring(0, 35) + '...' : contentGenProgress.current}
@@ -1591,7 +1709,7 @@ function ContentStudioMain() {
               ) : (
                 <>
                   <div className="text-3xl font-bold" data-testid="text-active-jobs-count">{activeJobs.length}</div>
-                  <p className="text-xs text-muted-foreground">{activeJobs.length > 0 ? 'topic generation in progress' : 'no generation running'}</p>
+                  <p className="text-xs text-muted-foreground">{activeJobs.length > 0 ? 'topic generation in progress' : 'no writing running'}</p>
                 </>
               )}
             </CardContent>
@@ -1623,9 +1741,20 @@ function ContentStudioMain() {
             <CardContent>
               {illustrationLiveProgress.running ? (
                 <>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
-                    <span className="text-sm font-semibold text-purple-400">Generating...</span>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
+                      <span className="text-sm font-semibold text-purple-400">Generating...</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-7 px-2 text-xs"
+                      onClick={stopIllustrationGen}
+                      data-testid="button-stop-illustrations"
+                    >
+                      Stop art
+                    </Button>
                   </div>
                   <p className="text-xs text-purple-300 truncate mb-1" title={illustrationLiveProgress.bookTitle}>
                     Book {illustrationLiveProgress.completedBooks + 1}/{illustrationLiveProgress.totalBooks}: {illustrationLiveProgress.bookTitle.length > 30 ? illustrationLiveProgress.bookTitle.substring(0, 30) + '...' : illustrationLiveProgress.bookTitle}
@@ -2612,7 +2741,7 @@ function ContentStudioMain() {
                         data-testid="button-stop-content-gen"
                       >
                         <X className="h-4 w-4 mr-1" />
-                        Stop
+                        Stop writing/dialogue
                       </Button>
                     )}
                     <Button
