@@ -248,7 +248,7 @@ app.get('/img/:width/*', async (req, res) => {
     const sharp = (await import('sharp')).default;
     const width = parseInt(req.params.width);
     if (isNaN(width) || width < 50 || width > 2000) return res.status(400).send("Invalid width");
-    const imagePath = req.params[0];
+    const imagePath = (req.params as any)[0] as string;
     if (!imagePath) return res.status(400).send("No path");
     
     if (imagePath.includes('..') || path.isAbsolute(imagePath)) return res.status(400).send("Invalid path");
@@ -334,7 +334,7 @@ fs.mkdirSync(COVER_DISK_CACHE_DIR, { recursive: true });
 
 app.get('/objstore/covers/*', async (req, res) => {
   try {
-    const coverPath = req.params[0];
+    const coverPath = (req.params as any)[0] as string;
     if (!coverPath) return res.status(400).send("No cover path");
 
     const widthParam = req.query.w ? parseInt(req.query.w as string) : 0;
@@ -343,7 +343,7 @@ app.get('/objstore/covers/*', async (req, res) => {
 
     const { getSharedStorageClient, getObjStoreBucketName, resetSharedStorageClient } = await import("./objectStorage");
 
-    async function gcsWithRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+    const gcsWithRetry = async <T>(fn: () => Promise<T>, label: string): Promise<T> => {
       let lastErr: any;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
@@ -936,12 +936,12 @@ async function migrateColoringPageFiles() {
     const missingDraftIds: number[] = [];
     const CONCURRENCY = 10;
     let ci = 0;
-    async function colorWorker() {
+    const colorWorker = async () => {
       while (ci < coloringDrafts.length) {
         const draft = coloringDrafts[ci++];
         const firstPage = `public/coloring-pages/${draft.id}/page-001.png`;
         try {
-          const [exists] = await storageClient.bucket(bucketName).file(firstPage).exists();
+          const [exists] = await storageClient.bucket(bucketName ?? "").file(firstPage).exists();
           if (!exists) {
             console.log(`[ColorMigration] Missing GCS pages for coloring book ID ${draft.id}: "${draft.title}"`);
             missingDraftIds.push(draft.id);

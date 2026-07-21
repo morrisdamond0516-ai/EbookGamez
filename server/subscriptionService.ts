@@ -456,14 +456,14 @@ export async function switchPlanTier(email: string, targetPlanId: number) {
 
   await db.update(subscriptions).set({
     planId: targetPlanId,
-    currentPeriodStart: new Date(updated.current_period_start * 1000),
-    currentPeriodEnd: new Date(updated.current_period_end * 1000),
+    currentPeriodStart: new Date((updated as any).current_period_start * 1000),
+    currentPeriodEnd: new Date((updated as any).current_period_end * 1000),
   }).where(eq(subscriptions.id, sub.id));
 
   const direction = TIER_ORDER.indexOf(targetPlan.tier) > TIER_ORDER.indexOf(currentPlan.tier) ? "upgraded" : "downgraded";
   await trackEvent(`subscription_${direction}_tier`, email, targetPlanId, sub.id, JSON.stringify({ fromTier: currentPlan.tier, toTier: targetPlan.tier }));
 
-  return { success: true, planId: targetPlanId, tier: targetPlan.tier, planName: targetPlan.name, currentPeriodEnd: new Date(updated.current_period_end * 1000) };
+  return { success: true, planId: targetPlanId, tier: targetPlan.tier, planName: targetPlan.name, currentPeriodEnd: new Date((updated as any).current_period_end * 1000) };
 }
 
 export async function switchBillingInterval(email: string, targetInterval: "monthly" | "annual") {
@@ -493,13 +493,13 @@ export async function switchBillingInterval(email: string, targetInterval: "mont
 
   await db.update(subscriptions).set({
     billingInterval: targetInterval,
-    currentPeriodStart: new Date(updated.current_period_start * 1000),
-    currentPeriodEnd: new Date(updated.current_period_end * 1000),
+    currentPeriodStart: new Date((updated as any).current_period_start * 1000),
+    currentPeriodEnd: new Date((updated as any).current_period_end * 1000),
   }).where(eq(subscriptions.id, sub.id));
 
   await trackEvent(`subscription_switched_to_${targetInterval}`, email, plan.id, sub.id);
 
-  return { success: true, billingInterval: targetInterval, currentPeriodEnd: new Date(updated.current_period_end * 1000) };
+  return { success: true, billingInterval: targetInterval, currentPeriodEnd: new Date((updated as any).current_period_end * 1000) };
 }
 
 export async function cancelSubscription(email: string) {

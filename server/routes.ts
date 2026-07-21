@@ -2635,8 +2635,8 @@ Allow: /
         const hasContent = (draft.contentLen || 0) > 100;
         const hasOutline = (draft.outlineLen || 0) > 50;
         const isClassic = CLASSIC_DRAFT_IDS.includes(draft.id);
-        const totalMarkers = Number(draft.totalIllustrationMarkers) || 0;
-        const completedIll = Number(draft.completedIllustrations) || 0;
+        const totalMarkers = Number((draft as any).totalIllustrationMarkers) || 0;
+        const completedIll = Number((draft as any).completedIllustrations) || 0;
         const pendingIllustrations = Math.max(0, totalMarkers - completedIll);
         const wc = Number(draft.writtenChapterCount) || 0;
         const oc = Number(draft.outlineChapterCount) || 0;
@@ -2849,7 +2849,12 @@ Allow: /
       if (parsed.data.requestText.length > 2000) {
         return res.status(400).json({ error: "Request is too long (max 2000 characters)" });
       }
-      const id = await contentStudio.submitBookRequest(parsed.data);
+      const id = await contentStudio.submitBookRequest({
+        ...parsed.data,
+        customerEmail: parsed.data.customerEmail ?? undefined,
+        suggestedTitle: parsed.data.suggestedTitle ?? undefined,
+        suggestedGenre: parsed.data.suggestedGenre ?? undefined,
+      });
       res.json({ id, message: "Thanks! We'll review your suggestion." });
     } catch (error) {
       console.error("Error submitting book request:", error);
@@ -5996,7 +6001,7 @@ Respond in JSON format only:
       const BRIGHT_THRESHOLD = 218; // pixels darker than this count as "content at edge"
 
       // Fetch books with illustration URLs
-      let drafts: { id: number; title: string; genre: string; content: string }[] = [];
+      let drafts: { id: number; title: string; genre: string; content: string | null }[] = [];
       if (rawIds) {
         const ids = rawIds.split(",").map(Number).filter(Boolean);
         drafts = await db.select({ id: draftEbooks.id, title: draftEbooks.title, genre: draftEbooks.genre, content: draftEbooks.content })
@@ -6033,7 +6038,7 @@ Respond in JSON format only:
           if (!width || !height || width < EDGE_PX * 2 || height < EDGE_PX * 2) continue;
 
           // Extract edge strips and compute mean brightness per channel
-          async function edgeBrightness(left: number, top: number, w: number, h: number): Promise<number> {
+          const edgeBrightness = async (left: number, top: number, w: number, h: number): Promise<number> => {
             const stats = await sharp(fullPath).extract({ left, top, width: w, height: h }).stats();
             return (stats.channels[0].mean + stats.channels[1].mean + (stats.channels[2]?.mean ?? stats.channels[0].mean)) / 3;
           }
@@ -6079,7 +6084,7 @@ Respond in JSON format only:
         return res.status(400).json({ error: "Provide draftIds or filenames" });
       }
 
-      let targetDrafts: { id: number; title: string; content: string }[] = [];
+      let targetDrafts: { id: number; title: string; content: string | null }[] = [];
       if (draftIds && draftIds.length > 0) {
         targetDrafts = await db.select({ id: draftEbooks.id, title: draftEbooks.title, content: draftEbooks.content })
           .from(draftEbooks).where(inArray(draftEbooks.id, draftIds.map(Number)));
@@ -6218,7 +6223,7 @@ Respond in JSON format only:
         for (const draft of draftsWithIllust) {
           let m: RegExpExecArray | null;
           filenameRegex.lastIndex = 0;
-          while ((m = filenameRegex.exec(draft.content)) !== null) {
+          while ((m = filenameRegex.exec(draft.content ?? "")) !== null) {
             const fn = m[1];
             if (!filenameToIds.has(fn)) filenameToIds.set(fn, []);
             filenameToIds.get(fn)!.push(draft.id);
@@ -6249,7 +6254,7 @@ Respond in JSON format only:
           }
           for (const draft of draftsWithIllust) {
             if (!illustAffected.has(draft.id)) continue;
-            let content = draft.content;
+            let content = draft.content ?? "";
             for (const fn of missingFilenames) {
               const escaped = fn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
               content = content.replace(
@@ -6273,7 +6278,7 @@ Respond in JSON format only:
       if (coloringDrafts.length > 0) {
         const CBATCH = 10;
         let ci = 0;
-        async function colorWorker() {
+        const colorWorker = async () => {
           while (ci < coloringDrafts.length) {
             const draft = coloringDrafts[ci++];
             const firstPage = `public/coloring-pages/${draft.id}/page-001.png`;
@@ -6497,7 +6502,7 @@ Respond in JSON format only:
       const allFiles = [...filenames];
       const CONCURRENCY = 20;
       let idx = 0;
-      async function worker() {
+      const worker = async () => {
         while (idx < allFiles.length) {
           const fname = allFiles[idx++];
           try {

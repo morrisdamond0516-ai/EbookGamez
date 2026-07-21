@@ -1346,6 +1346,16 @@ function getSecondFallbackClient(): OpenAI {
   return openaiReplit;
 }
 
+async function callAIProvider(prompt: string, temperature: number, maxTokens: number): Promise<string> {
+  const response = await getContentClient().chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: prompt }],
+    temperature,
+    max_tokens: maxTokens,
+  });
+  return response.choices[0]?.message?.content || "";
+}
+
 /**
  * Stream long gpt-5.2 completions. Non-streaming chapter calls often die at ~60s on
  * Windows/Cloudflare paths (UND_ERR_SOCKET / "other side closed") while streaming works.
@@ -4064,7 +4074,7 @@ export async function getIllustrationNeeds(): Promise<{ id: number; title: strin
       const pageDir = `uploads/coloring-pages/${d.id}`;
       const hasLocalImages =
         fs.existsSync(pageDir) && fs.readdirSync(pageDir).filter((f) => f.endsWith(".png")).length >= 20;
-      if (hasLocalImages || draftColoringBookContentComplete(d.content, d.pdfUrl)) {
+      if (hasLocalImages || draftColoringBookContentComplete(d.content, (d as any).pdfUrl)) {
         continue;
       }
       let hasGcsImages = false;
@@ -4950,7 +4960,7 @@ export async function rewriteSection(draftId: number, sectionNumber: number): Pr
   let storyArchitectPlan: StoryArchitectPlan | null = null;
   if (draft.outline && (draft.outline.includes("Story Architect") || draft.outline.includes("technique"))) {
     try {
-      storyArchitectPlan = await generateStoryArchitectPlan(draft.outline, genre, title);
+      storyArchitectPlan = await generateStoryArchitectPlan(draft.outline, genre, title, fiction);
     } catch {}
   }
   
@@ -5377,7 +5387,7 @@ export async function generateContentForDraft(draftId: number): Promise<string> 
 
     let content = await generateEbookContent(outline, topic, genre, title, coverContextForWriting, async (contentSoFar) => {
       await db.update(draftEbooks).set({ content: contentSoFar }).where(eq(draftEbooks.id, draftId));
-    }, existingContent || undefined, draft.outlineChapterCount || undefined, myEpoch, creativeDirection, characterVisualInstructions);
+    }, existingContent || undefined, (draft as any).outlineChapterCount || undefined, myEpoch, creativeDirection, characterVisualInstructions);
     let wordCount = content.split(/\s+/).length;
     
     if (wordCount < 50) {
@@ -6238,7 +6248,7 @@ export function passesFreeIllustrationAndOutlineGate(
   const illQ = checkIllustrationQuality(content, chapterMatches, genre, outline);
   const issues = [...illQ.issues];
   if (illQ.hasBlockingIssues) return { pass: false, issues };
-  const cov = checkOutlineIllustrationCoverage(content, outline, chapterMatches);
+  const cov = checkOutlineIllustrationCoverage(content, outline ?? null, chapterMatches);
   if (cov.length > 0) return { pass: false, issues: [...issues, ...cov] };
   const visual = getVisualPublishBlockers(content, genre);
   if (visual.length > 0) return { pass: false, issues: [...issues, ...visual] };
@@ -7221,7 +7231,7 @@ export async function continueWritingForDraft(draftId: number): Promise<string> 
 
     const content = await generateEbookContent(outline, topic, genre, title, "", async (contentSoFar) => {
       await db.update(draftEbooks).set({ content: contentSoFar }).where(eq(draftEbooks.id, draftId));
-    }, existingContent, draft.outlineChapterCount || undefined, undefined, creativeDirection);
+    }, existingContent, (draft as any).outlineChapterCount || undefined, undefined, creativeDirection);
 
     const wordCount = content.split(/\s+/).length;
 
@@ -8208,7 +8218,7 @@ Return exactly ${needed} illustration placement(s). Choose the most impactful lo
         console.log(`[Fill Empty Chapters] Book ${draft.id} "${draft.title}" complete (${contentGenProgress.completed}/${targetList.length})`);
       } catch (err: any) {
         console.error(`[Fill Empty Chapters] Error processing book ${target.bookId}: ${err.message}`);
-        contentGenProgress.failed.push({ id: target.bookId, title: `Book ${target.bookId}`, error: err.message });
+        contentGenProgress.failed.push(`Book ${target.bookId}: ${err.message}`);
         contentGenProgress.completed++;
       }
     }
@@ -8410,9 +8420,8 @@ export async function repairIllustrationDistribution(draftIds: number[]): Promis
   }
 
   contentGenProgress.running = true;
-  contentGenProgress.current = 0;
+  contentGenProgress.current = "Repairing illustration distribution";
   contentGenProgress.total = draftIds.length;
-  contentGenProgress.phase = "Repairing illustration distribution";
 
   console.log(`[Illust Repair] Starting illustration distribution repair for ${draftIds.length} books...`);
 
@@ -11295,7 +11304,7 @@ export function getCreativeDirectionForDraft(draft: {
 
 /** Cover AI brief: research brief + outline/story when manuscript already exists (#723–#728, repairs). */
 export function getCoverCreativeBriefForDraft(draft: DraftStoryCoverFields): string {
-  const base = getCreativeDirectionForDraft(draft);
+  const base = getCreativeDirectionForDraft(draft as any);
   return mergeCoverCreativeBrief(base, draft);
 }
 
@@ -17810,11 +17819,12 @@ export async function regenerateSelectedBackgrounds(draftIds: number[], useOrigi
           }
           
           const timestamp = Date.now();
-          const bgFilename = `ai-bg-${modelStyleId}-retry-${timestamp}.png`;
+          const retryStyleId = draft?.coverStyleId || "safety-retry";
+          const bgFilename = `ai-bg-${retryStyleId}-retry-${timestamp}.png`;
           const backgroundUrl = await saveCoverFile(retryBuffer, bgFilename);
           
           await db.update(draftEbooks)
-            .set({ backgroundUrl, coverUrl: null, coverStyleId: modelStyleId })
+            .set({ backgroundUrl, coverUrl: null, coverStyleId: retryStyleId })
             .where(eq(draftEbooks.id, draftId));
           
           generated++;

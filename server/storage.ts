@@ -10,6 +10,10 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+pool.on('error', (err) => {
+  console.error('[DB Pool] Unexpected error on idle client:', err.message);
+});
+
 export const db = drizzle(pool);
 
 export interface IStorage {

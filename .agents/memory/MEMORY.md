@@ -1,1 +1,4 @@
-- [Startup migrations must be deferred, not awaited](startup-migrations.md) — any one-time data-fixup that loops over DB rows with network calls must run via setTimeout after listen(), with a re-entrancy guard.
+- [Runtime crash guard — callAIProvider](callAIProvider.md) — repair code paths in contentStudio.ts called undefined `callAIProvider`; fixed by adding module-level helper using `getContentClient()`.
+- [TypeScript TS1252 fix](ts1252-arrow-functions.md) — `async function` declarations inside Express route handler blocks must be `const` arrow functions to avoid TS1252 strict-mode errors.
+- [Stripe SDK type gaps](stripe-type-gaps.md) — `current_period_start/end` missing from `Response<Subscription>` type; cast `(updated as any)` at both switchSubscriptionTier and switchBillingInterval.
+- [Express wildcard param typing](express-wildcard-params.md) — `req.params[0]` for wildcard routes (`*`) requires `(req.params as any)[0]` cast; TypeScript doesn't support numeric index on Express Params type.

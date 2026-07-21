@@ -443,6 +443,9 @@ export default function BookDetail() {
     isSubscriberExclusive?: boolean;
     subscriberExclusiveUntil?: string | null;
     rolloverCredits?: number;
+    isCheckedOut?: boolean;
+    checkedOutBookId?: number | null;
+    checkedOutBookTitle?: string | null;
   }>({
     queryKey: ["book-access", params?.id, readerEmail],
     queryFn: async () => {
