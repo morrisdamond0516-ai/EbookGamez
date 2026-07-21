@@ -1,4 +1,4 @@
-- [Runtime crash guard — callAIProvider](callAIProvider.md) — repair code paths in contentStudio.ts called undefined `callAIProvider`; fixed by adding module-level helper using `getContentClient()`.
-- [TypeScript TS1252 fix](ts1252-arrow-functions.md) — `async function` declarations inside Express route handler blocks must be `const` arrow functions to avoid TS1252 strict-mode errors.
-- [Stripe SDK type gaps](stripe-type-gaps.md) — `current_period_start/end` missing from `Response<Subscription>` type; cast `(updated as any)` at both switchSubscriptionTier and switchBillingInterval.
-- [Express wildcard param typing](express-wildcard-params.md) — `req.params[0]` for wildcard routes (`*`) requires `(req.params as any)[0]` cast; TypeScript doesn't support numeric index on Express Params type.
+- [callAIProvider must be defined](callAIProvider.md) — repair paths called it but it was never declared; fix is a module-level helper using getContentClient().
+- [Stripe SDK current_period fields](stripe-type-gaps.md) — missing from Response<Subscription> type; cast (updated as any) when reading these fields.
+- [Express wildcard params](express-wildcard-params.md) — (req.params as any)[0] required for numeric access on wildcard routes.
+- [async functions in blocks](ts1252-arrow-functions.md) — use const arrow functions instead of async function declarations inside route handler callbacks.
