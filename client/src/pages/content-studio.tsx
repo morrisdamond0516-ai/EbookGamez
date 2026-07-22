@@ -2336,10 +2336,13 @@ function ContentStudioMain() {
                       setReplitUrl(e.target.value);
                       localStorage.setItem("ebgz_replit_url", e.target.value);
                     }}
-                    placeholder="https://your-app.replit.app"
+                    placeholder="Leave blank if same as live"
                     className="bg-white/5 border-white/20 text-sm h-8"
                     data-testid="input-replit-url"
                   />
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    ebookgamez.com and EbookGamez.replit.app are the same published app — leave blank. IDE preview (kirk.replit.dev) is not updated by this push.
+                  </p>
                   {isLocalDevUrl(replitUrl) && (
                     <button
                       type="button"

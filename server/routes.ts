@@ -9144,6 +9144,9 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       }
 
       const warnings: string[] = [];
+      const looksLikeSpaHtml = (status: number, contentType: string | null, body: string) =>
+        (contentType || "").includes("text/html") || /^\s*<(!DOCTYPE|html)/i.test(body || "");
+
       try {
         const probe = await fetch(`${url}/api/admin/receive-cover-file`, {
           method: "POST",
@@ -9151,13 +9154,39 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
           body: JSON.stringify({}),
           signal: AbortSignal.timeout(10000),
         });
-        if (probe.status === 404) {
-          warnings.push(
-            "Production is missing the new sync endpoints (404 on receive-cover-file). Push code to GitHub, then git pull + deploy on Replit before pushing again.",
+        const probeBody = await probe.text().catch(() => "");
+        if (probe.status === 404 || looksLikeSpaHtml(probe.status, probe.headers.get("content-type"), probeBody)) {
+          throw new Error(
+            "Production is missing sync endpoints (receive-cover-file). On Replit: git pull, then Redeploy/Restart the published app, then push again.",
           );
         }
-      } catch {
+      } catch (probeErr: any) {
+        if (probeErr?.message?.includes("missing sync endpoints")) throw probeErr;
         warnings.push("Could not verify production sync endpoints — deploy latest code if covers/catalog do not update.");
+      }
+
+      // Illustration endpoint is newer — SPA often returns HTTP 200 HTML if not redeployed yet.
+      try {
+        const illustProbe = await fetch(`${url}/api/admin/receive-illustration-file`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-admin-token": prodToken },
+          body: JSON.stringify({}),
+          signal: AbortSignal.timeout(10000),
+        });
+        const illustProbeBody = await illustProbe.text().catch(() => "");
+        if (
+          illustProbe.status === 404 ||
+          looksLikeSpaHtml(illustProbe.status, illustProbe.headers.get("content-type"), illustProbeBody)
+        ) {
+          throw new Error(
+            "Production is missing receive-illustration-file (old deploy — SPA is answering instead of the API). " +
+              "On Replit Shell: git pull origin main, then Redeploy/Restart. After that, push Luna again from Cursor. " +
+              "Note: ebookgamez.com and EbookGamez.replit.app are the same live app; the Replit IDE preview is not updated by Push to Production.",
+          );
+        }
+      } catch (illustProbeErr: any) {
+        if (illustProbeErr?.message?.includes("receive-illustration-file")) throw illustProbeErr;
+        warnings.push("Could not verify illustration sync endpoint on production.");
       }
 
       const { readCoverBytesForSync, toObjstoreCoverUrl } = await import("./coverStorage");
@@ -9237,19 +9266,29 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
             }),
             signal: AbortSignal.timeout(180000),
           });
-          if (illustResp.ok) {
-            illustrationsUploaded++;
-          } else if (illustResp.status === 404) {
-            warnings.push(
-              "Production is missing receive-illustration-file (404). Push this Cursor update to GitHub, git pull + redeploy on Replit, then push Luna again.",
+          const illustBody = await illustResp.text().catch(() => "");
+          const ct = illustResp.headers.get("content-type");
+          if (illustResp.status === 404 || looksLikeSpaHtml(illustResp.status, ct, illustBody)) {
+            throw new Error(
+              "Production is missing receive-illustration-file (old deploy). On Replit: git pull + Redeploy, then push again.",
             );
-            break;
+          }
+          let parsed: { url?: string; filename?: string; error?: string } | null = null;
+          try {
+            parsed = JSON.parse(illustBody);
+          } catch {
+            parsed = null;
+          }
+          if (illustResp.ok && parsed?.url) {
+            illustrationsUploaded++;
           } else {
-            const errText = await illustResp.text().catch(() => "");
-            console.warn(`[PushToProd] Illustration upload failed for ${fname}: ${errText.slice(0, 120)}`);
+            console.warn(
+              `[PushToProd] Illustration upload failed for ${fname}: ${illustBody.slice(0, 120)}`,
+            );
             illustrationsMissing++;
           }
         } catch (illustErr: any) {
+          if (illustErr?.message?.includes("receive-illustration-file")) throw illustErr;
           console.warn(`[PushToProd] Illustration upload error for ${fname}: ${illustErr.message}`);
           illustrationsMissing++;
         }
@@ -9281,7 +9320,11 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
             body: JSON.stringify({
               drafts: batch.map((d) => ({
                 ...d,
-                content: rewriteContentIllustrationUrls(d.content || ""),
+                // Only rewrite to /objstore/ when files actually uploaded — otherwise live points at missing art.
+                content:
+                  illustNeeded.size === 0 || illustrationsUploaded > 0
+                    ? rewriteContentIllustrationUrls(d.content || "")
+                    : d.content || "",
                 coverUrl: d.coverUrl ? toObjstoreCoverUrl(d.coverUrl) : null,
                 backgroundUrl: d.backgroundUrl ? toObjstoreCoverUrl(d.backgroundUrl) : null,
               })),
