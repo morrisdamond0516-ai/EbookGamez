@@ -110,6 +110,14 @@ function isAdminAuthenticated(req: any): boolean {
   return !!token && adminSessions.has(token);
 }
 
+/** Cursor → Replit sync scripts may send ADMIN_PASSWORD directly (no session token). */
+function isAdminSyncAuthenticated(req: any): boolean {
+  if (isAdminAuthenticated(req)) return true;
+  const password = req.headers["x-admin-password"] as string;
+  const expected = process.env.ADMIN_PASSWORD;
+  return !!password && !!expected && password === expected;
+}
+
 const customerSessions = new Map<string, { customerId: number; email: string }>();
 
 function getCustomerSession(req: any): { customerId: number; email: string } | null {
@@ -8853,6 +8861,73 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       res.json({ url, filename: safeName });
     } catch (err: any) {
       console.error("[SyncReceive] Illustration file error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/admin/sync/upload-illustrations
+  // Batch upload from Cursor (cursor-push-to-replit.mjs) — saves to objstore and rewrites DB paths.
+  app.post("/api/admin/sync/upload-illustrations", async (req, res) => {
+    if (!isAdminSyncAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { files } = req.body;
+      if (!Array.isArray(files) || files.length === 0) {
+        return res.status(400).json({ error: "files array required" });
+      }
+      if (files.length > 50) {
+        return res.status(400).json({ error: "Max 50 files per batch" });
+      }
+
+      const { saveIllustrationFile } = await import("./illustrationSync");
+      const results: { filename: string; uploaded: boolean; url?: string; error?: string; draftsUpdated?: number }[] = [];
+
+      for (const item of files) {
+        const rawName = item?.filename;
+        if (!rawName || typeof rawName !== "string") {
+          results.push({ filename: String(rawName || "?"), uploaded: false, error: "Invalid filename" });
+          continue;
+        }
+        const safeName = path.basename(rawName).replace(/[^a-zA-Z0-9._-]/g, "_");
+        if (!safeName || !/^illust-/i.test(safeName)) {
+          results.push({ filename: rawName, uploaded: false, error: "Invalid illustration filename" });
+          continue;
+        }
+        const b64 = item.base64 || item.dataBase64;
+        if (!b64 || typeof b64 !== "string") {
+          results.push({ filename: safeName, uploaded: false, error: "Missing base64 data" });
+          continue;
+        }
+        try {
+          const buffer = Buffer.from(b64, "base64");
+          if (buffer.length < 500) {
+            results.push({ filename: safeName, uploaded: false, error: "Empty or tiny image data" });
+            continue;
+          }
+          const url = await saveIllustrationFile(buffer, safeName);
+          const localUrl = `/uploads/illustrations/${safeName}`;
+          const cloudUrl = url.startsWith("/objstore/") ? url : `/objstore/illustrations/${safeName}`;
+
+          const updated = await db.execute(sql`
+            UPDATE draft_ebooks
+            SET content = REPLACE(content, ${localUrl}, ${cloudUrl})
+            WHERE content LIKE ${"%" + localUrl + "%"}
+          `);
+          const draftsUpdated = updated.rowCount ?? 0;
+
+          results.push({ filename: safeName, uploaded: true, url: cloudUrl, draftsUpdated });
+        } catch (err: any) {
+          results.push({ filename: safeName, uploaded: false, error: err.message || "Upload failed" });
+        }
+      }
+
+      const uploaded = results.filter((r) => r.uploaded).length;
+      res.json({
+        uploaded,
+        errors: results.length - uploaded,
+        results,
+      });
+    } catch (err: any) {
+      console.error("[SyncUpload] Illustrations batch error:", err.message);
       res.status(500).json({ error: err.message });
     }
   });
