@@ -2134,9 +2134,9 @@ Allow: /
         return res.status(400).json({ valid: false, reason: "Code is required" });
       }
       const OWNER_CODE_EXPIRY = new Date("2026-06-19T23:59:59Z");
-      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "EBGZOWNER": 1.0 };
+      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "EBGZOWNER": 1.0, "GOOGLETEST": 1.0 };
       // Codes that are unlimited-use (no per-email tracking)
-      const UNLIMITED_CODES = new Set(["EBGZOWNER"]);
+      const UNLIMITED_CODES = new Set(["EBGZOWNER", "GOOGLETEST"]);
       const upperCode = code.toUpperCase().trim();
       if (!VALID_PROMOS[upperCode]) {
         return res.json({ valid: false, reason: "Invalid promo code" });
@@ -2144,6 +2144,7 @@ Allow: /
       if (upperCode === "EBGZOWNER" && new Date() > OWNER_CODE_EXPIRY) {
         return res.json({ valid: false, reason: "This code has expired" });
       }
+      // GOOGLETEST: always valid, no expiry
       if (!UNLIMITED_CODES.has(upperCode)) {
         const existing = await db.select().from(promoUsages)
           .where(sql`${promoUsages.customerEmail} = ${email.toLowerCase().trim()} AND ${promoUsages.promoCode} = ${upperCode}`)
@@ -2304,9 +2305,10 @@ Allow: /
       }
 
       const OWNER_CODE_EXPIRY = new Date("2026-06-19T23:59:59Z");
-      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "EBGZOWNER": 1.0 };
+      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "EBGZOWNER": 1.0, "GOOGLETEST": 1.0 };
       const upperPromo = (promoCode || '').toUpperCase().trim();
       const isOwnerCode = upperPromo === 'EBGZOWNER' && new Date() <= OWNER_CODE_EXPIRY;
+      const isGoogleTestCode = upperPromo === 'GOOGLETEST';
       const promoDiscount = upperPromo && VALID_PROMOS[upperPromo] && (upperPromo !== 'EBGZOWNER' || isOwnerCode) ? VALID_PROMOS[upperPromo] : 0;
 
       const bookIds = items.map((item: any) => parseInt(item.id || item.bookId));
@@ -2326,10 +2328,9 @@ Allow: /
         return res.status(404).json({ error: "No valid books found" });
       }
 
-      // EBGZOWNER: 100% off test code — bypass Stripe, create order directly
-      // Always uses owner@ebookgamez.com regardless of logged-in account,
-      // so the success page always works when logged in as that account.
-      if (isOwnerCode && promoDiscount === 1.0) {
+      // EBGZOWNER / GOOGLETEST: 100% off test codes — bypass Stripe, create order directly
+      // Always uses owner@ebookgamez.com so the success page works when logged in as that account.
+      if ((isOwnerCode || isGoogleTestCode) && promoDiscount === 1.0) {
         const ownerEmail = 'owner@ebookgamez.com';
         const fakeSessionId = `cs_owner_free_${Date.now()}`;
         const order = await storage.createOrder({
