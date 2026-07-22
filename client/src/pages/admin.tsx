@@ -1860,6 +1860,29 @@ function SystemMaintenance() {
               {syncing === "download-cursor" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />}
               Download Books JSON
             </Button>
+
+            <Button
+              size="sm"
+              onClick={async () => {
+                const adminToken = localStorage.getItem("ebgz_admin_token") || "";
+                const res = await fetch("/api/admin/download-push-script", {
+                  headers: { "x-admin-token": adminToken },
+                });
+                if (!res.ok) { toast({ title: "Error", description: "Could not download script", variant: "destructive" }); return; }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = "cursor-push-to-replit.mjs"; a.click();
+                URL.revokeObjectURL(url);
+                toast({ title: "Script Downloaded", description: "Run it from your Cursor project root: node cursor-push-to-replit.mjs" });
+              }}
+              className="bg-indigo-700 hover:bg-indigo-600 text-white mt-2"
+              data-testid="button-download-push-script"
+            >
+              <Download className="h-4 w-4 mr-1" />
+              Download Cursor Push Script
+            </Button>
+            <p className="text-xs text-gray-500 mt-1">Run once in Cursor to push new illustration images → Replit cloud storage.</p>
           </div>
 
           <div className="mt-4 pt-4 border-t border-white/10">

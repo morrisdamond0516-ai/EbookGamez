@@ -6413,6 +6413,47 @@ Respond in JSON format only:
     }
   });
 
+  // POST /api/admin/sync/upload-illustrations
+  // Lets external callers (Cursor, CI, etc.) push illustration image files directly into
+  // Replit's object storage over HTTPS. Accepts either a session token OR the raw admin
+  // password (via x-admin-password header) so Cursor scripts don't need a login step.
+  app.post("/api/admin/sync/upload-illustrations", async (req, res) => {
+    const directPassword = req.headers["x-admin-password"] as string;
+    const isDirectAuth = !!directPassword && directPassword === process.env.ADMIN_PASSWORD;
+    if (!isAdminAuthenticated(req) && !isDirectAuth) {
+      return res.status(401).json({ error: "Admin authentication required (x-admin-token or x-admin-password)" });
+    }
+    try {
+      const { files } = req.body;
+      if (!Array.isArray(files) || files.length === 0) {
+        return res.status(400).json({ error: "'files' array is required: [{filename, base64, mimeType?}]" });
+      }
+      const { uploadToObjStore } = await import("./objectStorage");
+      const results: { filename: string; objstoreUrl: string; uploaded: boolean; error?: string }[] = [];
+      for (const file of files) {
+        const { filename, base64, mimeType = "image/png" } = file || {};
+        if (!filename || !base64) {
+          results.push({ filename: filename || "?", objstoreUrl: "", uploaded: false, error: "Missing filename or base64" });
+          continue;
+        }
+        try {
+          const buffer = Buffer.from(base64, "base64");
+          const remotePath = `public/illustrations/${filename}`;
+          const ok = await uploadToObjStore(buffer, remotePath, mimeType);
+          results.push({ filename, objstoreUrl: `/objstore/illustrations/${filename}`, uploaded: ok });
+        } catch (e: any) {
+          results.push({ filename, objstoreUrl: "", uploaded: false, error: e.message });
+        }
+      }
+      const uploaded = results.filter(r => r.uploaded).length;
+      console.log(`[SyncIllustrations] Received ${files.length} files, uploaded ${uploaded}`);
+      res.json({ success: true, uploaded, total: files.length, results });
+    } catch (error: any) {
+      console.error("[SyncIllustrations] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/admin/illustrations/repair-gcs", async (req, res) => {
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
@@ -8195,6 +8236,25 @@ Respond in JSON format only:
     } catch (error: any) {
       console.error("[Download JSON] Error:", error);
       res.status(500).json({ error: "Failed to generate export" });
+    }
+  });
+
+  // Serve the Cursor push script as a download
+  app.get("/api/admin/download-push-script", async (req, res) => {
+    if (!isAdminAuthenticated(req)) {
+      return res.status(401).json({ error: "Admin authentication required" });
+    }
+    try {
+      const scriptPath = path.join(process.cwd(), "cursor-push-to-replit.mjs");
+      if (!fs.existsSync(scriptPath)) {
+        return res.status(404).json({ error: "Push script not found in project root" });
+      }
+      const scriptContent = fs.readFileSync(scriptPath, "utf8");
+      res.setHeader("Content-Disposition", 'attachment; filename="cursor-push-to-replit.mjs"');
+      res.setHeader("Content-Type", "application/javascript");
+      res.send(scriptContent);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
