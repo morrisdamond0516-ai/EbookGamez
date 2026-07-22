@@ -1,0 +1,59 @@
+2:19:37 AM [express] GET /api/content-studio/drafts 304 in 110ms
+2:19:47 AM [express] GET /api/content-studio/jobs 304 in 8ms
+2:19:57 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:20:07 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:20:08 AM [express] GET /api/content-studio/drafts 304 in 115ms
+2:20:18 AM [express] GET /api/content-studio/jobs 304 in 6ms
+2:20:28 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:20:38 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:20:38 AM [express] GET /api/content-studio/drafts 304 in 106ms
+2:20:48 AM [express] GET /api/content-studio/jobs 304 in 5ms
+2:20:58 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:21:08 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:21:08 AM [express] GET /api/content-studio/drafts 304 in 112ms
+2:21:18 AM [express] GET /api/content-studio/jobs 304 in 4ms
+2:21:28 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:21:38 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:21:38 AM [express] GET /api/content-studio/drafts 304 in 112ms
+2:21:48 AM [express] GET /api/content-studio/jobs 304 in 4ms
+2:21:58 AM [express] GET /api/content-studio/jobs 304 in 36ms
+2:22:08 AM [express] GET /api/content-studio/jobs 304 in 35ms
+2:22:08 AM [express] GET /api/content-studio/drafts 304 in 111ms
+2:22:18 AM [express] GET /api/content-studio/jobs 304 in 6ms
+2:22:28 AM [express] GET /api/content-studio/jobs 304 in 37ms
+2:22:38 AM [express] GET /api/content-studio/jobs 304 in 37ms
+2:22:38 AM [express] GET /api/content-studio/drafts 304 in 148ms
+2:22:48 AM [express] GET /api/content-studio/jobs 304 in 9ms
+2:22:58 AM [express] GET /api/content-studio/jobs 304 in 36ms
+2:23:08 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:23:08 AM [express] GET /api/content-studio/drafts 304 in 106ms
+2:23:18 AM [express] GET /api/content-studio/jobs 304 in 8ms
+2:23:28 AM [express] GET /api/content-studio/jobs 304 in 36ms
+2:23:38 AM [express] GET /api/content-studio/jobs 304 in 30ms
+2:23:39 AM [express] GET /api/content-studio/drafts 304 in 112ms
+[Shutdown Guard] SIGINT received. No active generations. Shutting down.
+PS C:\Users\morri\GithubRepos\EbookGamez> npm install pg
+
+changed 5 packages in 4m
+
+143 packages are looking for funding
+  run `npm fund` for details
+PS C:\Users\morri\GithubRepos\EbookGamez> node cursor-push-to-replit.mjs
+file:///C:/Users/morri/GithubRepos/EbookGamez/cursor-push-to-replit.mjs:1
+<!DOCTYPE html>
+^
+
+SyntaxError: Unexpected token '<'
+    at compileSourceTextModule (node:internal/modules/esm/utils:318:16)
+    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:111:18)
+    at #translate (node:internal/modules/esm/loader:473:20)
+    at afterLoad (node:internal/modules/esm/loader:529:29)
+    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:534:12)
+    at #getOrCreateModuleJobAfterResolve (node:internal/modules/esm/loader:571:36)
+    at afterResolve (node:internal/modules/esm/loader:624:52)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:630:12)
+    at onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:649:32)
+    at TracingChannel.tracePromise (node:diagnostics_channel:350:14)
+
+Node.js v24.12.0
+PS C:\Users\morri\GithubRepos\EbookGamez> 
