@@ -1,0 +1,593 @@
+4 AM [express] GET /api/content-studio/jobs 304 in 6ms
+2:07:54 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:08:04 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:08:04 AM [express] GET /api/content-studio/drafts 304 in 109ms
+2:08:14 AM [express] GET /api/content-studio/jobs 304 in 9ms
+2:08:24 AM [express] GET /api/content-studio/jobs 304 in 31ms
+2:08:34 AM [express] GET /api/content-studio/jobs 304 in 30ms
+2:08:34 AM [express] GET /api/content-studio/drafts 304 in 108ms
+2:08:44 AM [express] GET /api/content-studio/jobs 304 in 5ms
+2:08:54 AM [express] GET /api/content-studio/jobs 304 in 30ms
+2:09:04 AM [express] GET /api/content-studio/jobs 304 in 145ms
+2:09:05 AM [express] GET /api/content-studio/drafts 304 in 135ms
+2:09:14 AM [express] GET /api/content-studio/jobs 304 in 6ms
+2:09:25 AM [express] GET /api/content-studio/jobs 304 in 31ms
+2:09:35 AM [express] GET /api/content-studio/jobs 304 in 37ms
+2:09:35 AM [express] GET /api/content-studio/drafts 304 in 143ms
+2:09:45 AM [express] GET /api/content-studio/jobs 304 in 5ms
+2:09:55 AM [express] GET /api/content-studio/jobs 304 in 29ms
+2:10:05 AM [express] GET /api/content-studio/jobs 304 in 29ms
+2:10:05 AM [express] GET /api/content-studio/drafts 304 in 106ms
+2:10:15 AM [express] GET /api/content-studio/jobs 304 in 8ms
+2:10:25 AM [express] GET /api/content-studio/jobs 304 in 35ms
+2:10:35 AM [express] GET /api/content-studio/jobs 304 in 35ms
+2:10:35 AM [express] GET /api/content-studio/drafts 304 in 111ms
+2:10:45 AM [express] GET /api/content-studio/jobs 304 in 8ms
+2:10:55 AM [express] GET /api/content-studio/jobs 304 in 145ms
+2:11:05 AM [express] GET /api/content-studio/jobs 304 in 29ms
+2:11:05 AM [express] GET /api/content-studio/drafts 304 in 202ms
+2:11:15 AM [express] GET /api/content-studio/jobs 304 in 4ms
+2:11:25 AM [express] GET /api/content-studio/jobs 304 in 30ms
+2:11:35 AM [express] GET /api/content-studio/jobs 304 in 29ms
+2:11:35 AM [express] GET /api/content-studio/drafts 304 in 107ms
+2:11:45 AM [express] GET /api/content-studio/jobs 304 in 6ms
+2:11:55 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:12:05 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:12:05 AM [express] GET /api/content-studio/drafts 304 in 109ms
+2:12:15 AM [express] GET /api/content-studio/jobs 304 in 5ms
+2:12:25 AM [express] GET /api/content-studio/jobs 304 in 79ms
+2:12:35 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:12:36 AM [express] GET /api/content-studio/drafts 304 in 134ms
+2:12:45 AM [express] GET /api/content-studio/jobs 304 in 7ms
+2:12:56 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:13:06 AM [express] GET /api/content-studio/jobs 304 in 35ms
+2:13:06 AM [express] GET /api/content-studio/drafts 304 in 137ms
+2:13:16 AM [express] GET /api/content-studio/jobs 304 in 8ms
+2:13:26 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:13:36 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:13:36 AM [express] GET /api/content-studio/drafts 304 in 133ms
+2:13:46 AM [express] GET /api/content-studio/jobs 304 in 8ms
+2:13:56 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:14:06 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:14:06 AM [express] GET /api/content-studio/drafts 304 in 138ms
+2:14:16 AM [express] GET /api/content-studio/jobs 304 in 8ms
+2:14:26 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:14:36 AM [express] GET /api/content-studio/jobs 304 in 32ms
+2:14:36 AM [express] GET /api/content-studio/drafts 304 in 138ms
+2:14:46 AM [express] GET /api/content-studio/jobs 304 in 7ms
+2:14:56 AM [express] GET /api/content-studio/jobs 304 in 37ms
+2:15:06 AM [express] GET /api/content-studio/jobs 304 in 29ms
+2:15:06 AM [express] GET /api/content-studio/drafts 304 in 107ms
+2:15:16 AM [express] GET /api/content-studio/jobs 304 in 5ms
+2:15:26 AM [express] GET /api/content-studio/jobs 304 in 30ms
+2:15:36 AM [express] GET /api/content-studio/jobs 304 in 38ms
+2:15:36 AM [express] GET /api/content-studio/drafts 304 in 115ms
+2:15:46 AM [express] GET /api/content-studio/jobs 304 in 5ms
+2:15:56 AM [express] GET /api/content-studio/jobs 304 in 28ms
+2:16:06 AM [express] GET /api/content-studio/jobs 304 in 140ms
+2:16:07 AM [express] GET /api/content-studio/drafts 304 in 135ms
+2:16:16 AM [express] GET /api/content-studio/jobs 304 in 6ms
+2:16:27 AM [express] GET /api/content-studio/jobs 304 in 29ms
+2:16:37 AM [express] GET /api/content-studio/jobs 304 in 32ms
+2:16:37 AM [express] GET /api/content-studio/drafts 304 in 132ms
+2:16:47 AM [express] GET /api/content-studio/jobs 304 in 4ms
+2:16:57 AM [express] GET /api/content-studio/jobs 304 in 29ms
+2:17:07 AM [express] GET /api/content-studio/jobs 304 in 28ms
+2:17:07 AM [express] GET /api/content-studio/drafts 304 in 107ms
+2:17:17 AM [express] GET /api/content-studio/jobs 304 in 4ms
+2:17:27 AM [express] GET /api/content-studio/jobs 304 in 32ms
+2:17:37 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:17:37 AM [express] GET /api/content-studio/drafts 304 in 108ms
+2:17:47 AM [express] GET /api/content-studio/jobs 304 in 6ms
+2:17:57 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:18:07 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:18:07 AM [express] GET /api/content-studio/drafts 304 in 107ms
+2:18:17 AM [express] GET /api/content-studio/jobs 304 in 5ms
+2:18:27 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:18:37 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:18:37 AM [express] GET /api/content-studio/drafts 304 in 137ms
+2:18:47 AM [express] GET /api/content-studio/jobs 304 in 9ms
+2:18:57 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:19:07 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:19:07 AM [express] GET /api/content-studio/drafts 304 in 108ms
+2:19:17 AM [express] GET /api/content-studio/jobs 304 in 10ms
+2:19:27 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:19:37 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:19:37 AM [express] GET /api/content-studio/drafts 304 in 110ms
+2:19:47 AM [express] GET /api/content-studio/jobs 304 in 8ms
+2:19:57 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:20:07 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:20:08 AM [express] GET /api/content-studio/drafts 304 in 115ms
+2:20:18 AM [express] GET /api/content-studio/jobs 304 in 6ms
+2:20:28 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:20:38 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:20:38 AM [express] GET /api/content-studio/drafts 304 in 106ms
+2:20:48 AM [express] GET /api/content-studio/jobs 304 in 5ms
+2:20:58 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:21:08 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:21:08 AM [express] GET /api/content-studio/drafts 304 in 112ms
+2:21:18 AM [express] GET /api/content-studio/jobs 304 in 4ms
+2:21:28 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:21:38 AM [express] GET /api/content-studio/jobs 304 in 34ms
+2:21:38 AM [express] GET /api/content-studio/drafts 304 in 112ms
+2:21:48 AM [express] GET /api/content-studio/jobs 304 in 4ms
+2:21:58 AM [express] GET /api/content-studio/jobs 304 in 36ms
+2:22:08 AM [express] GET /api/content-studio/jobs 304 in 35ms
+2:22:08 AM [express] GET /api/content-studio/drafts 304 in 111ms
+2:22:18 AM [express] GET /api/content-studio/jobs 304 in 6ms
+2:22:28 AM [express] GET /api/content-studio/jobs 304 in 37ms
+2:22:38 AM [express] GET /api/content-studio/jobs 304 in 37ms
+2:22:38 AM [express] GET /api/content-studio/drafts 304 in 148ms
+2:22:48 AM [express] GET /api/content-studio/jobs 304 in 9ms
+2:22:58 AM [express] GET /api/content-studio/jobs 304 in 36ms
+2:23:08 AM [express] GET /api/content-studio/jobs 304 in 33ms
+2:23:08 AM [express] GET /api/content-studio/drafts 304 in 106ms
+2:23:18 AM [express] GET /api/content-studio/jobs 304 in 8ms
+2:23:28 AM [express] GET /api/content-studio/jobs 304 in 36ms
+2:23:38 AM [express] GET /api/content-studio/jobs 304 in 30ms
+2:23:39 AM [express] GET /api/content-studio/drafts 304 in 112ms
+[Shutdown Guard] SIGINT received. No active generations. Shutting down.
+PS C:\Users\morri\GithubRepos\EbookGamez> npm install pg
+
+changed 5 packages in 4m
+
+143 packages are looking for funding
+  run `npm fund` for details
+PS C:\Users\morri\GithubRepos\EbookGamez> node cursor-push-to-replit.mjs
+file:///C:/Users/morri/GithubRepos/EbookGamez/cursor-push-to-replit.mjs:1
+<!DOCTYPE html>
+^
+
+SyntaxError: Unexpected token '<'
+    at compileSourceTextModule (node:internal/modules/esm/utils:318:16)
+    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:111:18)
+    at #translate (node:internal/modules/esm/loader:473:20)
+    at afterLoad (node:internal/modules/esm/loader:529:29)
+    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:534:12)
+    at #getOrCreateModuleJobAfterResolve (node:internal/modules/esm/loader:571:36)
+    at afterResolve (node:internal/modules/esm/loader:624:52)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:630:12)
+    at onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:649:32)
+    at TracingChannel.tracePromise (node:diagnostics_channel:350:14)
+
+Node.js v24.12.0
+PS C:\Users\morri\GithubRepos\EbookGamez> git pull
+Updating 804f666..15c1ed2
+Fast-forward
+ ...0-ai-bg-cinematic-openai-1771826051504.png.webp | Bin 0 -> 17010 bytes
+ .../400-ai-bg-test-style-b-1771852793988.png.webp  | Bin 0 -> 13794 bytes
+ .../400-ai-bg-test-style-d-1771901808727.png.webp  | Bin 0 -> 16196 bytes
+ ...i-bg-vivid-painterly-pro-1771825564980.png.webp | Bin 0 -> 15030 bytes
+ ...i-bg-vivid-painterly-pro-1771825721661.png.webp | Bin 0 -> 15390 bytes
+ .../400-ai-overlay-550-1771826840006.png.webp      | Bin 0 -> 22592 bytes
+ .../600-ai-bg-test-style-b-1771852793988.png.webp  | Bin 0 -> 35988 bytes
+ client/public/opengraph.jpg                        | Bin 106787 -> 115400 bytes
+ server/routes.ts                                   |  15 ++++++++-------
+ 9 files changed, 8 insertions(+), 7 deletions(-)
+ create mode 100644 cache/covers/400-ai-bg-cinematic-openai-1771826051504.png.webp
+ create mode 100644 cache/covers/400-ai-bg-test-style-b-1771852793988.png.webp
+ create mode 100644 cache/covers/400-ai-bg-test-style-d-1771901808727.png.webp
+ create mode 100644 cache/covers/400-ai-bg-vivid-painterly-pro-1771825564980.png.webp
+ create mode 100644 cache/covers/400-ai-bg-vivid-painterly-pro-1771825721661.png.webp
+ create mode 100644 cache/covers/400-ai-overlay-550-1771826840006.png.webp
+ create mode 100644 cache/covers/600-ai-bg-test-style-b-1771852793988.png.webp
+PS C:\Users\morri\GithubRepos\EbookGamez> del cursor-push-to-replit.mjs
+PS C:\Users\morri\GithubRepos\EbookGamez> node cursor-push-to-replit.mjs
+
+🌐 Replit URL: https://ebookgamez.replit.app
+📁 1873 file(s) referenced in local draft_ebooks (with /uploads/ paths)
+
+📤 Uploading in 94 batch(es) of up to 20...
+
+   Batch 1/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 2/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 3/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 4/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 5/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 6/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 7/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 8/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 9/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 10/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 11/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 12/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 13/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 14/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 15/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 16/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 17/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 18/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 19/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 20/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 21/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 22/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 23/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 24/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 25/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 26/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 27/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 28/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 29/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 30/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 31/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 32/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 33/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 34/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 35/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 36/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 37/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 38/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 39/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 40/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 41/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 42/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 43/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 44/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 45/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 46/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 47/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 48/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 49/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 50/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 51/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 52/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 53/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 54/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 55/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 56/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 57/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 58/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 59/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 60/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 61/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 62/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 63/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 64/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 65/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 66/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 67/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 68/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 69/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 70/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 71/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 72/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 73/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 74/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 75/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 76/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 77/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 78/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 79/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 80/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 81/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 82/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 83/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 84/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 85/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 86/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 87/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 88/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 89/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 90/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 91/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 92/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 93/94 (20 files)... ❌ FAILED: fetch failed
+   Batch 94/94 (13 files)... ❌ FAILED: fetch failed
+
+📊 Summary:
+   • Files uploaded: 0
+   • Upload errors: 1873
+   • Draft rows updated on Replit: 0
+
+✅ Done. Open the live site to verify illustrations.
+PS C:\Users\morri\GithubRepos\EbookGamez> npm run dev
+
+> rest-express@1.0.0 dev
+> node script/start-dev.mjs
+
+(node:27576) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[Seed] owner@ebookgamez.com account ensured
+Database already has 673 books — skipping seed
+Initializing Stripe schema...
+Stripe schema ready
+{ autoExpandLists: undefined, stripeApiVersion: undefined } StripeSync initialized
+[Dev] Skipping webhook URL update — production webhook URL preserved
+Syncing Stripe data...
+5:05:02 AM [vite] (client) Re-optimizing dependencies because lockfile has changed
+
+  ===================================================
+  App is running — open this in your browser:
+  http://127.0.0.1:3000
+  AI Studio: http://127.0.0.1:3000/content-studio
+  Admin:     http://127.0.0.1:3000/admin
+  ===================================================
+  Keep this terminal open while you use the app.
+  (Stripe errors below are OK for local dev.)
+
+The system cannot find the path specified.
+[Startup Cleanup] Complete
+[ContentRefresh] Auto-refresh is PAUSED (cost savings mode). Use admin panel to refresh manually when needed.
+Subscription plans already exist, skipping initialization
+Subscription plans initialized/migrated
+Stripe data synced
+[Startup] Auto-resume PAUSED (DISABLE_STARTUP_AUTO_RESUME or NODE_ENV=development). Use Content Studio buttons to run generation manually. Set ENABLE_STARTUP_AUTO_RESUME=true to restore Replit-style boot behavior.
+[Startup] fixLocalCoverPaths completed in 2289ms (673 books [0 already-migrated skipped], 774 drafts [0 already-migrated skipped])
+[IllustMigration] Object storage not configured, skipping
+[ColorMigration] Object storage not configured, skipping
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+5:05:44 AM [express] POST /api/track 200 in 145ms
+5:05:44 AM [express] GET /api/books 200 in 148ms
+5:05:44 AM [express] GET /api/social-proof 200 in 155ms
+5:05:44 AM [express] GET /api/admin/verify 200 in 1ms
+5:05:44 AM [express] GET /api/books 200 in 3ms
+5:06:04 AM [express] POST /api/admin/login 200 in 2ms
+5:06:07 AM [express] POST /api/track 200 in 107ms
+5:06:07 AM [express] GET /api/content-studio/ai-provider 200 in 0ms
+5:06:07 AM [express] GET /api/admin/verify 200 in 1ms
+5:06:07 AM [express] GET /api/content-studio/genres 200 in 0ms
+5:06:07 AM [express] GET /api/content-studio/illustration-exempt-ids 200 in 1ms
+5:06:07 AM [express] GET /api/content-studio/font-options 200 in 2ms
+5:06:07 AM [express] GET /api/content-studio/cover-styles 200 in 2ms
+5:06:07 AM [express] GET /api/content-studio/content-gen-status 200 in 1ms
+5:06:07 AM [express] GET /api/content-studio/illustration-progress 304 in 1ms
+5:06:07 AM [express] GET /api/content-studio/drafts-with-backgrounds 200 in 68ms
+5:06:07 AM [express] GET /api/content-studio/jobs 304 in 77ms
+5:06:07 AM [express] GET /api/content-studio/drafts 304 in 154ms
+5:06:09 AM [express] GET /api/content-studio/illustration-needs 304 in 1679ms
+5:06:12 AM [express] GET /api/content-studio/illustration-progress 304 in 0ms
+5:06:14 AM [express] GET /api/content-studio/illustration-needs 304 in 2150ms
+5:06:17 AM [express] GET /api/content-studio/jobs 304 in 8ms
+5:06:18 AM [express] GET /api/content-studio/drafts 200 in 11317ms
+5:06:27 AM [express] GET /api/content-studio/jobs 304 in 11ms
+[Memory] Heap: 556MB, RSS: 705MB, Active generations: 0
+5:06:37 AM [express] GET /api/content-studio/jobs 304 in 162ms
+5:06:37 AM [express] GET /api/content-studio/drafts 304 in 224ms
+5:06:47 AM [express] GET /api/content-studio/jobs 304 in 6ms
+5:06:57 AM [express] GET /api/content-studio/jobs 304 in 33ms
+[Memory] Heap: 558MB, RSS: 708MB, Active generations: 0
+5:07:07 AM [express] GET /api/content-studio/jobs 304 in 38ms
+5:07:07 AM [express] GET /api/content-studio/drafts 304 in 143ms
+5:07:17 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:07:27 AM [express] GET /api/content-studio/jobs 304 in 35ms
+[Memory] Heap: 559MB, RSS: 710MB, Active generations: 0
+5:07:37 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:07:38 AM [express] GET /api/content-studio/drafts 304 in 112ms
+5:07:47 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:07:58 AM [express] GET /api/content-studio/jobs 304 in 85ms
+[Memory] Heap: 559MB, RSS: 711MB, Active generations: 0
+5:08:08 AM [express] GET /api/content-studio/jobs 304 in 39ms
+5:08:08 AM [express] GET /api/content-studio/drafts 304 in 150ms
+5:08:18 AM [express] GET /api/content-studio/jobs 304 in 6ms
+5:08:28 AM [express] GET /api/content-studio/jobs 304 in 32ms
+[Memory] Heap: 561MB, RSS: 715MB, Active generations: 0
+5:08:38 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:08:38 AM [express] GET /api/content-studio/drafts 304 in 140ms
+5:08:48 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:08:58 AM [express] GET /api/content-studio/jobs 304 in 32ms
+[Memory] Heap: 562MB, RSS: 715MB, Active generations: 0
+5:09:08 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:09:08 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:09:18 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:09:28 AM [express] GET /api/content-studio/jobs 304 in 30ms
+[Memory] Heap: 564MB, RSS: 716MB, Active generations: 0
+5:09:38 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:09:38 AM [express] GET /api/content-studio/drafts 304 in 108ms
+5:09:48 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:09:58 AM [express] GET /api/content-studio/jobs 304 in 31ms
+[Memory] Heap: 564MB, RSS: 716MB, Active generations: 0
+5:10:08 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:10:08 AM [express] GET /api/content-studio/drafts 304 in 109ms
+5:10:18 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:10:28 AM [express] GET /api/content-studio/jobs 304 in 31ms
+[Memory] Heap: 566MB, RSS: 716MB, Active generations: 0
+5:10:38 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:10:38 AM [express] GET /api/content-studio/drafts 304 in 108ms
+5:10:48 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:10:58 AM [express] GET /api/content-studio/jobs 304 in 30ms
+[Memory] Heap: 566MB, RSS: 719MB, Active generations: 0
+5:11:08 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:11:09 AM [express] GET /api/content-studio/drafts 304 in 114ms
+5:11:18 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:11:28 AM [express] GET /api/content-studio/jobs 304 in 32ms
+[Memory] Heap: 567MB, RSS: 719MB, Active generations: 0
+5:11:38 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:11:39 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:11:48 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:11:59 AM [express] GET /api/content-studio/jobs 304 in 31ms
+[Memory] Heap: 568MB, RSS: 720MB, Active generations: 0
+5:12:09 AM [express] GET /api/content-studio/jobs 304 in 149ms
+5:12:09 AM [express] GET /api/content-studio/drafts 304 in 135ms
+5:12:19 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:12:29 AM [express] GET /api/content-studio/jobs 304 in 32ms
+[Memory] Heap: 570MB, RSS: 722MB, Active generations: 0
+5:12:39 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:12:39 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:12:49 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:12:59 AM [express] GET /api/content-studio/jobs 304 in 30ms
+[Memory] Heap: 570MB, RSS: 723MB, Active generations: 0
+5:13:09 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:13:09 AM [express] GET /api/content-studio/drafts 304 in 112ms
+5:13:19 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:13:29 AM [express] GET /api/content-studio/jobs 304 in 32ms
+[Memory] Heap: 571MB, RSS: 725MB, Active generations: 0
+5:13:39 AM [express] GET /api/content-studio/jobs 304 in 145ms
+5:13:39 AM [express] GET /api/content-studio/drafts 304 in 136ms
+5:13:49 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:13:59 AM [express] GET /api/content-studio/jobs 304 in 30ms
+[Memory] Heap: 572MB, RSS: 727MB, Active generations: 0
+5:14:09 AM [express] GET /api/content-studio/jobs 304 in 34ms
+5:14:09 AM [express] GET /api/content-studio/drafts 304 in 138ms
+5:14:19 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:14:29 AM [express] GET /api/content-studio/jobs 304 in 33ms
+[Memory] Heap: 574MB, RSS: 729MB, Active generations: 0
+5:14:39 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:14:39 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:14:49 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:14:59 AM [express] GET /api/content-studio/jobs 304 in 34ms
+[Memory] Heap: 575MB, RSS: 730MB, Active generations: 0
+5:15:09 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:15:10 AM [express] GET /api/content-studio/drafts 304 in 108ms
+5:15:19 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:15:30 AM [express] GET /api/content-studio/jobs 304 in 31ms
+[Memory] Heap: 575MB, RSS: 732MB, Active generations: 0
+5:15:40 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:15:40 AM [express] GET /api/content-studio/drafts 304 in 109ms
+5:15:50 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:16:00 AM [express] GET /api/content-studio/jobs 304 in 30ms
+[Memory] Heap: 577MB, RSS: 732MB, Active generations: 0
+5:16:10 AM [express] GET /api/content-studio/jobs 304 in 34ms
+5:16:10 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:16:20 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:16:30 AM [express] GET /api/content-studio/jobs 304 in 33ms
+[Memory] Heap: 577MB, RSS: 733MB, Active generations: 0
+5:16:40 AM [express] GET /api/content-studio/jobs 304 in 29ms
+5:16:40 AM [express] GET /api/content-studio/drafts 304 in 109ms
+5:16:50 AM [express] GET /api/content-studio/jobs 304 in 15ms
+5:17:00 AM [express] GET /api/content-studio/jobs 304 in 36ms
+[Memory] Heap: 578MB, RSS: 734MB, Active generations: 0
+5:17:10 AM [express] GET /api/content-studio/jobs 304 in 55ms
+5:17:10 AM [express] GET /api/content-studio/drafts 304 in 206ms
+5:17:20 AM [express] GET /api/content-studio/jobs 304 in 9ms
+5:17:30 AM [express] GET /api/content-studio/jobs 304 in 41ms
+[Memory] Heap: 579MB, RSS: 737MB, Active generations: 0
+5:17:40 AM [express] GET /api/content-studio/jobs 304 in 56ms
+5:17:40 AM [express] GET /api/content-studio/drafts 304 in 165ms
+5:17:50 AM [express] GET /api/content-studio/jobs 304 in 8ms
+5:18:00 AM [express] GET /api/content-studio/jobs 304 in 34ms
+[Memory] Heap: 580MB, RSS: 738MB, Active generations: 0
+5:18:10 AM [express] GET /api/content-studio/jobs 304 in 35ms
+5:18:10 AM [express] GET /api/content-studio/drafts 304 in 107ms
+5:18:20 AM [express] GET /api/content-studio/jobs 304 in 7ms
+5:18:30 AM [express] GET /api/content-studio/jobs 304 in 37ms
+[Memory] Heap: 580MB, RSS: 739MB, Active generations: 0
+5:18:40 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:18:41 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:18:50 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:19:01 AM [express] GET /api/content-studio/jobs 304 in 33ms
+[Memory] Heap: 582MB, RSS: 739MB, Active generations: 0
+5:19:11 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:19:11 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:19:21 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:19:31 AM [express] GET /api/content-studio/jobs 304 in 34ms
+[Memory] Heap: 582MB, RSS: 741MB, Active generations: 0
+5:19:41 AM [express] GET /api/content-studio/jobs 304 in 29ms
+5:19:41 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:19:51 AM [express] GET /api/content-studio/jobs 304 in 5ms
+[Memory] Heap: 584MB, RSS: 741MB, Active generations: 0
+5:20:01 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:20:11 AM [express] GET /api/content-studio/jobs 304 in 29ms
+5:20:11 AM [express] GET /api/content-studio/drafts 304 in 113ms
+5:20:21 AM [express] GET /api/content-studio/jobs 304 in 4ms
+[Memory] Heap: 584MB, RSS: 742MB, Active generations: 0
+5:20:31 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:20:41 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:20:41 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:20:51 AM [express] GET /api/content-studio/jobs 304 in 6ms
+[Memory] Heap: 584MB, RSS: 745MB, Active generations: 0
+5:21:01 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:21:11 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:21:11 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:21:21 AM [express] GET /api/content-studio/jobs 304 in 5ms
+[Memory] Heap: 586MB, RSS: 747MB, Active generations: 0
+5:21:31 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:21:41 AM [express] GET /api/content-studio/jobs 304 in 36ms
+5:21:41 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:21:51 AM [express] GET /api/content-studio/jobs 304 in 5ms
+[Memory] Heap: 586MB, RSS: 748MB, Active generations: 0
+5:22:01 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:22:11 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:22:12 AM [express] GET /api/content-studio/drafts 304 in 117ms
+5:22:21 AM [express] GET /api/content-studio/jobs 304 in 4ms
+[Memory] Heap: 588MB, RSS: 749MB, Active generations: 0
+5:22:31 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:22:41 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:22:42 AM [express] GET /api/content-studio/drafts 304 in 112ms
+5:22:51 AM [express] GET /api/content-studio/jobs 304 in 5ms
+[Memory] Heap: 589MB, RSS: 751MB, Active generations: 0
+5:23:01 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:23:11 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:23:12 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:23:21 AM [express] GET /api/content-studio/jobs 304 in 5ms
+[Memory] Heap: 589MB, RSS: 752MB, Active generations: 0
+5:23:32 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:23:42 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:23:42 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:23:52 AM [express] GET /api/content-studio/jobs 304 in 5ms
+[Memory] Heap: 590MB, RSS: 753MB, Active generations: 0
+5:24:02 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:24:12 AM [express] GET /api/content-studio/jobs 304 in 35ms
+5:24:12 AM [express] GET /api/content-studio/drafts 304 in 149ms
+5:24:22 AM [express] GET /api/content-studio/jobs 304 in 4ms
+[Memory] Heap: 591MB, RSS: 754MB, Active generations: 0
+5:24:32 AM [express] GET /api/content-studio/jobs 304 in 35ms
+5:24:42 AM [express] GET /api/content-studio/jobs 304 in 36ms
+5:24:42 AM [express] GET /api/content-studio/drafts 304 in 109ms
+5:24:52 AM [express] GET /api/content-studio/jobs 304 in 5ms
+[Memory] Heap: 592MB, RSS: 756MB, Active generations: 0
+5:25:02 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:25:12 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:25:12 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:25:22 AM [express] GET /api/content-studio/jobs 304 in 5ms
+[Memory] Heap: 593MB, RSS: 757MB, Active generations: 0
+5:25:32 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:25:42 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:25:42 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:25:52 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:26:02 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:26:12 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:26:13 AM [express] GET /api/content-studio/drafts 304 in 111ms
+5:26:22 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:26:32 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:26:42 AM [express] GET /api/content-studio/jobs 304 in 33ms
+5:26:43 AM [express] GET /api/content-studio/drafts 304 in 109ms
+5:26:52 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:27:02 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:27:12 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:27:13 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:27:22 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:27:32 AM [express] GET /api/content-studio/jobs 304 in 29ms
+5:27:42 AM [express] GET /api/content-studio/jobs 304 in 34ms
+5:27:43 AM [express] GET /api/content-studio/drafts 304 in 109ms
+5:27:53 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:28:03 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:28:13 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:28:13 AM [express] GET /api/content-studio/drafts 304 in 113ms
+5:28:23 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:28:33 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:28:43 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:28:43 AM [express] GET /api/content-studio/drafts 304 in 109ms
+5:28:53 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:29:03 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:29:13 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:29:13 AM [express] GET /api/content-studio/drafts 304 in 109ms
+5:29:23 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:29:33 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:29:43 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:29:43 AM [express] GET /api/content-studio/drafts 304 in 108ms
+5:29:53 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:30:03 AM [express] GET /api/content-studio/jobs 304 in 73ms
+5:30:13 AM [express] GET /api/content-studio/jobs 304 in 35ms
+5:30:14 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:30:23 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:30:33 AM [express] GET /api/content-studio/jobs 304 in 30ms
+5:30:43 AM [express] GET /api/content-studio/jobs 304 in 144ms
+5:30:44 AM [express] GET /api/content-studio/drafts 304 in 108ms
+5:30:53 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:31:03 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:31:13 AM [express] GET /api/content-studio/jobs 304 in 32ms
+5:31:14 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:31:23 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:31:34 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:31:44 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:31:44 AM [express] GET /api/content-studio/drafts 304 in 108ms
+5:31:54 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:32:04 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:32:14 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:32:14 AM [express] GET /api/content-studio/drafts 304 in 110ms
+5:32:24 AM [express] GET /api/content-studio/jobs 304 in 4ms
+5:32:34 AM [express] GET /api/content-studio/jobs 304 in 34ms
+5:32:44 AM [express] GET /api/content-studio/jobs 304 in 31ms
+5:32:44 AM [express] GET /api/content-studio/drafts 304 in 112ms
+5:32:54 AM [express] GET /api/content-studio/jobs 304 in 5ms
+5:33:04 AM [express] GET /api/content-studio/jobs 304 in 

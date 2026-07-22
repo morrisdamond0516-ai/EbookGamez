@@ -39,7 +39,8 @@ if (fs.existsSync(envPath)) {
 const REPLIT_URL = (process.env.REPLIT_URL || "").replace(/\/$/, "");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const DATABASE_URL = process.env.DATABASE_URL || "";
-const BATCH_SIZE = 20;
+const BATCH_SIZE = 10;
+const TIMEOUT_MS = 90_000;
 const LOCAL_ILLUST_DIR = path.join(__dirname, "uploads", "illustrations");
 
 if (!REPLIT_URL || !ADMIN_PASSWORD) {
@@ -75,6 +76,42 @@ function extractFilenamesFromContent(content) {
   return names;
 }
 
+function formatError(err) {
+  const parts = [err.message];
+  if (err.cause) {
+    const cause = err.cause;
+    if (cause.code) parts.push(`code=${cause.code}`);
+    if (cause.message && cause.message !== err.message) parts.push(cause.message);
+  }
+  return parts.join(" — ");
+}
+
+async function fetchWithTimeout(url, options, timeoutMs = TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function checkConnectivity() {
+  console.log(`🔌 Checking connection to ${REPLIT_URL}...`);
+  try {
+    const res = await fetchWithTimeout(`${REPLIT_URL}/api/books?page=1`, {}, 15_000);
+    console.log(`   ✅ Server reachable (HTTP ${res.status})\n`);
+    return true;
+  } catch (err) {
+    console.error(`   ❌ Cannot reach server: ${formatError(err)}`);
+    console.error(`\n   Possible causes:`);
+    console.error(`   • REPLIT_URL in .env is wrong (currently: ${REPLIT_URL})`);
+    console.error(`   • Your internet connection or firewall is blocking the request`);
+    console.error(`   • The production server is down — check https://ebookgamez.replit.app in a browser`);
+    return false;
+  }
+}
+
 async function filenamesReferencedInLocalDb() {
   if (!DATABASE_URL || DATABASE_URL.includes("your-postgresql")) return null;
   try {
@@ -94,15 +131,18 @@ async function filenamesReferencedInLocalDb() {
   }
 }
 
-async function uploadBatch(files) {
-  const res = await fetch(`${REPLIT_URL}/api/admin/sync/upload-illustrations`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-password": ADMIN_PASSWORD,
+async function uploadBatch(files, attempt = 1) {
+  const res = await fetchWithTimeout(
+    `${REPLIT_URL}/api/admin/sync/upload-illustrations`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-password": ADMIN_PASSWORD,
+      },
+      body: JSON.stringify({ files }),
     },
-    body: JSON.stringify({ files }),
-  });
+  );
   const text = await res.text();
   let data;
   try {
@@ -116,6 +156,25 @@ async function uploadBatch(files) {
   return data;
 }
 
+async function uploadBatchWithRetry(files, batchLabel) {
+  const MAX_RETRIES = 3;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await uploadBatch(files, attempt);
+    } catch (err) {
+      const detail = formatError(err);
+      if (attempt < MAX_RETRIES) {
+        const waitSec = attempt * 5;
+        console.log(`\n     ⚠️  ${batchLabel} attempt ${attempt} failed: ${detail}`);
+        console.log(`     ⏳ Retrying in ${waitSec}s...`);
+        await new Promise((r) => setTimeout(r, waitSec * 1000));
+      } else {
+        throw new Error(detail);
+      }
+    }
+  }
+}
+
 async function main() {
   console.log(`\n🌐 Replit URL: ${REPLIT_URL}`);
 
@@ -123,6 +182,9 @@ async function main() {
     console.error(`\n❌ Folder not found: ${LOCAL_ILLUST_DIR}`);
     process.exit(1);
   }
+
+  const reachable = await checkConnectivity();
+  if (!reachable) process.exit(1);
 
   let toUpload;
   if (uploadAll) {
@@ -160,11 +222,12 @@ Options:
   let totalErrors = 0;
   let totalDraftsUpdated = 0;
 
-  console.log(`\n📤 Uploading in ${batches.length} batch(es) of up to ${BATCH_SIZE}...\n`);
+  console.log(`📤 Uploading in ${batches.length} batch(es) of up to ${BATCH_SIZE}...\n`);
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
-    process.stdout.write(`   Batch ${i + 1}/${batches.length} (${batch.length} files)... `);
+    const label = `Batch ${i + 1}/${batches.length}`;
+    process.stdout.write(`   ${label} (${batch.length} files)... `);
 
     const files = batch.map((fname) => {
       const data = fs.readFileSync(path.join(LOCAL_ILLUST_DIR, fname));
@@ -175,7 +238,7 @@ Options:
     });
 
     try {
-      const result = await uploadBatch(files);
+      const result = await uploadBatchWithRetry(files, label);
       const ok = result.results?.filter((r) => r.uploaded).length ?? result.uploaded ?? 0;
       const bad = result.results?.filter((r) => !r.uploaded).length ?? result.errors ?? 0;
       totalUploaded += ok;
@@ -199,6 +262,6 @@ Options:
 }
 
 main().catch((err) => {
-  console.error(`\n❌ Fatal error: ${err.message}`);
+  console.error(`\n❌ Fatal error: ${formatError(err)}`);
   process.exit(1);
 });
