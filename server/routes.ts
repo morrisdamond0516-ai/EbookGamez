@@ -6414,9 +6414,10 @@ Respond in JSON format only:
   });
 
   // POST /api/admin/sync/upload-illustrations
-  // Lets external callers (Cursor, CI, etc.) push illustration image files directly into
-  // Replit's object storage over HTTPS. Accepts either a session token OR the raw admin
-  // password (via x-admin-password header) so Cursor scripts don't need a login step.
+  // Lets external callers (e.g. Cursor on Windows) push illustration images to Replit's
+  // object storage without needing a database connection or GCS credentials.
+  // The server handles both the GCS upload AND the draft_ebooks content URL update.
+  // Auth: x-admin-token (session) OR x-admin-password (raw password for external scripts).
   app.post("/api/admin/sync/upload-illustrations", async (req, res) => {
     const directPassword = req.headers["x-admin-password"] as string;
     const isDirectAuth = !!directPassword && directPassword === process.env.ADMIN_PASSWORD;
@@ -6429,25 +6430,54 @@ Respond in JSON format only:
         return res.status(400).json({ error: "'files' array is required: [{filename, base64, mimeType?}]" });
       }
       const { uploadToObjStore } = await import("./objectStorage");
-      const results: { filename: string; objstoreUrl: string; uploaded: boolean; error?: string }[] = [];
+
+      // Step 1: upload each file to GCS
+      const uploadResults: { filename: string; objstoreUrl: string; uploaded: boolean; error?: string }[] = [];
       for (const file of files) {
         const { filename, base64, mimeType = "image/png" } = file || {};
         if (!filename || !base64) {
-          results.push({ filename: filename || "?", objstoreUrl: "", uploaded: false, error: "Missing filename or base64" });
+          uploadResults.push({ filename: filename || "?", objstoreUrl: "", uploaded: false, error: "Missing filename or base64" });
           continue;
         }
         try {
           const buffer = Buffer.from(base64, "base64");
-          const remotePath = `public/illustrations/${filename}`;
-          const ok = await uploadToObjStore(buffer, remotePath, mimeType);
-          results.push({ filename, objstoreUrl: `/objstore/illustrations/${filename}`, uploaded: ok });
+          const ok = await uploadToObjStore(buffer, `public/illustrations/${filename}`, mimeType);
+          uploadResults.push({ filename, objstoreUrl: `/objstore/illustrations/${filename}`, uploaded: ok });
         } catch (e: any) {
-          results.push({ filename, objstoreUrl: "", uploaded: false, error: e.message });
+          uploadResults.push({ filename, objstoreUrl: "", uploaded: false, error: e.message });
         }
       }
-      const uploaded = results.filter(r => r.uploaded).length;
-      console.log(`[SyncIllustrations] Received ${files.length} files, uploaded ${uploaded}`);
-      res.json({ success: true, uploaded, total: files.length, results });
+
+      // Step 2: update draft_ebooks.content — swap /uploads/illustrations/ → /objstore/illustrations/
+      // for every file that was successfully uploaded.
+      const uploadedFilenames = uploadResults.filter(r => r.uploaded).map(r => r.filename);
+      let dbUpdated = 0;
+      if (uploadedFilenames.length > 0) {
+        const draftsWithLocal = await db.select({ id: draftEbooks.id, content: draftEbooks.content })
+          .from(draftEbooks)
+          .where(sql`content LIKE '%/uploads/illustrations/%'`);
+
+        for (const draft of draftsWithLocal) {
+          let content = draft.content || "";
+          let changed = false;
+          for (const fname of uploadedFilenames) {
+            const localUrl = `/uploads/illustrations/${fname}`;
+            const cloudUrl = `/objstore/illustrations/${fname}`;
+            if (content.includes(localUrl)) {
+              content = content.replaceAll(localUrl, cloudUrl);
+              changed = true;
+            }
+          }
+          if (changed) {
+            await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draft.id));
+            dbUpdated++;
+          }
+        }
+      }
+
+      const uploaded = uploadResults.filter(r => r.uploaded).length;
+      console.log(`[SyncIllustrations] ${uploaded}/${files.length} uploaded, ${dbUpdated} drafts updated in DB`);
+      res.json({ success: true, uploaded, total: files.length, dbUpdated, results: uploadResults });
     } catch (error: any) {
       console.error("[SyncIllustrations] Error:", error);
       res.status(500).json({ error: error.message });
