@@ -8832,6 +8832,30 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
     }
   });
 
+  // POST /api/admin/receive-illustration-file
+  // Receives an in-book illustration PNG from dev push-to-production.
+  app.post("/api/admin/receive-illustration-file", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { filename, dataBase64 } = req.body;
+      if (!filename || typeof filename !== "string" || !dataBase64) {
+        return res.status(400).json({ error: "filename and dataBase64 required" });
+      }
+      const safeName = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, "_");
+      if (!safeName || !/^illust-/i.test(safeName)) {
+        return res.status(400).json({ error: "Invalid illustration filename" });
+      }
+      const buffer = Buffer.from(dataBase64, "base64");
+      if (buffer.length < 500) return res.status(400).json({ error: "Empty or tiny image data" });
+      const { saveIllustrationFile } = await import("./illustrationSync");
+      const url = await saveIllustrationFile(buffer, safeName);
+      res.json({ url, filename: safeName });
+    } catch (err: any) {
+      console.error("[SyncReceive] Illustration file error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/admin/receive-draft-sync
   // Receives batches of draft content from the dev environment and upserts them into this
   // database. Matches by title — updates if found, inserts if not.
@@ -8859,7 +8883,8 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         try {
           if (!d.title || !d.content) { errors++; continue; }
           const title = clean(d.title) as string;
-          const content = clean(d.content) as string;
+          // Prefer cloud illustration paths so ephemeral /uploads/ on Replit does not break art.
+          const content = clean(d.content)?.replace(/\/uploads\/illustrations\//g, "/objstore/illustrations/") as string;
           let coverUrl = clean(d.coverUrl);
           let backgroundUrl = clean(d.backgroundUrl);
           const description = clean(d.description);
@@ -8987,6 +9012,11 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       if (isLocalDevUrl(url)) {
         return res.status(400).json({
           error: `Production URL is local (${url}). That only updates this computer — it does NOT change ebookgamez.com. Use https://ebookgamez.com (or your Replit deploy URL).`,
+        });
+      }
+      if (/replit\.com\/@/i.test(url) || /replit\.com\/t\//i.test(url)) {
+        return res.status(400).json({
+          error: `That URL is the Replit project page (${url}), not your running app. Leave Replit URL blank and use https://ebookgamez.com only — or paste your .replit.app publish URL.`,
         });
       }
 
@@ -9131,6 +9161,11 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       }
 
       const { readCoverBytesForSync, toObjstoreCoverUrl } = await import("./coverStorage");
+      const {
+        extractIllustrationFilenames,
+        readIllustrationBytesForSync,
+        rewriteContentIllustrationUrls,
+      } = await import("./illustrationSync");
       const uploadedCoverFiles = new Set<string>();
       let coversUploaded = 0;
       let coversMissing = 0;
@@ -9173,6 +9208,63 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         if (!hadCoverFile) coversMissing++;
       }
 
+      // Upload in-book illustration PNGs (covers alone are not enough for illustrated books).
+      const uploadedIllustFiles = new Set<string>();
+      let illustrationsUploaded = 0;
+      let illustrationsMissing = 0;
+      const illustNeeded = new Set<string>();
+      for (const draft of allDrafts) {
+        for (const fname of extractIllustrationFilenames(draft.content)) {
+          illustNeeded.add(fname);
+        }
+      }
+      for (const fname of illustNeeded) {
+        if (uploadedIllustFiles.has(fname)) continue;
+        const file = await readIllustrationBytesForSync(fname);
+        if (!file) {
+          illustrationsMissing++;
+          console.warn(`[PushToProd] Missing local illustration file: ${fname}`);
+          continue;
+        }
+        uploadedIllustFiles.add(fname);
+        try {
+          const illustResp = await fetch(`${url}/api/admin/receive-illustration-file`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-admin-token": prodToken },
+            body: JSON.stringify({
+              filename: file.filename,
+              dataBase64: file.buffer.toString("base64"),
+            }),
+            signal: AbortSignal.timeout(180000),
+          });
+          if (illustResp.ok) {
+            illustrationsUploaded++;
+          } else if (illustResp.status === 404) {
+            warnings.push(
+              "Production is missing receive-illustration-file (404). Push this Cursor update to GitHub, git pull + redeploy on Replit, then push Luna again.",
+            );
+            break;
+          } else {
+            const errText = await illustResp.text().catch(() => "");
+            console.warn(`[PushToProd] Illustration upload failed for ${fname}: ${errText.slice(0, 120)}`);
+            illustrationsMissing++;
+          }
+        } catch (illustErr: any) {
+          console.warn(`[PushToProd] Illustration upload error for ${fname}: ${illustErr.message}`);
+          illustrationsMissing++;
+        }
+      }
+      if (illustNeeded.size > 0) {
+        console.log(
+          `[PushToProd] Illustrations: ${illustrationsUploaded} uploaded, ${illustrationsMissing} missing of ${illustNeeded.size} referenced`,
+        );
+        if (illustrationsMissing > 0) {
+          warnings.push(
+            `${illustrationsMissing} illustration file(s) could not be uploaded — live pages may show missing art until those files sync.`,
+          );
+        }
+      }
+
       const BATCH_SIZE = 5;
       let totalUpdated = 0, totalInserted = 0, totalErrors = 0;
 
@@ -9189,6 +9281,7 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
             body: JSON.stringify({
               drafts: batch.map((d) => ({
                 ...d,
+                content: rewriteContentIllustrationUrls(d.content || ""),
                 coverUrl: d.coverUrl ? toObjstoreCoverUrl(d.coverUrl) : null,
                 backgroundUrl: d.backgroundUrl ? toObjstoreCoverUrl(d.backgroundUrl) : null,
               })),
@@ -9265,7 +9358,7 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
       const remainingPending = pendingOnly
         ? await countPublishedDraftsNeedingProdPush()
         : undefined;
-      const message = `Synced ${allDrafts.length} book(s) (${totalUpdated} draft rows updated, ${totalInserted} new, ${coversUploaded} covers uploaded, ${verifiedOnStorefront}/${allDrafts.length} verified on storefront${totalErrors > 0 ? `, ${totalErrors} sync errors` : ""}${remainingPending != null ? `, ${remainingPending} still need push` : ""})`;
+      const message = `Synced ${allDrafts.length} book(s) (${totalUpdated} draft rows updated, ${totalInserted} new, ${coversUploaded} covers uploaded, ${illustrationsUploaded} illustrations uploaded, ${verifiedOnStorefront}/${allDrafts.length} verified on storefront${totalErrors > 0 ? `, ${totalErrors} sync errors` : ""}${remainingPending != null ? `, ${remainingPending} still need push` : ""})`;
       console.log(`[PushToProd] Complete: ${message}`);
       if (warnings.length) console.warn("[PushToProd] Warnings:", warnings.join(" | "));
 
@@ -9302,11 +9395,14 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
         totalErrors,
         coversUploaded,
         coversMissing,
+        illustrationsUploaded,
+        illustrationsMissing,
+        illustrationsReferenced: illustNeeded.size,
         verification,
         warnings,
         remainingPending,
         message,
-        ok: totalErrors === 0 && verifiedOnStorefront === allDrafts.length && warnings.length === 0,
+        ok: totalErrors === 0 && verifiedOnStorefront === allDrafts.length && warnings.length === 0 && illustrationsMissing === 0,
       });
     } catch (err: any) {
       console.error("[PushToProd] Error:", err.message);

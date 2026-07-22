@@ -300,6 +300,9 @@ function ContentStudioMain() {
     totalErrors: number;
     coversUploaded?: number;
     coversMissing?: number;
+    illustrationsUploaded?: number;
+    illustrationsMissing?: number;
+    illustrationsReferenced?: number;
     verification?: { title: string; onStorefront: boolean; hasCover: boolean }[];
     warnings?: string[];
     ok?: boolean;
