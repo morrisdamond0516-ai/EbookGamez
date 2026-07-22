@@ -1405,7 +1405,7 @@ function SystemMaintenance() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [cleaning, setCleaning] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState<"export" | "import" | "export-books" | "import-books" | "verify-illustrations" | "repair-illustrations" | "price-drafts" | "price-all" | null>(null);
+  const [syncing, setSyncing] = useState<"export" | "import" | "export-books" | "import-books" | "verify-illustrations" | "repair-illustrations" | "price-drafts" | "price-all" | "download-cursor" | null>(null);
   const [auditResults, setAuditResults] = useState<any>(null);
   const [auditRunning, setAuditRunning] = useState(false);
   const adminToken = localStorage.getItem("ebgz_admin_token") || "";
@@ -1812,6 +1812,54 @@ function SystemMaintenance() {
                 Import Books from Cloud
               </Button>
             </div>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+              <Download className="h-4 w-4 text-violet-400" /> Share with Cursor / External Tools
+            </h3>
+            <p className="text-xs text-gray-400 mb-3">
+              Download all books and drafts as a single JSON file. Share this file with Cursor or any other tool that needs a snapshot of the library.
+              <span className="block mt-1 text-gray-500">✓ Same database confirmed for dev &amp; production — no sync needed between Replit environments.</span>
+            </p>
+            <Button
+              size="sm"
+              onClick={async () => {
+                setSyncing("download-cursor");
+                try {
+                  const adminToken = localStorage.getItem("ebgz_admin_token") || "";
+                  const res = await fetch("/api/admin/download-books-json", {
+                    headers: { "x-admin-token": adminToken },
+                  });
+                  if (!res.ok) {
+                    const err = await res.json().catch(() => ({ error: "Download failed" }));
+                    toast({ title: "Download Failed", description: err.error, variant: "destructive" });
+                    return;
+                  }
+                  const blob = await res.blob();
+                  const disposition = res.headers.get("Content-Disposition") || "";
+                  const nameMatch = disposition.match(/filename="([^"]+)"/);
+                  const filename = nameMatch?.[1] || `ebookgamez-books-${new Date().toISOString().slice(0, 10)}.json`;
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = filename;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  toast({ title: "Download Ready", description: `Saved as ${filename}` });
+                } catch (err: any) {
+                  toast({ title: "Error", description: err.message, variant: "destructive" });
+                } finally {
+                  setSyncing(null);
+                }
+              }}
+              disabled={syncing !== null}
+              className="bg-violet-600 hover:bg-violet-500 text-white"
+              data-testid="button-download-cursor-json"
+            >
+              {syncing === "download-cursor" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />}
+              Download Books JSON
+            </Button>
           </div>
 
           <div className="mt-4 pt-4 border-t border-white/10">

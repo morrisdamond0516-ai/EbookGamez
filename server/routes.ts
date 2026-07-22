@@ -8155,6 +8155,48 @@ Respond in JSON format only:
     }
   });
 
+  // Download all books + drafts as a single JSON file — for sharing with Cursor or other environments
+  app.get("/api/admin/download-books-json", async (req, res) => {
+    if (!isAdminAuthenticated(req)) {
+      return res.status(401).json({ error: "Admin authentication required" });
+    }
+    try {
+      const [allBooks, allDrafts] = await Promise.all([
+        db.select().from(books).orderBy(books.id),
+        db.select({
+          id: draftEbooks.id,
+          title: draftEbooks.title,
+          topic: draftEbooks.topic,
+          genre: draftEbooks.genre,
+          description: draftEbooks.description,
+          status: draftEbooks.status,
+          coverUrl: draftEbooks.coverUrl,
+          backgroundUrl: draftEbooks.backgroundUrl,
+          coverStyleId: draftEbooks.coverStyleId,
+          publishedAt: draftEbooks.publishedAt,
+          createdAt: draftEbooks.createdAt,
+        }).from(draftEbooks).orderBy(draftEbooks.id),
+      ]);
+
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        sourceUrl: process.env.REPLIT_DOMAINS?.split(",")[0] || "unknown",
+        totalBooks: allBooks.length,
+        totalDrafts: allDrafts.length,
+        books: allBooks,
+        drafts: allDrafts,
+      };
+
+      const filename = `ebookgamez-books-${new Date().toISOString().slice(0, 10)}.json`;
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Type", "application/json");
+      res.send(JSON.stringify(payload, null, 2));
+    } catch (error: any) {
+      console.error("[Download JSON] Error:", error);
+      res.status(500).json({ error: "Failed to generate export" });
+    }
+  });
+
   app.post("/api/admin/import-published-books", async (req, res) => {
     if (!isAdminAuthenticated(req)) {
       return res.status(401).json({ error: "Admin authentication required" });
