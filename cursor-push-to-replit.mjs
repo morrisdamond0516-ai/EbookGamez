@@ -2,22 +2,18 @@
 /**
  * cursor-push-to-replit.mjs
  *
- * Pushes locally-generated illustration images to the live Replit site.
- * The Replit server handles GCS upload AND database URL updates — this
- * script only needs to read local files and call the API.
+ * Push local illustration PNGs to the live Replit site. No DATABASE_URL required —
+ * the server saves files to cloud storage and updates draft content paths on Replit.
  *
- * NO database connection required. Works from Windows, Mac, or Linux.
- *
- * Usage:
+ * Usage (from project root):
  *   node cursor-push-to-replit.mjs
+ *   node cursor-push-to-replit.mjs --all        # upload every illust-*.png locally (careful)
  *
- * Required — set in a .env file next to this script (or as env vars):
+ * Required in .env:
  *   REPLIT_URL=https://ebookgamez.replit.app
  *   ADMIN_PASSWORD=your-admin-password
  *
- * Optional:
- *   ILLUST_DIR=path/to/uploads/illustrations   (default: ./uploads/illustrations)
- *   BATCH_SIZE=20                              (images per API request, default 20)
+ * Optional: DATABASE_URL (local Postgres) limits upload to files referenced in draft_ebooks.
  */
 
 import fs from "fs";
@@ -25,48 +21,77 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadAll = process.argv.includes("--all");
 
-// ── Load .env ───────────────────────────────────────────────────────────────
 const envPath = path.join(__dirname, ".env");
 if (fs.existsSync(envPath)) {
   for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const idx = t.indexOf("=");
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const idx = trimmed.indexOf("=");
     if (idx === -1) continue;
-    const key = t.slice(0, idx).trim();
-    const val = t.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
+    const key = trimmed.slice(0, idx).trim();
+    const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
     if (!process.env[key]) process.env[key] = val;
   }
 }
 
-// ── Config ──────────────────────────────────────────────────────────────────
-const REPLIT_URL    = (process.env.REPLIT_URL || "").replace(/\/$/, "");
+const REPLIT_URL = (process.env.REPLIT_URL || "").replace(/\/$/, "");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
-const ILLUST_DIR    = process.env.ILLUST_DIR
-  ? path.resolve(process.env.ILLUST_DIR)
-  : path.join(__dirname, "uploads", "illustrations");
-const BATCH_SIZE    = Math.max(1, parseInt(process.env.BATCH_SIZE || "20", 10));
+const DATABASE_URL = process.env.DATABASE_URL || "";
+const BATCH_SIZE = 20;
+const LOCAL_ILLUST_DIR = path.join(__dirname, "uploads", "illustrations");
 
 if (!REPLIT_URL || !ADMIN_PASSWORD) {
   console.error(`
 ERROR: Missing required environment variables.
 
-Create a .env file next to this script with:
-
+Add to .env:
   REPLIT_URL=https://ebookgamez.replit.app
   ADMIN_PASSWORD=your-admin-password
-
-No DATABASE_URL needed — the server handles all database updates.
 `);
   process.exit(1);
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
 function chunkArray(arr, size) {
   const chunks = [];
   for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
   return chunks;
+}
+
+function listAllLocalIllustrations() {
+  if (!fs.existsSync(LOCAL_ILLUST_DIR)) return [];
+  return fs
+    .readdirSync(LOCAL_ILLUST_DIR)
+    .filter((f) => /^illust-.*\.(png|jpe?g|webp)$/i.test(f))
+    .sort();
+}
+
+function extractFilenamesFromContent(content) {
+  const re = /\/uploads\/illustrations\/(illust-[^\s|"'\]]+\.(?:png|jpe?g|webp))/gi;
+  const names = new Set();
+  let m;
+  while ((m = re.exec(content)) !== null) names.add(m[1]);
+  return names;
+}
+
+async function filenamesReferencedInLocalDb() {
+  if (!DATABASE_URL || DATABASE_URL.includes("your-postgresql")) return null;
+  try {
+    const pg = await import("pg");
+    const pool = new pg.default.Pool({ connectionString: DATABASE_URL });
+    const { rows } = await pool.query(
+      `SELECT content FROM draft_ebooks WHERE content LIKE '%/uploads/illustrations/%'`,
+    );
+    await pool.end();
+    const names = new Set();
+    for (const row of rows) {
+      for (const f of extractFilenamesFromContent(row.content || "")) names.add(f);
+    }
+    return names;
+  } catch {
+    return null;
+  }
 }
 
 async function uploadBatch(files) {
@@ -78,96 +103,102 @@ async function uploadBatch(files) {
     },
     body: JSON.stringify({ files }),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Upload failed (${res.status}): ${text.slice(0, 200)}`);
   }
-  return await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `Upload failed (${res.status})`);
+  }
+  return data;
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log(`\nEbookGamez — Illustration Push to Replit`);
-  console.log(`  Target : ${REPLIT_URL}`);
-  console.log(`  Source : ${ILLUST_DIR}\n`);
+  console.log(`\n🌐 Replit URL: ${REPLIT_URL}`);
 
-  // 1. Find illustration files
-  if (!fs.existsSync(ILLUST_DIR)) {
-    console.error(`ERROR: Illustration folder not found:\n  ${ILLUST_DIR}`);
-    console.error(`Make sure you're running this from the project root, or set ILLUST_DIR.`);
+  if (!fs.existsSync(LOCAL_ILLUST_DIR)) {
+    console.error(`\n❌ Folder not found: ${LOCAL_ILLUST_DIR}`);
     process.exit(1);
   }
 
-  const allFiles = fs.readdirSync(ILLUST_DIR).filter(f =>
-    /\.(png|jpg|jpeg|webp)$/i.test(f)
-  );
+  let toUpload;
+  if (uploadAll) {
+    toUpload = listAllLocalIllustrations();
+    console.log(`📁 --all: uploading every local illustration (${toUpload.length} files)`);
+  } else {
+    const fromDb = await filenamesReferencedInLocalDb();
+    if (fromDb && fromDb.size > 0) {
+      toUpload = [...fromDb].filter((f) => fs.existsSync(path.join(LOCAL_ILLUST_DIR, f))).sort();
+      console.log(`📁 ${toUpload.length} file(s) referenced in local draft_ebooks (with /uploads/ paths)`);
+    } else {
+      toUpload = listAllLocalIllustrations();
+      if (toUpload.length > 50) {
+        console.error(`
+❌ Found ${toUpload.length} local illustration files but no local DB match.
+   Uploading everything would be slow and expensive.
 
-  if (allFiles.length === 0) {
-    console.log(`No illustration files found in ${ILLUST_DIR}`);
-    console.log(`Nothing to push.`);
+Options:
+  • Keep DATABASE_URL in .env pointing at local Postgres (recommended), then re-run
+  • Or pass --all to upload every file anyway
+`);
+        process.exit(1);
+      }
+      console.log(`📁 No local DB filter — uploading ${toUpload.length} file(s) from disk`);
+    }
+  }
+
+  if (toUpload.length === 0) {
+    console.log("\n✅ Nothing to upload.");
     return;
   }
 
-  console.log(`Found ${allFiles.length} illustration file(s) to upload.`);
-  console.log(`Uploading in batches of ${BATCH_SIZE}...\n`);
-
-  // 2. Upload in batches
-  const batches = chunkArray(allFiles, BATCH_SIZE);
+  const batches = chunkArray(toUpload, BATCH_SIZE);
   let totalUploaded = 0;
   let totalErrors = 0;
-  let totalDbUpdated = 0;
+  let totalDraftsUpdated = 0;
+
+  console.log(`\n📤 Uploading in ${batches.length} batch(es) of up to ${BATCH_SIZE}...\n`);
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
-    process.stdout.write(`  Batch ${i + 1}/${batches.length} (${batch.length} files)... `);
+    process.stdout.write(`   Batch ${i + 1}/${batches.length} (${batch.length} files)... `);
 
-    const files = batch.map(fname => {
-      const buf = fs.readFileSync(path.join(ILLUST_DIR, fname));
+    const files = batch.map((fname) => {
+      const data = fs.readFileSync(path.join(LOCAL_ILLUST_DIR, fname));
       const ext = path.extname(fname).toLowerCase();
       const mimeType =
-        ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
-        ext === ".webp" ? "image/webp" : "image/png";
-      return { filename: fname, base64: buf.toString("base64"), mimeType };
+        ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "image/png";
+      return { filename: fname, base64: data.toString("base64"), mimeType };
     });
 
     try {
       const result = await uploadBatch(files);
-      const batchUploaded = result.results?.filter(r => r.uploaded).length ?? 0;
-      const batchErrors   = result.results?.filter(r => !r.uploaded).length ?? 0;
-      const batchDb       = result.dbUpdated ?? 0;
-      totalUploaded  += batchUploaded;
-      totalErrors    += batchErrors;
-      totalDbUpdated += batchDb;
-
-      console.log(`✅ ${batchUploaded} uploaded, ${batchDb} drafts updated`);
-
-      if (batchErrors > 0) {
-        for (const r of (result.results || [])) {
-          if (!r.uploaded) console.log(`     ✗ ${r.filename}: ${r.error}`);
-        }
+      const ok = result.results?.filter((r) => r.uploaded).length ?? result.uploaded ?? 0;
+      const bad = result.results?.filter((r) => !r.uploaded).length ?? result.errors ?? 0;
+      totalUploaded += ok;
+      totalErrors += bad;
+      for (const r of result.results || []) {
+        if (r.uploaded && r.draftsUpdated) totalDraftsUpdated += r.draftsUpdated;
+        if (!r.uploaded) console.log(`\n     ✗ ${r.filename}: ${r.error}`);
       }
+      console.log(`✅ ${ok} uploaded, ${bad} errors`);
     } catch (err) {
       totalErrors += batch.length;
       console.log(`❌ FAILED: ${err.message}`);
     }
   }
 
-  // 3. Summary
-  console.log(`\n── Summary ──────────────────────────────`);
-  console.log(`  Files uploaded to cloud : ${totalUploaded} / ${allFiles.length}`);
-  console.log(`  Upload errors           : ${totalErrors}`);
-  console.log(`  Drafts updated in DB    : ${totalDbUpdated}`);
-
-  if (totalUploaded > 0) {
-    console.log(`\n✅ Done! Images are now in Replit cloud storage.`);
-    console.log(`   Draft content URLs updated automatically on the server.`);
-    console.log(`   Deploy from Replit to make changes live on the public site.`);
-  } else {
-    console.log(`\n⚠️  No files were uploaded. Check the errors above.`);
-  }
+  console.log(`\n📊 Summary:`);
+  console.log(`   • Files uploaded: ${totalUploaded}`);
+  console.log(`   • Upload errors: ${totalErrors}`);
+  console.log(`   • Draft rows updated on Replit: ${totalDraftsUpdated}`);
+  console.log(`\n✅ Done. Open the live site to verify illustrations.`);
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error(`\n❌ Fatal error: ${err.message}`);
   process.exit(1);
 });
