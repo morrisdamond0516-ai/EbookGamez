@@ -2493,8 +2493,15 @@ Allow: /
         expiresAt: Date.now() + 60 * 60 * 1000,
       });
 
-      const orderItems = await storage.getOrderItems(order.id);
-      res.json({ orderToken: token, order, items: orderItems });
+      const rawItems = await storage.getOrderItems(order.id);
+      const bookIds = [...new Set(rawItems.map((i) => i.bookId))];
+      const genreMap: Record<number, string> = {};
+      if (bookIds.length > 0) {
+        const bookRows = await db.select({ id: books.id, genre: books.genre }).from(books).where(inArray(books.id, bookIds));
+        for (const b of bookRows) genreMap[b.id] = b.genre || "Ebook";
+      }
+      const enrichedItems = rawItems.map((i) => ({ ...i, genre: genreMap[i.bookId] || "Ebook" }));
+      res.json({ orderToken: token, order, items: enrichedItems });
     } catch (error) {
       console.error("Error issuing order token:", error);
       res.status(500).json({ error: "Failed to process order" });

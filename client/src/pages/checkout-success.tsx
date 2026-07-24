@@ -5,7 +5,7 @@ import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, Download, ArrowRight, BookOpen, Loader2, LogIn } from "lucide-react";
-import { trackPurchase } from "@/lib/analytics";
+import { trackPurchase, trackGuestPurchase } from "@/lib/analytics";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
@@ -15,6 +15,7 @@ interface OrderItem {
   price: string;
   bookId: number;
   purchaseType?: string;
+  genre?: string;
 }
 
 interface OrderData {
@@ -52,6 +53,20 @@ export default function CheckoutSuccess() {
   const customerToken = typeof window !== "undefined" ? localStorage.getItem("ebgz_customer_token") : null;
 
   useEffect(() => {
+    try {
+      const rawCart = localStorage.getItem("cart");
+      if (rawCart && !customerToken && sessionId) {
+        const cart: Array<{ id: number; title: string; price: number; purchaseType?: string; genre?: string }> = JSON.parse(rawCart);
+        if (Array.isArray(cart) && cart.length > 0) {
+          const dedupKey = `ebgz_guest_conv_tracked_${sessionId}`;
+          if (!localStorage.getItem(dedupKey)) {
+            localStorage.setItem(dedupKey, "1");
+            const total = cart.reduce((sum, item) => sum + (item.price || 0), 0);
+            trackGuestPurchase({ sessionId, items: cart, value: total });
+          }
+        }
+      }
+    } catch {}
     localStorage.setItem("cart", JSON.stringify([]));
     window.dispatchEvent(new Event("cartUpdated"));
   }, []);

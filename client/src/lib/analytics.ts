@@ -67,29 +67,75 @@ export function trackBeginCheckout(
   });
 }
 
+const TITLE_SUFFIXES = [
+  " (Digital Download)",
+  " (1-Year Online Reading)",
+  " (Read Online + Download)",
+  " (Online Reading)",
+  " (Read + Download)",
+];
+
+function cleanItemTitle(title: string): string {
+  let t = title;
+  for (const suffix of TITLE_SUFFIXES) t = t.replace(suffix, "");
+  return t.trim();
+}
+
 export function trackPurchase(order: {
   id: number;
   total: string;
   customerEmail: string;
+  coupon?: string;
   items: Array<{
     id: number;
     title: string;
     price: string;
     bookId: number;
     purchaseType?: string;
+    genre?: string;
   }>;
 }) {
+  push({ ecommerce: null });
   push({
     event: "purchase",
+    customer_email: order.customerEmail || undefined,
     ecommerce: {
       transaction_id: String(order.id),
       currency: "USD",
       value: parseFloat(order.total) || 0,
+      coupon: order.coupon || undefined,
       items: order.items.map((item) => ({
         item_id: String(item.bookId),
-        item_name: item.title,
+        item_name: cleanItemTitle(item.title),
+        item_brand: "EbookGamez",
+        item_category: item.genre || "Ebook",
         item_variant: item.purchaseType || "download",
         price: parseFloat(item.price) || 0,
+        quantity: 1,
+      })),
+    },
+  });
+}
+
+export function trackGuestPurchase(data: {
+  sessionId: string;
+  items: Array<{ title: string; price: number; purchaseType?: string; genre?: string }>;
+  value: number;
+}) {
+  push({ ecommerce: null });
+  push({
+    event: "purchase",
+    ecommerce: {
+      transaction_id: data.sessionId,
+      currency: "USD",
+      value: data.value,
+      items: data.items.map((item, i) => ({
+        item_id: `guest_item_${i}`,
+        item_name: cleanItemTitle(item.title),
+        item_brand: "EbookGamez",
+        item_category: item.genre || "Ebook",
+        item_variant: item.purchaseType || "download",
+        price: item.price,
         quantity: 1,
       })),
     },
