@@ -144,6 +144,15 @@ export default function CheckoutSuccess() {
       customerEmail: orderData.order.customerEmail,
       items: orderData.items,
     });
+    // Google Ads manual conversion event — Purchase (1)
+    if (typeof (window as any).gtag === 'function') {
+      (window as any).gtag('event', 'conversion', {
+        send_to: 'AW-18030874893/BJi5CM6H1o0cEI2i5ZVD',
+        value: parseFloat(orderData.order.total) || 0,
+        currency: 'USD',
+        transaction_id: String(orderData.order.id),
+      });
+    }
   }, [orderData]);
 
   const handleDownload = async (bookId: number, format: "epub" | "pdf" = "epub") => {
