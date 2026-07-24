@@ -82,6 +82,40 @@ function formatBytes(bytes: number): string {
 const app = express();
 app.set("trust proxy", 1);
 
+// Health-check endpoint — registered before all body parsers so it is always reachable.
+app.get('/healthz', async (_req, res) => {
+  const checks: { db: boolean; stripe: boolean } = { db: false, stripe: false };
+
+  // DB check: open a short-lived connection and run SELECT 1
+  try {
+    const pg = await import('pg');
+    const client = new pg.default.Client({ connectionString: process.env.DATABASE_URL });
+    await client.connect();
+    await client.query('SELECT 1');
+    await client.end();
+    checks.db = true;
+  } catch (err: any) {
+    console.error('[Healthz] DB check failed:', err.message);
+  }
+
+  // Stripe check: verify the secret key is present and the client can be instantiated
+  try {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    if (!secretKey) throw new Error('STRIPE_SECRET_KEY not set');
+    const Stripe = (await import('stripe')).default;
+    const stripe = new Stripe(secretKey, { apiVersion: '2025-11-17.clover' as any });
+    // A minimal read-only call to confirm the key is valid
+    await stripe.balance.retrieve();
+    checks.stripe = true;
+  } catch (err: any) {
+    console.error('[Healthz] Stripe check failed:', err.message);
+  }
+
+  const allOk = checks.db && checks.stripe;
+  const status = allOk ? 'ok' : 'degraded';
+  res.status(allOk ? 200 : 503).json({ status, ...checks });
+});
+
 function setupShutdownGuard() {
   const handleShutdown = (signal: string) => {
     if (isGenerationActive()) {
