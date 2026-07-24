@@ -2,6 +2,7 @@ import { storage, db } from "./storage";
 import { readingAccess, promoUsages } from "@shared/schema";
 import type { InsertOrderItem } from "@shared/schema";
 import { sendPurchaseThankYouEmail } from "./emailService";
+import { sendGA4PurchaseEvent } from "./ga4";
 import type Stripe from "stripe";
 
 export async function createOrderFromStripeSession(
@@ -116,5 +117,20 @@ export async function createOrderFromStripeSession(
     } catch (emailErr: any) {
       console.error(`[Email] Failed to send purchase thank-you:`, emailErr.message);
     }
+
+    sendGA4PurchaseEvent({
+      orderId: order.id,
+      sessionId,
+      customerEmail,
+      total,
+      coupon: session.metadata?.promoCode || undefined,
+      items: orderItemsData.map((oi, idx) => ({
+        bookId: oi.bookId,
+        title: oi.title,
+        price: oi.price,
+        genre: booksForOrder[idx]?.genre || "Ebook",
+        purchaseType: oi.purchaseType || "download",
+      })),
+    }).catch((err) => console.error("[GA4] Unhandled error:", err.message));
   }
 }
