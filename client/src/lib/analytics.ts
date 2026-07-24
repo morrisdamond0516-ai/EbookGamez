@@ -95,24 +95,35 @@ export function trackPurchase(order: {
     genre?: string;
   }>;
 }) {
+  const transactionId = String(order.id);
+  const value = parseFloat(order.total) || 0;
+  const currency = "USD";
+  const mappedItems = order.items.map((item) => ({
+    item_id: String(item.bookId),
+    item_name: cleanItemTitle(item.title),
+    item_brand: "EbookGamez",
+    item_category: item.genre || "Ebook",
+    item_variant: item.purchaseType || "download",
+    price: parseFloat(item.price) || 0,
+    quantity: 1,
+  }));
+
   push({ ecommerce: null });
   push({
     event: "purchase",
+    // Top-level variables for GTM to read directly
+    transaction_id: transactionId,
+    value,
+    currency,
+    coupon: order.coupon || undefined,
     customer_email: order.customerEmail || undefined,
+    // Full GA4 ecommerce object
     ecommerce: {
-      transaction_id: String(order.id),
-      currency: "USD",
-      value: parseFloat(order.total) || 0,
+      transaction_id: transactionId,
+      currency,
+      value,
       coupon: order.coupon || undefined,
-      items: order.items.map((item) => ({
-        item_id: String(item.bookId),
-        item_name: cleanItemTitle(item.title),
-        item_brand: "EbookGamez",
-        item_category: item.genre || "Ebook",
-        item_variant: item.purchaseType || "download",
-        price: parseFloat(item.price) || 0,
-        quantity: 1,
-      })),
+      items: mappedItems,
     },
   });
 }
@@ -122,22 +133,28 @@ export function trackGuestPurchase(data: {
   items: Array<{ title: string; price: number; purchaseType?: string; genre?: string }>;
   value: number;
 }) {
+  const currency = "USD";
+  const mappedItems = data.items.map((item, i) => ({
+    item_id: `guest_item_${i}`,
+    item_name: cleanItemTitle(item.title),
+    item_brand: "EbookGamez",
+    item_category: item.genre || "Ebook",
+    item_variant: item.purchaseType || "download",
+    price: item.price,
+    quantity: 1,
+  }));
+
   push({ ecommerce: null });
   push({
     event: "purchase",
+    transaction_id: data.sessionId,
+    value: data.value,
+    currency,
     ecommerce: {
       transaction_id: data.sessionId,
-      currency: "USD",
+      currency,
       value: data.value,
-      items: data.items.map((item, i) => ({
-        item_id: `guest_item_${i}`,
-        item_name: cleanItemTitle(item.title),
-        item_brand: "EbookGamez",
-        item_category: item.genre || "Ebook",
-        item_variant: item.purchaseType || "download",
-        price: item.price,
-        quantity: 1,
-      })),
+      items: mappedItems,
     },
   });
 }
