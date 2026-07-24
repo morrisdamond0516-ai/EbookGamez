@@ -10,6 +10,7 @@ import { resumePendingJobs, isGenerationActive, getActiveGenerationCount, resume
 import { isStartupAutoResumeDisabled } from "./startupFlags";
 import { startMonthlyScheduler } from "./contentRefresh";
 import { seedProductionData } from "./seedProduction";
+import { startHealthMonitor } from "./healthMonitor";
 import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
@@ -1095,6 +1096,7 @@ async function migrateColoringPageFiles() {
       
       runStartupCleanup();
       startMonthlyScheduler();
+      startHealthMonitor();
       
       setTimeout(async () => {
         if (isStartupAutoResumeDisabled()) {
