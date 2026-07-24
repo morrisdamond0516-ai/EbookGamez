@@ -10,14 +10,27 @@ alwaysApply: true
 ## Mandatory order (new fiction / prose)
 
 1. **Research / writing brief** — audience, tone, dialogue style, narrative beats (including climax).
-2. **Cover first** — publishable cover in Cover Review (`checkStoryWritingGate` blocks writing without it).
-3. **Outline** — detailed blueprint: hook, character arcs, genre beats, climax, resolution.
-4. **Editorial Brief** — outline scored before prose; fiction must score ≥ 6 or outline is regenerated (max 3 attempts).
-5. **Cover ↔ outline cross-exam** — align visual promise with story before chapters.
-6. **Story Architect** — bestselling-author techniques assigned per chapter from the outline.
-7. **Chapter writing** — prose follows outline, cover, and writing brief.
-8. **Strict quality gate** — structural + genre + dialogue; fiction also checks climax (score ≥ 6).
-9. **Ready → publish** — only after strict gate passes.
+2. **Original title gate** — before creating a placer or writing, titles must be original vs the **external world** (Open Library + Google Books), not only our catalog. Classic/public-domain reprints are exempt. Collisions are skipped or auto-renamed (`server/titleOriginality.ts`, `server/titleCollisionRepair.ts`).
+3. **Cover first** — publishable cover in Cover Review (`checkStoryWritingGate` blocks writing without it).
+4. **Outline** — detailed blueprint: hook, character arcs, genre beats, climax, resolution.
+5. **Editorial Brief** — outline scored before prose; fiction must score ≥ 6 or outline is regenerated (max 3 attempts).
+6. **Cover ↔ outline cross-exam** — align visual promise with story before chapters.
+7. **Story Architect** — bestselling-author techniques assigned per chapter from the outline.
+8. **Chapter writing** — prose follows outline, cover, and writing brief.
+9. **Illustrations (visual genres)** — placement and captions come from the **outline** / pipeline before generation. Do not invent random art after the fact.
+10. **Strict quality gate** — structural + genre + dialogue; fiction also checks climax (score ≥ 6).
+11. **Ready → publish** — only after strict gate passes.
+
+### Title collision repair (existing AI books)
+
+If an EbookGamez-authored title matches (or near-matches) a real-world book: rename → regenerate cover **the same way** (prefer `coverStyleId`) → republish. Do not leave colliding AI titles live. Script: `script/repair-title-collisions.ts`.
+
+### Illustration backtrack policy (existing art)
+
+- **Keep** images that are already generated if they relate to the characters / storyline at all.
+- **Replace only** when an image has **nothing to do** with the story or characters (e.g. telescope, microscope, textbook diagram, wrong-world art).
+- Do **not** regen for mild beat mismatch, imperfect composition, or “could be more precise.”
+- Going forward: new illustrations must be **outline/pipeline pre-approved** before generation.
 
 ## Educational books (school / college / trade)
 

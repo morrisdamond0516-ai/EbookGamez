@@ -78,12 +78,17 @@ function ClassicCover({ title, author, genre }: { title: string; author: string;
 
 export function optimizedSrc(src: string, width: number): string {
   if (!src || src.includes("placeholder")) return src;
+  // GCS-backed covers often live at /uploads/covers in the DB but only exist in object
+  // storage. /img/* reads local disk only and 404s — use /objstore resize (?w=) instead.
+  if (src.startsWith("/uploads/covers/")) {
+    return `/objstore/covers/${src.slice("/uploads/covers/".length)}?w=${width}`;
+  }
   if (src.startsWith("/uploads/")) {
     const filePath = src.slice(1);
     return `/img/${width}/${filePath}`;
   }
   if (src.startsWith("/objstore/covers/")) {
-    return `${src}?w=${width}`;
+    return `${src.includes("?") ? src : `${src}?w=${width}`}`;
   }
   return src;
 }
@@ -99,14 +104,19 @@ export function getExclusiveDaysLeft(until: string | null | undefined): number |
 
 export function BookCard({ id, title, author, price, rating, cover, genre, fitMode, subscriberExclusiveUntil, onBuy }: BookProps) {
   const [imgError, setImgError] = useState(false);
-  useEffect(() => setImgError(false), [cover]);
+  const [useRawCover, setUseRawCover] = useState(false);
+  useEffect(() => {
+    setImgError(false);
+    setUseRawCover(false);
+  }, [cover]);
   const isClassic = genre.startsWith("Classic");
-  const isPlaceholder = cover.includes("placeholder");
+  const isPlaceholder = !cover || cover.includes("placeholder");
   const showClassicCover = isClassic && (isPlaceholder || imgError);
   const resolvedFitMode = fitMode || (cover.includes("ai-overlay") ? "contain" : "cover");
   const exclusiveDaysLeft = getExclusiveDaysLeft(subscriberExclusiveUntil);
   const isSubscriberExclusive = exclusiveDaysLeft !== null;
   const isExpiringSoon = exclusiveDaysLeft !== null && exclusiveDaysLeft <= 3;
+  const coverSrc = useRawCover || imgError ? cover : optimizedSrc(cover, 400);
 
   return (
     <motion.div
@@ -120,13 +130,19 @@ export function BookCard({ id, title, author, price, rating, cover, genre, fitMo
               <ClassicCover title={title} author={author} genre={genre} />
             ) : (
               <img
-                src={optimizedSrc(cover, 400)}
+                src={coverSrc}
                 alt={title}
                 loading="lazy"
                 decoding="async"
                 width={300}
                 height={400}
-                onError={() => setImgError(true)}
+                onError={() => {
+                  if (!useRawCover && cover && cover !== coverSrc) {
+                    setUseRawCover(true);
+                    return;
+                  }
+                  setImgError(true);
+                }}
                 className={`${resolvedFitMode === "contain" ? "object-contain" : "object-cover"} w-full h-full transition-transform duration-700 group-hover:scale-105`}
               />
             )}

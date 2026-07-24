@@ -177,7 +177,9 @@ interface DraftEbook {
   publishedBookId?: number | null;
   inCatalog?: boolean;
   needsProdPush?: boolean;
-  prodSyncReason?: "never_pushed" | "local_changes" | "synced" | "not_published" | null;
+  prodSyncReason?: "never_pushed" | "local_changes" | "title_repair" | "synced" | "on_storefront" | "not_published" | null;
+  titleRepairPending?: boolean;
+  hasTitleRepair?: boolean;
   lastProdSyncedAt?: string | null;
   /** Tagged for later fix (e.g. missing illustrations) — still published / considered good. */
   qualityDeferral?: boolean;
@@ -201,16 +203,75 @@ import { PROD_PUSH_BATCH_SIZE } from "@shared/prodSyncMetadata";
 const VISUAL_FIRST_GENRES = new Set(["Comics", "Graphic Novels", "Photography Books", "Coloring Books", "Art Books"]);
 const PUSH_TO_PROD_MAX = PROD_PUSH_BATCH_SIZE;
 const DEFAULT_PRODUCTION_URL = "https://ebookgamez.com";
-/** Optional Replit app URL when it differs from the custom domain (same push API). */
+/** Same live DB as ebookgamez.com — preferred pull source from inside Replit. */
+const DEFAULT_REPLIT_APP_URL = "https://EbookGamez.replit.app";
+/** Optional second target; leave blank when using .replit.app or custom domain (same published app). */
 const DEFAULT_REPLIT_URL = "";
-type ProdSyncMode = "selected" | "pending";
+type ProdSyncMode = "selected" | "pending" | "title_repairs";
 
 function normalizeProdUrl(raw: string): string {
   return raw.trim().replace(/\/$/, "");
 }
 
+function hostnameOf(raw: string): string {
+  try {
+    return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** Custom domain + published .replit.app share one production database. */
+function isPublishedLiveHost(host: string): boolean {
+  return (
+    host === "ebookgamez.com" ||
+    host === "www.ebookgamez.com" ||
+    host === "ebookgamez.replit.app"
+  );
+}
+
+function isSamePublishedLiveApp(a: string, b: string): boolean {
+  const ha = hostnameOf(a);
+  const hb = hostnameOf(b);
+  if (!ha || !hb) return false;
+  if (ha === hb) return true;
+  return isPublishedLiveHost(ha) && isPublishedLiveHost(hb);
+}
+
 function isLocalDevUrl(raw: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(raw.trim());
+}
+
+/** Replit IDE preview / workspace iframe — not the published app. */
+function isReplitIdePreviewUrl(raw: string): boolean {
+  const s = raw.trim();
+  if (!s) return false;
+  try {
+    const host = new URL(s.includes("://") ? s : `https://${s}`).hostname.toLowerCase();
+    return (
+      host.endsWith(".kirk.replit.dev") ||
+      host.endsWith(".picard.replit.dev") ||
+      host.includes("workspace_iframe") ||
+      /__replco/i.test(s)
+    );
+  } catch {
+    return /kirk\.replit\.dev|picard\.replit\.dev|workspace_iframe|__replco/i.test(s);
+  }
+}
+
+function prodPushUrlBlockReason(raw: string, label: string): string | null {
+  const url = normalizeProdUrl(raw);
+  if (!url) return null;
+  if (isLocalDevUrl(url)) {
+    return `${label} is localhost — use ${DEFAULT_PRODUCTION_URL} or ${DEFAULT_REPLIT_APP_URL}.`;
+  }
+  if (isReplitIdePreviewUrl(url)) {
+    return `${label} is the Replit IDE preview (kirk.replit.dev), not production. Use ${DEFAULT_REPLIT_APP_URL} or ${DEFAULT_PRODUCTION_URL}.`;
+  }
+  if (/replit\.com\/@/i.test(url) || /replit\.com\/t\//i.test(url)) {
+    return `${label} is a Replit project page, not the running app. Use ${DEFAULT_REPLIT_APP_URL} or ${DEFAULT_PRODUCTION_URL}.`;
+  }
+  return null;
 }
 
 export default function ContentStudio() {
@@ -224,6 +285,7 @@ export default function ContentStudio() {
 function ContentStudioMain() {
   const [studioSearchQuery, setStudioSearchQuery] = useState("");
   const [publishedExpanded, setPublishedExpanded] = useState(false);
+  const [publishedProdFilter, setPublishedProdFilter] = useState<"all" | "need_push" | "synced" | "renamed">("all");
   const [formatScanResults, setFormatScanResults] = useState<any[] | null>(null);
   const [formatScanLoading, setFormatScanLoading] = useState(false);
   const [formatApplyLoading, setFormatApplyLoading] = useState(false);
@@ -277,16 +339,21 @@ function ContentStudioMain() {
   const [syncToProductionOpen, setSyncToProductionOpen] = useState(false);
   const [productionUrl, setProductionUrl] = useState(() => {
     const saved = localStorage.getItem("ebgz_prod_url") || "";
-    if (saved && !isLocalDevUrl(saved)) return saved;
+    if (saved && !isLocalDevUrl(saved) && !isReplitIdePreviewUrl(saved)) return saved;
     return DEFAULT_PRODUCTION_URL;
   });
   const [replitUrl, setReplitUrl] = useState(() => {
     const saved = localStorage.getItem("ebgz_replit_url") || DEFAULT_REPLIT_URL;
-    if (saved && !isLocalDevUrl(saved)) return saved;
-    return "";
+    if (!saved || isLocalDevUrl(saved) || isReplitIdePreviewUrl(saved)) {
+      if (saved) localStorage.setItem("ebgz_replit_url", "");
+      return "";
+    }
+    return saved;
   });
-  const [syncMode, setSyncMode] = useState<ProdSyncMode>("pending");
+  const [syncMode, setSyncMode] = useState<ProdSyncMode>("title_repairs");
+  const [syncModeTouched, setSyncModeTouched] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
   const [autoSyncProgress, setAutoSyncProgress] = useState<{
     pushed: number;
     remaining: number;
@@ -553,7 +620,19 @@ function ContentStudioMain() {
   }, [drafts, studioSearchQuery]);
 
   const unpublishedDrafts = useMemo(() => filteredDrafts.filter(d => d.status !== "published"), [filteredDrafts]);
-  const publishedDrafts = useMemo(() => filteredDrafts.filter(d => d.status === "published"), [filteredDrafts]);
+  const publishedDraftsAll = useMemo(() => filteredDrafts.filter(d => d.status === "published"), [filteredDrafts]);
+  const publishedDrafts = useMemo(() => {
+    if (publishedProdFilter === "need_push") return publishedDraftsAll.filter(d => d.needsProdPush);
+    if (publishedProdFilter === "synced") return publishedDraftsAll.filter(d => !d.needsProdPush);
+    if (publishedProdFilter === "renamed") return publishedDraftsAll.filter(d => d.hasTitleRepair || d.prodSyncReason === "title_repair");
+    return publishedDraftsAll;
+  }, [filteredDrafts, publishedProdFilter, publishedDraftsAll]);
+  const publishedProdCounts = useMemo(() => {
+    const needPush = publishedDraftsAll.filter(d => d.needsProdPush).length;
+    const synced = publishedDraftsAll.filter(d => !d.needsProdPush).length;
+    const renamed = publishedDraftsAll.filter(d => d.hasTitleRepair || d.prodSyncReason === "title_repair").length;
+    return { needPush, synced, renamed, total: publishedDraftsAll.length };
+  }, [publishedDraftsAll]);
 
   const pushToProdCounts = useMemo(() => {
     const published = drafts.filter(d => d.status === "published" && (d.content === "has_content" || (d.content && d.content.length > 100)));
@@ -561,29 +640,63 @@ function ContentStudioMain() {
     const pendingDrafts = published
       .filter(d => d.needsProdPush)
       .sort((a, b) => {
-        const aNew = a.prodSyncReason === "never_pushed" ? 0 : 1;
-        const bNew = b.prodSyncReason === "never_pushed" ? 0 : 1;
-        if (aNew !== bNew) return aNew - bNew;
+        const rank = (r: DraftEbook["prodSyncReason"]) =>
+          r === "title_repair" ? 0 : r === "never_pushed" ? 1 : 2;
+        const aRank = rank(a.prodSyncReason);
+        const bRank = rank(b.prodSyncReason);
+        if (aRank !== bRank) return aRank - bRank;
         return a.title.localeCompare(b.title);
       });
+    const titleRepairDrafts = pendingDrafts.filter(d => d.prodSyncReason === "title_repair");
     const neverPushed = pendingDrafts.filter(d => d.prodSyncReason === "never_pushed").length;
     const localChanges = pendingDrafts.filter(d => d.prodSyncReason === "local_changes").length;
     return {
       selected: selected.length,
       pending: pendingDrafts.length,
+      titleRepairs: titleRepairDrafts.length,
       neverPushed,
       localChanges,
       pendingDrafts,
+      titleRepairDrafts,
     };
   }, [drafts, selectedIds]);
 
+  // Prefer the rename queue when it has work; otherwise fall back to all-pending.
+  // Only depends on counts (primitives) — never setState from a fresh array ref each render.
+  useEffect(() => {
+    if (syncModeTouched || draftsLoading) return;
+    if (pushToProdCounts.titleRepairs > 0) {
+      setSyncMode((prev) => (prev === "title_repairs" ? prev : "title_repairs"));
+    } else if (pushToProdCounts.pending > 0) {
+      setSyncMode((prev) => (prev === "pending" ? prev : "pending"));
+    }
+  }, [syncModeTouched, draftsLoading, pushToProdCounts.titleRepairs, pushToProdCounts.pending]);
+
+  // One-shot check of rename rows when the title-repair queue first appears (stable id key).
+  const titleRepairIdsKey = useMemo(
+    () => pushToProdCounts.titleRepairDrafts.map((d) => d.id).sort((a, b) => a - b).join(","),
+    [pushToProdCounts.titleRepairDrafts],
+  );
+  const titleRepairSelectDoneRef = useRef("");
+  useEffect(() => {
+    if (syncMode !== "title_repairs" || !titleRepairIdsKey) return;
+    if (titleRepairSelectDoneRef.current === titleRepairIdsKey) return;
+    titleRepairSelectDoneRef.current = titleRepairIdsKey;
+    const ids = titleRepairIdsKey.split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    setSelectedIds((prev) => {
+      if (prev.size === ids.length && ids.every((id) => prev.has(id))) return prev;
+      return new Set(ids);
+    });
+  }, [syncMode, titleRepairIdsKey]);
+
   const pushCountForMode = useMemo(() => {
     if (syncMode === "selected") return pushToProdCounts.selected;
+    if (syncMode === "title_repairs") return Math.min(pushToProdCounts.titleRepairs, PUSH_TO_PROD_MAX);
     return Math.min(pushToProdCounts.pending, PUSH_TO_PROD_MAX);
   }, [syncMode, pushToProdCounts]);
 
   const isOverPushLimit = useMemo(() => {
-    if (syncMode === "pending") return false;
+    if (syncMode === "pending" || syncMode === "title_repairs") return false;
     return selectedIds.size > PUSH_TO_PROD_MAX;
   }, [syncMode, selectedIds.size]);
 
@@ -591,8 +704,20 @@ function ContentStudioMain() {
     const live = normalizeProdUrl(productionUrl);
     const replit = normalizeProdUrl(replitUrl);
     const targets: { label: string; url: string }[] = [];
-    if (live && !isLocalDevUrl(live)) targets.push({ label: "Live site", url: live });
-    if (replit && !isLocalDevUrl(replit) && replit !== live) {
+    if (live && !isLocalDevUrl(live) && !isReplitIdePreviewUrl(live)) {
+      const label = isPublishedLiveHost(hostnameOf(live))
+        ? hostnameOf(live).endsWith(".replit.app")
+          ? "Live (Replit app)"
+          : "Live site"
+        : "Live site";
+      targets.push({ label, url: live });
+    }
+    if (
+      replit &&
+      !isLocalDevUrl(replit) &&
+      !isReplitIdePreviewUrl(replit) &&
+      !isSamePublishedLiveApp(replit, live)
+    ) {
       targets.push({ label: "Replit", url: replit });
     }
     return targets;
@@ -600,8 +725,12 @@ function ContentStudioMain() {
 
   const pushDisabledReason = useMemo(() => {
     if (isSyncing) return "Sync in progress…";
+    const liveBlock = prodPushUrlBlockReason(productionUrl, "Live site URL");
+    if (liveBlock) return liveBlock;
+    const replitBlock = prodPushUrlBlockReason(replitUrl, "Replit URL");
+    if (replitBlock) return replitBlock;
     if (pushTargets.length === 0) {
-      return "Enter https://ebookgamez.com (and optional Replit URL) — not localhost.";
+      return `Enter ${DEFAULT_PRODUCTION_URL} or ${DEFAULT_REPLIT_APP_URL} — leave the other field blank (same published app).`;
     }
     if (isOverPushLimit) return `Too many books (max ${PUSH_TO_PROD_MAX}).`;
     if (syncMode === "selected") {
@@ -609,38 +738,62 @@ function ContentStudioMain() {
       if (pushToProdCounts.selected === 0) {
         return `You checked ${selectedIds.size} row(s), but none are published with content.`;
       }
+    } else if (syncMode === "title_repairs") {
+      if (pushToProdCounts.titleRepairs === 0) {
+        return "No title renames are waiting to push — switch to All that need push, or Selected only.";
+      }
     } else if (pushToProdCounts.pending === 0) {
       return "All published books are synced to production.";
     }
     return null;
   }, [
-    isSyncing, pushTargets.length, isOverPushLimit, syncMode, selectedIds.size,
-    pushToProdCounts.selected, pushToProdCounts.pending,
+    isSyncing, productionUrl, replitUrl, pushTargets.length, isOverPushLimit, syncMode,
+    selectedIds.size, pushToProdCounts.selected, pushToProdCounts.pending, pushToProdCounts.titleRepairs,
   ]);
 
   const pushReady = pushDisabledReason === null;
 
   async function pushOneBatchToUrl(url: string, mode: ProdSyncMode, draftIds?: number[]) {
     const token = localStorage.getItem("ebgz_admin_token") || "";
-    const resp = await fetch("/api/admin/push-to-production", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-admin-token": token },
-      body: JSON.stringify({
-        productionUrl: url,
-        mode,
-        draftIds: mode === "selected" ? draftIds : undefined,
-      }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || `Sync failed for ${url}`);
-    return data as NonNullable<typeof syncResult>;
+    const controller = new AbortController();
+    // One batch can upload many covers + manuscript — allow up to 10 minutes, then fail visibly.
+    const timer = window.setTimeout(() => controller.abort(), 10 * 60 * 1000);
+    try {
+      const resp = await fetch("/api/admin/push-to-production", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({
+          productionUrl: url,
+          mode,
+          draftIds: mode === "selected" ? draftIds : undefined,
+        }),
+        signal: controller.signal,
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `Sync failed for ${url}`);
+      return data as NonNullable<typeof syncResult>;
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error(
+          `Push timed out after 10 minutes on ${url}. First batch never finished (often Norton/firewall or a stuck cover upload). Reload, allow node.exe, then try Selected only with 1–3 books.`,
+        );
+      }
+      throw err;
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
 
-  /** Auto-push pending books in batches of 20 to one target URL until the queue is empty or a batch fails storefront checks. */
-  async function autoPushPendingToUrl(url: string, label: string) {
+  /** Auto-push a queue mode in batches of 20 until empty or a batch fails storefront checks. */
+  async function autoPushQueueToUrl(
+    url: string,
+    label: string,
+    mode: Extract<ProdSyncMode, "pending" | "title_repairs">,
+  ) {
     let totalPushed = 0;
     let batches = 0;
-    let remaining = pushToProdCounts.pending;
+    let remaining =
+      mode === "title_repairs" ? pushToProdCounts.titleRepairs : pushToProdCounts.pending;
     let lastData: NonNullable<typeof syncResult> | null = null;
     const MAX_AUTO_BATCHES = 200;
     while (batches < MAX_AUTO_BATCHES) {
@@ -650,7 +803,7 @@ function ContentStudioMain() {
         batch: batches + 1,
         target: label,
       });
-      const data = await pushOneBatchToUrl(url, "pending");
+      const data = await pushOneBatchToUrl(url, mode);
       lastData = data;
       batches++;
       const batchCount = data.totalDrafts ?? 0;
@@ -2227,7 +2380,9 @@ function ContentStudioMain() {
               <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">
                 {pushToProdCounts.pending === 0
                   ? "All caught up"
-                  : `${pushToProdCounts.pending} need push`}
+                  : pushToProdCounts.titleRepairs > 0
+                    ? `${pushToProdCounts.titleRepairs} renamed · ${pushToProdCounts.pending} need push`
+                    : `${pushToProdCounts.pending} need push`}
               </Badge>
             </div>
             <ChevronDown className={`h-4 w-4 text-blue-400 transition-transform ${syncToProductionOpen ? "rotate-180" : ""}`} />
@@ -2235,9 +2390,50 @@ function ContentStudioMain() {
           {syncToProductionOpen && (
             <div className="px-4 pb-4 space-y-3">
               <p className="text-xs text-blue-200/70 leading-relaxed">
-                Sends published book content from this computer to the live site. This does <strong className="text-blue-200">not</strong> deploy code.
-                A book stays in “needs push” until it is verified on the live storefront with a cover.
+                {pushToProdCounts.pending === 0 && pushToProdCounts.titleRepairs === 0 ? (
+                  <>
+                    Title renames are marked <strong className="text-blue-200">synced</strong> locally (push already recorded).
+                    Live spot-checks show the new titles on ebookgamez.com. Use the Published Books filters
+                    (Need push / Synced / Title repaired) to see status per book.
+                  </>
+                ) : (
+                  <>
+                    <strong className="text-blue-200">Money-saving path:</strong> author/repair in Cursor → push once to live.
+                    Live is either <strong className="text-blue-200">{DEFAULT_PRODUCTION_URL}</strong> or{" "}
+                    <strong className="text-blue-200">{DEFAULT_REPLIT_APP_URL}</strong> — same published database.
+                    From inside Replit, prefer the .replit.app URL (internal connection). Never use kirk.replit.dev (IDE preview).
+                  </>
+                )}
               </p>
+              <p className="text-xs text-blue-200/55 leading-relaxed">
+                After Cursor→live, if Replit IDE’s library looks stale: <strong className="text-blue-200/80">Pull from Live</strong>{" "}
+                using {DEFAULT_REPLIT_APP_URL} (no AI cost).
+              </p>
+              {pushToProdCounts.titleRepairs > 0 && (
+                <div
+                  className="rounded-md border border-amber-500/40 bg-amber-950/25 px-3 py-2 text-xs text-amber-100/90"
+                  data-testid="push-to-prod-title-repair-list"
+                >
+                  <p className="font-semibold text-amber-200 mb-1">
+                    Title renames awaiting push ({pushToProdCounts.titleRepairs})
+                  </p>
+                  <ul className="space-y-0.5 max-h-40 overflow-y-auto">
+                    {pushToProdCounts.titleRepairDrafts.slice(0, 25).map((d) => (
+                      <li key={d.id} className="flex gap-2">
+                        <span className="text-amber-300/50 shrink-0">#{d.id}</span>
+                        <span className="truncate">{d.title}</span>
+                        <span className="shrink-0 text-amber-300/70">renamed</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {pushToProdCounts.titleRepairs > 25 && (
+                    <p className="mt-1 text-amber-200/60">…and {pushToProdCounts.titleRepairs - 25} more</p>
+                  )}
+                  <p className="mt-2 text-amber-200/70">
+                    Use “Title renames awaiting push” below — the system already knows which ones.
+                  </p>
+                </div>
+              )}
               {pushToProdCounts.pending > 0 && (
                 <div
                   className="rounded-md border border-blue-500/30 bg-blue-950/30 px-3 py-2 text-xs text-blue-100/90"
@@ -2245,10 +2441,13 @@ function ContentStudioMain() {
                 >
                   <p className="font-semibold text-blue-200 mb-1">
                     Needs to be pushed ({pushToProdCounts.pending})
-                    {pushToProdCounts.neverPushed > 0 || pushToProdCounts.localChanges > 0 ? (
+                    {pushToProdCounts.titleRepairs > 0 || pushToProdCounts.neverPushed > 0 || pushToProdCounts.localChanges > 0 ? (
                       <span className="font-normal text-blue-200/70">
-                        {" "}— {pushToProdCounts.neverPushed} never sent
-                        {pushToProdCounts.localChanges > 0 ? `, ${pushToProdCounts.localChanges} changed since last send` : ""}
+                        {" "}— {pushToProdCounts.titleRepairs > 0 ? `${pushToProdCounts.titleRepairs} renamed` : ""}
+                        {pushToProdCounts.titleRepairs > 0 && (pushToProdCounts.neverPushed > 0 || pushToProdCounts.localChanges > 0) ? ", " : ""}
+                        {pushToProdCounts.neverPushed > 0 ? `${pushToProdCounts.neverPushed} never sent` : ""}
+                        {pushToProdCounts.neverPushed > 0 && pushToProdCounts.localChanges > 0 ? ", " : ""}
+                        {pushToProdCounts.localChanges > 0 ? `${pushToProdCounts.localChanges} changed since last send` : ""}
                       </span>
                     ) : null}
                   </p>
@@ -2258,7 +2457,11 @@ function ContentStudioMain() {
                         <span className="text-blue-300/50 shrink-0">#{d.id}</span>
                         <span className="truncate">{d.title}</span>
                         <span className="shrink-0 text-blue-300/60">
-                          {d.prodSyncReason === "local_changes" ? "changed" : "new"}
+                          {d.prodSyncReason === "title_repair"
+                            ? "renamed"
+                            : d.prodSyncReason === "local_changes"
+                              ? "changed"
+                              : "new"}
                         </span>
                       </li>
                     ))}
@@ -2267,7 +2470,7 @@ function ContentStudioMain() {
                     <p className="mt-1 text-blue-200/60">…and {pushToProdCounts.pending - 25} more</p>
                   )}
                   <p className="mt-2 text-blue-200/65">
-                    Auto-push sends them in batches of {PUSH_TO_PROD_MAX} until this list is empty (or a book fails storefront check).
+                    Auto-push sends the chosen queue in batches of {PUSH_TO_PROD_MAX} until empty (or a book fails storefront check).
                   </p>
                 </div>
               )}
@@ -2292,9 +2495,11 @@ function ContentStudioMain() {
               )}
               {!isOverPushLimit && pushReady && (
                 <p className="text-xs text-green-300/90" data-testid="push-to-prod-count-preview">
-                  {syncMode === "pending"
-                    ? `Will push all ${pushToProdCounts.pending} pending book${pushToProdCounts.pending === 1 ? "" : "s"} to ${pushTargets.map(t => t.label).join(" + ")} (${PUSH_TO_PROD_MAX} per batch).`
-                    : `Ready to push ${pushCountForMode} selected book${pushCountForMode === 1 ? "" : "s"} to ${pushTargets.map(t => t.label).join(" + ")}.`}
+                  {syncMode === "title_repairs"
+                    ? `Will push ${pushToProdCounts.titleRepairs} title rename${pushToProdCounts.titleRepairs === 1 ? "" : "s"} to ${pushTargets.map(t => t.label).join(" + ")} (${PUSH_TO_PROD_MAX} per batch).`
+                    : syncMode === "pending"
+                      ? `Will push all ${pushToProdCounts.pending} pending book${pushToProdCounts.pending === 1 ? "" : "s"} to ${pushTargets.map(t => t.label).join(" + ")} (${PUSH_TO_PROD_MAX} per batch).`
+                      : `Ready to push ${pushCountForMode} selected book${pushCountForMode === 1 ? "" : "s"} to ${pushTargets.map(t => t.label).join(" + ")}.`}
                 </p>
               )}
               {pushDisabledReason && (
@@ -2311,39 +2516,62 @@ function ContentStudioMain() {
                       setProductionUrl(e.target.value);
                       localStorage.setItem("ebgz_prod_url", e.target.value);
                     }}
-                    placeholder="https://ebookgamez.com"
+                    placeholder={DEFAULT_PRODUCTION_URL}
                     className="bg-white/5 border-white/20 text-sm h-8"
                     data-testid="input-production-url"
                   />
-                  {isLocalDevUrl(productionUrl) && (
+                  <div className="flex flex-wrap gap-2 mt-1">
                     <button
                       type="button"
-                      className="text-[10px] text-amber-400 underline mt-1"
+                      className="text-[10px] text-blue-300 underline"
                       onClick={() => {
                         setProductionUrl(DEFAULT_PRODUCTION_URL);
                         localStorage.setItem("ebgz_prod_url", DEFAULT_PRODUCTION_URL);
                       }}
                     >
-                      Fix: use https://ebookgamez.com instead
+                      Use ebookgamez.com
+                    </button>
+                    <button
+                      type="button"
+                      className="text-[10px] text-emerald-300 underline"
+                      data-testid="button-use-replit-app-url"
+                      onClick={() => {
+                        setProductionUrl(DEFAULT_REPLIT_APP_URL);
+                        localStorage.setItem("ebgz_prod_url", DEFAULT_REPLIT_APP_URL);
+                      }}
+                    >
+                      Use EbookGamez.replit.app (Replit internal)
+                    </button>
+                  </div>
+                  {isLocalDevUrl(productionUrl) && (
+                    <button
+                      type="button"
+                      className="text-[10px] text-amber-400 underline mt-1"
+                      onClick={() => {
+                        setProductionUrl(DEFAULT_REPLIT_APP_URL);
+                        localStorage.setItem("ebgz_prod_url", DEFAULT_REPLIT_APP_URL);
+                      }}
+                    >
+                      Fix: use {DEFAULT_REPLIT_APP_URL}
                     </button>
                   )}
                 </div>
                 <div className="flex-1 min-w-[200px]">
-                  <Label className="text-xs text-muted-foreground mb-1 block">Replit URL (optional)</Label>
+                  <Label className="text-xs text-muted-foreground mb-1 block">2nd URL (leave blank)</Label>
                   <Input
                     value={replitUrl}
                     onChange={e => {
                       setReplitUrl(e.target.value);
                       localStorage.setItem("ebgz_replit_url", e.target.value);
                     }}
-                    placeholder="Leave blank if same as live"
+                    placeholder="Leave blank — .com and .replit.app are the same live app"
                     className="bg-white/5 border-white/20 text-sm h-8"
                     data-testid="input-replit-url"
                   />
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    ebookgamez.com and EbookGamez.replit.app are the same published app — leave blank. IDE preview (kirk.replit.dev) is not updated by this push.
+                    Do not put IDE preview here. If Live already uses .replit.app or .com, leave this blank (deduped automatically).
                   </p>
-                  {isLocalDevUrl(replitUrl) && (
+                  {(isLocalDevUrl(replitUrl) || isReplitIdePreviewUrl(replitUrl) || isSamePublishedLiveApp(replitUrl, productionUrl)) && replitUrl.trim() !== "" && (
                     <button
                       type="button"
                       className="text-[10px] text-amber-400 underline mt-1"
@@ -2352,7 +2580,7 @@ function ContentStudioMain() {
                         localStorage.setItem("ebgz_replit_url", "");
                       }}
                     >
-                      Clear localhost Replit URL
+                      Clear (same live app / invalid)
                     </button>
                   )}
                 </div>
@@ -2360,10 +2588,20 @@ function ContentStudioMain() {
                   <Label className="text-xs text-muted-foreground mb-1 block">What to sync</Label>
                   <select
                     value={syncMode}
-                    onChange={e => setSyncMode(e.target.value as ProdSyncMode)}
+                    onChange={e => {
+                      const next = e.target.value as ProdSyncMode;
+                      setSyncModeTouched(true);
+                      setSyncMode(next);
+                      if (next === "title_repairs") {
+                        setSelectedIds(new Set(pushToProdCounts.titleRepairDrafts.map(d => d.id)));
+                      }
+                    }}
                     className="w-full h-8 rounded-md border border-white/20 bg-background text-sm px-2"
                     data-testid="select-sync-mode"
                   >
+                    <option value="title_repairs">
+                      Title renames awaiting push ({pushToProdCounts.titleRepairs})
+                    </option>
                     <option value="pending">
                       All that need push ({pushToProdCounts.pending})
                     </option>
@@ -2384,9 +2622,9 @@ function ContentStudioMain() {
                       let totalPushed = 0;
                       let totalBatches = 0;
 
-                      if (syncMode === "pending") {
+                      if (syncMode === "pending" || syncMode === "title_repairs") {
                         for (const target of pushTargets) {
-                          const result = await autoPushPendingToUrl(target.url, target.label);
+                          const result = await autoPushQueueToUrl(target.url, target.label, syncMode);
                           totalPushed += result.totalPushed;
                           totalBatches += result.batches;
                           if (result.lastData) targetResults.push({ label: target.label, data: result.lastData });
@@ -2414,9 +2652,11 @@ function ContentStudioMain() {
                         ? `Push finished with issues: ${totalPushed} book(s) in ${totalBatches} batch(es) to ${targetLabels}.`
                           + (summary.missing.length ? ` ${summary.missing.length} not on storefront${missingNames.length ? ` (${missingNames.join("; ")}${summary.missing.length > missingNames.length ? "…" : ""})` : ""}.` : "")
                           + (summary.remainingPending > 0 ? ` ${summary.remainingPending} still need push.` : "")
-                        : syncMode === "pending"
-                          ? `All pending books pushed: ${totalPushed} book(s) in ${totalBatches} batch(es) to ${targetLabels}.`
-                          : `Selected books pushed: ${totalPushed} to ${targetLabels}.`;
+                        : syncMode === "title_repairs"
+                          ? `Title renames pushed: ${totalPushed} book(s) in ${totalBatches} batch(es) to ${targetLabels}.`
+                          : syncMode === "pending"
+                            ? `All pending books pushed: ${totalPushed} book(s) in ${totalBatches} batch(es) to ${targetLabels}.`
+                            : `Selected books pushed: ${totalPushed} to ${targetLabels}.`;
 
                       setSyncResult({
                         ...(lastResult ?? {
@@ -2449,11 +2689,21 @@ function ContentStudioMain() {
                   data-testid="button-push-live-and-replit"
                 >
                   {isSyncing && autoSyncProgress ? (
-                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />{autoSyncProgress.target ?? "Target"} batch {autoSyncProgress.batch}…</>
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      {autoSyncProgress.pushed === 0
+                        ? `${autoSyncProgress.target ?? "Target"} batch ${autoSyncProgress.batch} uploading…`
+                        : `${autoSyncProgress.target ?? "Target"} batch ${autoSyncProgress.batch}…`}
+                    </>
                   ) : isSyncing ? (
                     <><Loader2 className="h-3 w-3 animate-spin mr-1" />Syncing…</>
                   ) : (
-                    <><Upload className="h-3 w-3 mr-1" />{syncMode === "pending" ? "Push all that need it" : "Push selected"}</>
+                    <><Upload className="h-3 w-3 mr-1" />{
+                      syncMode === "title_repairs"
+                        ? "Push title renames"
+                        : syncMode === "pending"
+                          ? "Push all that need it"
+                          : "Push selected"
+                    }</>
                   )}
                 </Button>
                 <Button
@@ -2471,7 +2721,7 @@ function ContentStudioMain() {
                     setSyncResult(null);
                     setAutoSyncProgress(null);
                     try {
-                      const result = await autoPushPendingToUrl(liveUrl, "Live site");
+                      const result = await autoPushQueueToUrl(liveUrl, "Live site", "pending");
                       queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
                       const summary = summarizePushVerification(result.lastData);
                       const missingNames = summary.missing.map(v => v.title);
@@ -2509,11 +2759,89 @@ function ContentStudioMain() {
                   data-testid="button-auto-push-live"
                 >
                   {autoSyncProgress ? (
-                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />{autoSyncProgress.pushed} done · ~{autoSyncProgress.remaining} left</>
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      {autoSyncProgress.pushed === 0
+                        ? `Batch ${autoSyncProgress.batch} uploading… (0 finished yet · ${autoSyncProgress.remaining} in queue)`
+                        : `${autoSyncProgress.pushed} done · ~${autoSyncProgress.remaining} left`}
+                    </>
                   ) : (
                     <>Push all that need it ({pushToProdCounts.pending})</>
                   )}
                 </Button>
+              </div>
+              <div className="flex flex-wrap gap-2 items-center pt-1 border-t border-blue-500/20">
+                <Button
+                  onClick={async () => {
+                    const liveUrl = normalizeProdUrl(productionUrl);
+                    if (!liveUrl || isLocalDevUrl(liveUrl) || isReplitIdePreviewUrl(liveUrl)) {
+                      toast({
+                        title: `Set Live site URL to ${DEFAULT_REPLIT_APP_URL} or ${DEFAULT_PRODUCTION_URL}`,
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    setIsPulling(true);
+                    try {
+                      const token = localStorage.getItem("ebgz_admin_token") || "";
+                      const selectedPublished = drafts.filter(
+                        d => selectedIds.has(d.id) && d.status === "published",
+                      );
+                      const body: Record<string, unknown> = {
+                        productionUrl: liveUrl,
+                        limit: PUSH_TO_PROD_MAX,
+                      };
+                      if (selectedPublished.length > 0) {
+                        // Local draft IDs ≠ live IDs — pull by title so rename history still matches.
+                        body.mode = "titles";
+                        body.titles = selectedPublished.map(d => d.title);
+                      } else {
+                        body.mode = "recent";
+                      }
+                      const resp = await fetch("/api/admin/pull-from-production", {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          "x-admin-token": token,
+                        },
+                        body: JSON.stringify(body),
+                      });
+                      const data = await resp.json();
+                      if (!resp.ok) throw new Error(data.error || "Pull failed");
+                      queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                      setSyncResult({
+                        totalDrafts: data.totalDrafts ?? 0,
+                        totalUpdated: data.updated ?? 0,
+                        totalInserted: data.inserted ?? 0,
+                        totalErrors: data.errors ?? 0,
+                        ok: data.ok !== false && (data.errors ?? 0) === 0,
+                        message: data.message || "Pull complete",
+                      });
+                      toast({
+                        title: (data.errors ?? 0) > 0 ? "Pull finished with issues" : "Pulled from live",
+                        description: data.message,
+                        variant: (data.errors ?? 0) > 0 ? "destructive" : "default",
+                      });
+                    } catch (e: any) {
+                      toast({ title: "Pull failed", description: e.message, variant: "destructive" });
+                    } finally {
+                      setIsPulling(false);
+                    }
+                  }}
+                  disabled={isSyncing || isPulling || !normalizeProdUrl(productionUrl) || isLocalDevUrl(productionUrl)}
+                  title={`Copy published books FROM live (${DEFAULT_REPLIT_APP_URL} or ${DEFAULT_PRODUCTION_URL}) into this library — no AI. On Replit, use the .replit.app URL.`}
+                  variant="outline"
+                  className="border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/10 h-8 px-4 text-sm whitespace-nowrap"
+                  data-testid="button-pull-from-live"
+                >
+                  {isPulling ? (
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />Pulling from live…</>
+                  ) : (
+                    <><FileDown className="h-3 w-3 mr-1" />Pull from Live{selectedIds.size > 0 ? ` (${Math.min(selectedIds.size, PUSH_TO_PROD_MAX)} by title)` : " (recent 20)"}</>
+                  )}
+                </Button>
+                <p className="text-[10px] text-blue-200/55 max-w-xl">
+                  Opposite of Push: refreshes <em>this</em> database from the Live URL above. On Replit, click “Use EbookGamez.replit.app” first, then Pull.
+                </p>
               </div>
               {syncMode === "selected" && selectedIds.size > 0 && (
                 <p className="text-xs text-blue-200/60">
@@ -3404,36 +3732,70 @@ function ContentStudioMain() {
                     </TableBody>
                   </Table>
 
-                  {publishedDrafts.length > 0 && (
+                  {publishedDraftsAll.length > 0 && (
                     <div ref={publishedSectionRef} className="border-t-2 border-green-500/30">
                       <button
                         onClick={() => setPublishedExpanded(!publishedExpanded)}
                         className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors bg-green-500/5"
                         data-testid="button-toggle-published"
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <CheckCircle className="h-4 w-4 text-green-400" />
                           <span className="text-sm font-display text-green-400">Published Books</span>
                           <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
-                            {publishedDrafts.length}
+                            {publishedProdCounts.total}
                           </Badge>
-                          {publishedDrafts.filter(d => d.needsProdPush).length > 0 && (
+                          {publishedProdCounts.needPush > 0 ? (
                             <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">
-                              {publishedDrafts.filter(d => d.needsProdPush).length} need prod push
+                              {publishedProdCounts.needPush} need prod push
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-xs">
+                              Title renames pushed
                             </Badge>
                           )}
-                          {publishedDrafts.filter(d => d.qualityDeferral).length > 0 && (
+                          <Badge className="bg-white/10 text-white/70 border-white/20 text-xs">
+                            {publishedProdCounts.synced} synced fingerprint
+                          </Badge>
+                          {publishedDraftsAll.filter(d => d.qualityDeferral).length > 0 && (
                             <Badge
                               className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-xs"
                               title="Structural issues noted for later (usually missing illustrations). Still published — considered good for now."
                             >
-                              {publishedDrafts.filter(d => d.qualityDeferral).length} fix later
+                              {publishedDraftsAll.filter(d => d.qualityDeferral).length} fix later
                             </Badge>
                           )}
                         </div>
                         <ChevronDown className={`h-5 w-5 text-green-400 transition-transform duration-200 ${publishedExpanded ? 'rotate-180' : ''}`} />
                       </button>
                       {publishedExpanded && (
+                        <>
+                        <div className="flex flex-wrap gap-2 px-4 py-2 border-b border-white/10 bg-black/20" data-testid="published-prod-filters">
+                          {(
+                            [
+                              ["all", `All (${publishedProdCounts.total})`],
+                              ["need_push", `To do: push (${publishedProdCounts.needPush})`],
+                              ["synced", `Done (${publishedProdCounts.synced})`],
+                              ["renamed", `Title repaired (${publishedProdCounts.renamed})`],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => setPublishedProdFilter(key)}
+                              className={`text-[11px] px-2.5 py-1 rounded border transition-colors ${
+                                publishedProdFilter === key
+                                  ? "bg-blue-600/40 border-blue-400/50 text-blue-100"
+                                  : "bg-white/5 border-white/15 text-white/60 hover:bg-white/10"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                          <span className="text-[10px] text-white/40 self-center">
+                            Only real unfinished push work appears in “Need push”. Books already on the storefront show as Done.
+                          </span>
+                        </div>
                         <Table>
                           <TableHeader>
                             <TableRow className="border-white/10 hover:bg-transparent">
@@ -3508,16 +3870,47 @@ function ContentStudioMain() {
                                 <TableCell>
                                   <div className="flex items-center gap-1 flex-wrap">
                                     {getStatusBadge(draft.status)}
-                                    {draft.needsProdPush && (
+                                    {draft.needsProdPush ? (
                                       <Badge
-                                        className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-[10px]"
+                                        className={
+                                          draft.prodSyncReason === "title_repair"
+                                            ? "bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px]"
+                                            : "bg-blue-500/20 text-blue-300 border-blue-500/30 text-[10px]"
+                                        }
                                         title={
-                                          draft.prodSyncReason === "local_changes"
-                                            ? "Local content or cover changed since last production push"
-                                            : "Never pushed to live production"
+                                          draft.prodSyncReason === "title_repair"
+                                            ? "Title renamed — still needs Push to Production"
+                                            : draft.prodSyncReason === "local_changes"
+                                              ? "Changed since last verified push"
+                                              : "Published here but not on the storefront catalog yet"
                                         }
                                       >
-                                        {draft.prodSyncReason === "local_changes" ? "Prod: changed" : "Prod: new"}
+                                        {draft.prodSyncReason === "title_repair"
+                                          ? "To do: push rename"
+                                          : draft.prodSyncReason === "local_changes"
+                                            ? "To do: push changes"
+                                            : "To do: push to live"}
+                                      </Badge>
+                                    ) : (
+                                      <Badge
+                                        className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[10px]"
+                                        title={
+                                          draft.prodSyncReason === "on_storefront"
+                                            ? "Already on the storefront catalog (no further push needed)"
+                                            : draft.lastProdSyncedAt
+                                              ? `Last verified push: ${draft.lastProdSyncedAt}`
+                                              : "Done — on live / fingerprint matches"
+                                        }
+                                      >
+                                        {draft.prodSyncReason === "on_storefront" ? "Done: on live" : "Done: synced"}
+                                      </Badge>
+                                    )}
+                                    {draft.hasTitleRepair && !draft.needsProdPush && (
+                                      <Badge
+                                        className="bg-violet-500/15 text-violet-200 border-violet-500/30 text-[10px]"
+                                        title="Title was repaired; push already recorded"
+                                      >
+                                        Renamed ✓
                                       </Badge>
                                     )}
                                     {draft.qualityDeferral && (
@@ -3663,6 +4056,7 @@ function ContentStudioMain() {
                             ))}
                           </TableBody>
                         </Table>
+                        </>
                       )}
                     </div>
                   )}

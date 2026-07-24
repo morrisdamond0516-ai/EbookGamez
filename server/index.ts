@@ -258,7 +258,33 @@ app.get('/img/:width/*', async (req, res) => {
     const allowedBase = path.resolve('uploads');
     const localPath = path.resolve(imagePath);
     if (!localPath.startsWith(allowedBase + path.sep)) return res.status(403).send("Forbidden");
-    if (!fs.existsSync(localPath)) return res.status(404).send("Not found");
+
+    let input: string | Buffer = localPath;
+    if (!fs.existsSync(localPath)) {
+      // Covers pushed from Cursor often exist only in GCS; /uploads/covers falls back there,
+      // but this optimizer used to 404 — leaving storefront cards blank.
+      const coverMatch = imagePath.replace(/\\/g, "/").match(/^uploads\/covers\/(.+)$/i);
+      if (!coverMatch) return res.status(404).send("Not found");
+      const coverFile = coverMatch[1];
+      try {
+        const { getSharedStorageClient, getObjStoreBucketName } = await import("./objectStorage");
+        const bucketName = getObjStoreBucketName();
+        if (bucketName) {
+          const file = getSharedStorageClient().bucket(bucketName).file(`public/covers/${coverFile}`);
+          const [exists] = await file.exists();
+          if (!exists) return res.status(404).send("Not found");
+          const [buf] = await file.download();
+          input = buf;
+        } else {
+          const { fetchCoverFromProduction } = await import("./coverProxy");
+          const buf = await fetchCoverFromProduction(coverFile, true);
+          if (!buf) return res.status(404).send("Not found");
+          input = buf;
+        }
+      } catch {
+        return res.status(404).send("Not found");
+      }
+    }
     
     const acceptWebp = req.headers.accept?.includes('image/webp');
     const format = acceptWebp ? 'webp' : 'jpeg';
@@ -270,7 +296,7 @@ app.get('/img/:width/*', async (req, res) => {
       'Vary': 'Accept',
     });
     
-    const transform = sharp(localPath).resize(width, undefined, { fit: 'inside', withoutEnlargement: true });
+    const transform = sharp(input).resize(width, undefined, { fit: 'inside', withoutEnlargement: true });
     if (format === 'webp') {
       transform.webp({ quality });
     } else {

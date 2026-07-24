@@ -11315,6 +11315,7 @@ export function getCatalogDescriptionFromDraft(description: string | null | unde
     .replace(/---WRITING_BRIEF_START---[\s\S]*?---WRITING_BRIEF_END---\s*/g, "")
     .replace(/---CHARACTER_VISUAL_BIBLE---[\s\S]*?---END_CHARACTER_VISUAL_BIBLE---\s*/g, "")
     .replace(/---PROD_SYNC---[\s\S]*?---END_PROD_SYNC---\s*/g, "")
+    .replace(/---TITLE_REPAIR---[\s\S]*?---END_TITLE_REPAIR---\s*/g, "")
     .replace(/---QUALITY_DEFERRAL---[\s\S]*?---END_QUALITY_DEFERRAL---\s*/g, "")
     .replace(/---COVER_DEFERRED---[\s\S]*?---END_COVER_DEFERRED---\s*/g, "")
     .trim();
@@ -11466,7 +11467,8 @@ Rules:
 - Generate exactly ${count} unique ideas (${requestSlots} from approved customer requests if provided, ${trendingSlots} trending originals).
 - Genres must be from: ${genres.join(", ")}
 - Titles must be original — do NOT duplicate or closely resemble existing catalog titles.
-- No trademarked IP (Marvel, Harry Potter, etc.).
+- Titles must NOT match any book already published on the internet, Amazon, Google Books, libraries, or anywhere in the world. Invent fresh names. If a title sounds familiar, pick a different one.
+- No trademarked IP (Marvel, Harry Potter, Forgotten Realms, etc.).
 - Mix fiction, nonfiction, and children's when trending slots allow.
 - Cover-first pipeline: ideas need strong visual cover potential and clear genre signals.
 - writingBrief is CRITICAL — it will guide the full Story Architect pipeline (outline, dialogue, multi-author chapter writing). Be specific about dialogue style and distinct character voices for fiction; for nonfiction, specify teaching voice and example dialogue if used.`,
@@ -11525,11 +11527,22 @@ ${existingSample.length ? `\nAVOID titles similar to these existing books:\n${ex
   let skippedDuplicates = 0;
   const seenThisBatch = new Set<string>();
 
+  const { blockIfTitleNotOriginal } = await import("./titleCollisionRepair");
+
   for (const idea of parsedIdeas) {
     if (!idea.title || idea.title.length < 3) continue;
     const key = idea.title.trim().toLowerCase();
     if (seenThisBatch.has(key)) continue;
     if (isDuplicateTitle(idea.title, existingTitles)) {
+      skippedDuplicates++;
+      continue;
+    }
+
+    const externalBlock = await blockIfTitleNotOriginal(idea.title, idea.genre);
+    if (externalBlock) {
+      console.warn(
+        `[Research Titles] Skipping "${idea.title}" — external title collision: ${externalBlock}`,
+      );
       skippedDuplicates++;
       continue;
     }
@@ -11583,10 +11596,19 @@ export async function bulkCreateTitlePlacers(
   const existingTitles = await getExistingTitleSet();
   const createdDraftIds: number[] = [];
   let skippedDuplicates = 0;
+  const { blockIfTitleNotOriginal } = await import("./titleCollisionRepair");
 
   for (const idea of ideas) {
     if (!idea.title || idea.title.length < 3) continue;
     if (isDuplicateTitle(idea.title, existingTitles)) {
+      skippedDuplicates++;
+      continue;
+    }
+    const externalBlock = await blockIfTitleNotOriginal(idea.title, idea.genre);
+    if (externalBlock) {
+      console.warn(
+        `[Bulk Placers] Skipping "${idea.title}" — external title collision: ${externalBlock}`,
+      );
       skippedDuplicates++;
       continue;
     }
@@ -11628,18 +11650,29 @@ export async function regenerateDraftTitle(draftId: number): Promise<{ title: st
   if (!draft) throw new Error("Draft not found");
 
   const sourceText = draft.description || draft.topic || draft.title;
+  const { blockIfTitleNotOriginal } = await import("./titleCollisionRepair");
 
-  const response = await getContentClient().chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: `Generate a single compelling, bookstore-ready book title for this book idea. The title should be catchy, marketable, and something you'd see on a bestseller list. The genre is: ${draft.genre}.\n\nReturn ONLY the title text, nothing else. No quotes, no explanation, no subtitle.` },
-      { role: "user", content: sourceText }
-    ],
-    temperature: 0.95,
-    max_tokens: 100,
-  });
+  let newTitle = draft.title;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const response = await getContentClient().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Generate a single compelling, bookstore-ready book title for this book idea. The title must be completely original — it must NOT match any book already published on Amazon, Google Books, libraries, or anywhere online. The genre is: ${draft.genre}.\n\nReturn ONLY the title text, nothing else. No quotes, no explanation, no subtitle.`,
+        },
+        { role: "user", content: sourceText },
+      ],
+      temperature: 0.95,
+      max_tokens: 100,
+    });
 
-  const newTitle = extractCleanTitle(response.choices[0]?.message?.content?.trim() || draft.title);
+    newTitle = extractCleanTitle(response.choices[0]?.message?.content?.trim() || draft.title);
+    const blocked = await blockIfTitleNotOriginal(newTitle, draft.genre);
+    if (!blocked) break;
+    console.warn(`[Regenerate Title] "${newTitle}" blocked: ${blocked} — retrying`);
+  }
+
   await db.update(draftEbooks).set({ title: newTitle }).where(eq(draftEbooks.id, draftId));
   console.log(`[Regenerate Title] Draft ${draftId}: "${draft.title}" → "${newTitle}"`);
   return { title: newTitle };
@@ -12787,17 +12820,47 @@ export async function findCatalogBookForPublishedSync(
   productionDraftId: number,
   draftTitle: string,
   devDraftId?: number,
+  previousTitles?: string[],
+  productionBookId?: number,
 ): Promise<{ id: number; title: string } | null> {
+  // Explicit catalog id from push probe (rename-safe)
+  if (productionBookId != null && Number.isInteger(productionBookId) && productionBookId > 0) {
+    const [byId] = await db
+      .select({ id: books.id, title: books.title })
+      .from(books)
+      .where(eq(books.id, productionBookId))
+      .limit(1);
+    if (byId) return byId;
+  }
+
   const byProdDraft = await findCatalogBookBySourceDraftId(productionDraftId);
-  if (byProdDraft && catalogLinkMatchesDraftTitle(byProdDraft.title, draftTitle)) {
-    return { id: byProdDraft.id, title: byProdDraft.title };
+  if (byProdDraft) {
+    // After a rename, live catalog still has the OLD title while payload has the NEW one.
+    // If this production draft is already linked, trust the link (IDs are live-side).
+    if (
+      catalogLinkMatchesDraftTitle(byProdDraft.title, draftTitle) ||
+      (previousTitles || []).some((t) => catalogLinkMatchesDraftTitle(byProdDraft.title, t))
+    ) {
+      return { id: byProdDraft.id, title: byProdDraft.title };
+    }
+    // Linked draft id with unrelated title = ID collision across DBs — do not reuse.
   }
 
   if (devDraftId != null && devDraftId !== productionDraftId) {
     const byDevDraft = await findCatalogBookBySourceDraftId(devDraftId);
-    if (byDevDraft && catalogLinkMatchesDraftTitle(byDevDraft.title, draftTitle)) {
+    if (
+      byDevDraft &&
+      (catalogLinkMatchesDraftTitle(byDevDraft.title, draftTitle) ||
+        (previousTitles || []).some((t) => catalogLinkMatchesDraftTitle(byDevDraft.title, t)))
+    ) {
       return { id: byDevDraft.id, title: byDevDraft.title };
     }
+  }
+
+  // Match storefront row still carrying a pre-rename title
+  for (const prev of previousTitles || []) {
+    const byPrev = await findExactCatalogBookForDraftTitle(prev);
+    if (byPrev) return { id: byPrev.id, title: byPrev.title };
   }
 
   const exact = await findExactCatalogBookForDraftTitle(draftTitle);
@@ -12834,7 +12897,9 @@ export async function upsertCatalogBookFromPublishedSync(params: {
   price: string;
   coverUrl: string;
   description: string;
-}): Promise<number> {
+  previousTitles?: string[];
+  productionBookId?: number;
+}): Promise<{ bookId: number; matchedBy: string }> {
   const category = mapGenreToCategory(params.genre);
   const bookCoverUrl = params.coverUrl || "";
   if (!bookCoverUrl) {
@@ -12845,6 +12910,8 @@ export async function upsertCatalogBookFromPublishedSync(params: {
     params.productionDraftId,
     params.title,
     params.devDraftId,
+    params.previousTitles,
+    params.productionBookId,
   );
 
   const bookPatch = {
@@ -12861,18 +12928,23 @@ export async function upsertCatalogBookFromPublishedSync(params: {
   if (existing) {
     await db.update(books).set(bookPatch).where(eq(books.id, existing.id));
     console.log(
-      `[SyncReceive] Catalog book #${existing.id} updated for draft #${params.productionDraftId} (matched "${existing.title.slice(0, 50)}")`,
+      `[SyncReceive] Catalog book #${existing.id} updated for draft #${params.productionDraftId} (was "${existing.title.slice(0, 50)}")`,
     );
-    return existing.id;
+    return { bookId: existing.id, matchedBy: "existing" };
   }
 
   // Stale source_draft_id links (wrong title) block unique inserts — clear them first.
+  // Never clear a row we matched via previousTitles (handled above).
   const staleLinks = [params.productionDraftId, params.devDraftId].filter(
     (id): id is number => typeof id === "number",
   );
   for (const draftId of staleLinks) {
     const stale = await findCatalogBookBySourceDraftId(draftId);
-    if (stale && !catalogLinkMatchesDraftTitle(stale.title, params.title)) {
+    if (
+      stale &&
+      !catalogLinkMatchesDraftTitle(stale.title, params.title) &&
+      !(params.previousTitles || []).some((t) => catalogLinkMatchesDraftTitle(stale.title, t))
+    ) {
       await db
         .update(books)
         .set({ sourceDraftId: null })
@@ -12893,7 +12965,7 @@ export async function upsertCatalogBookFromPublishedSync(params: {
       })
       .returning({ id: books.id });
     console.log(`[SyncReceive] Catalog book #${book.id} created for draft #${params.productionDraftId}`);
-    return book.id;
+    return { bookId: book.id, matchedBy: "inserted" };
   } catch (insertErr: any) {
     const msg = insertErr?.message || "";
     if (msg.includes("source_draft_id")) {
@@ -12906,7 +12978,7 @@ export async function upsertCatalogBookFromPublishedSync(params: {
           ...withoutLink,
         })
         .returning({ id: books.id });
-      return book.id;
+      return { bookId: book.id, matchedBy: "inserted_without_link" };
     }
     throw insertErr;
   }
