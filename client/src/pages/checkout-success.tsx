@@ -44,15 +44,32 @@ function getPurchaseLabel(type: 'download' | 'read_online' | 'bundle'): string {
   return 'Digital Download';
 }
 
+interface PurchaseSnapshot {
+  items: Array<{ id: number; title: string; price: number; purchaseType?: string; genre?: string }>;
+  total: number;
+  currency: string;
+  promoCode: string | null;
+}
+
 export default function CheckoutSuccess() {
   const searchString = useSearch();
   const params = new URLSearchParams(searchString);
   const sessionId = params.get("session_id");
   const { toast } = useToast();
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [purchaseSnapshot, setPurchaseSnapshot] = useState<PurchaseSnapshot | null>(null);
   const customerToken = typeof window !== "undefined" ? localStorage.getItem("ebgz_customer_token") : null;
 
   useEffect(() => {
+    // Read purchase snapshot saved right before the checkout redirect
+    try {
+      const raw = localStorage.getItem("ebgz_purchase_snapshot");
+      if (raw) {
+        setPurchaseSnapshot(JSON.parse(raw));
+        localStorage.removeItem("ebgz_purchase_snapshot");
+      }
+    } catch {}
+
     try {
       const rawCart = localStorage.getItem("cart");
       if (rawCart && !customerToken && sessionId) {
@@ -360,16 +377,22 @@ export default function CheckoutSuccess() {
                   </p>
                 )}
 
-                {orderData?.order && (
+                {(orderData?.order || purchaseSnapshot || sessionId) && (
                   <div className="border-t border-white/10 pt-4 mt-4 space-y-2">
                     <div className="flex justify-between text-sm text-muted-foreground">
                       <span>Transaction ID</span>
-                      <span className="font-mono" data-testid="text-order-id">{orderData.order.id}</span>
+                      <span className="font-mono text-xs break-all" data-testid="text-order-id">
+                        {orderData?.order?.id ?? sessionId}
+                      </span>
                     </div>
                     <div className="flex justify-between text-sm text-muted-foreground">
                       <span>Value</span>
                       <span className="font-display text-primary" data-testid="text-order-total">
-                        ${parseFloat(orderData.order.total).toFixed(2)}
+                        ${orderData?.order
+                          ? parseFloat(orderData.order.total).toFixed(2)
+                          : purchaseSnapshot
+                            ? purchaseSnapshot.total.toFixed(2)
+                            : "—"}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm text-muted-foreground">

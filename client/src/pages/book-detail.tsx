@@ -636,6 +636,12 @@ export default function BookDetail() {
       const { url } = await response.json();
       
       if (url) {
+        localStorage.setItem("ebgz_purchase_snapshot", JSON.stringify({
+          items: [{ id: book.id, title: book.title, price, purchaseType, genre: book.genre || "" }],
+          total: Math.round(price * 100) / 100,
+          currency: "USD",
+          promoCode: promoCode || null,
+        }));
         window.location.href = url;
       }
     } catch (error) {

@@ -137,6 +137,12 @@ export default function Cart() {
       const { url } = await response.json();
       
       if (url) {
+        localStorage.setItem("ebgz_purchase_snapshot", JSON.stringify({
+          items: cartItems.map(item => ({ id: item.id, title: item.title, price: item.price, purchaseType: item.purchaseType, genre: item.genre })),
+          total: Math.round(total * 100) / 100,
+          currency: "USD",
+          promoCode: promoApplied ? promoCode : null,
+        }));
         window.location.href = url;
       }
     } catch (error) {
