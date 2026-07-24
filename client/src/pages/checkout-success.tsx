@@ -126,6 +126,10 @@ export default function CheckoutSuccess() {
   useEffect(() => {
     if (orderData?.order?.customerEmail && orderData.order.customerEmail !== 'unknown@email.com') {
       localStorage.setItem("reader_email", orderData.order.customerEmail);
+      // Enhanced Conversions: send hashed email to Google Ads
+      if (typeof (window as any).gtag === 'function') {
+        (window as any).gtag('set', 'user_data', { email: orderData.order.customerEmail });
+      }
     }
   }, [orderData]);
 
