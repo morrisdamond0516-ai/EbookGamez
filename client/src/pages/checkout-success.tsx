@@ -361,16 +361,20 @@ export default function CheckoutSuccess() {
                 )}
 
                 {orderData?.order && (
-                  <div className="border-t border-white/10 pt-4 mt-4">
+                  <div className="border-t border-white/10 pt-4 mt-4 space-y-2">
                     <div className="flex justify-between text-sm text-muted-foreground">
-                      <span>Order #</span>
+                      <span>Transaction ID</span>
                       <span className="font-mono" data-testid="text-order-id">{orderData.order.id}</span>
                     </div>
-                    <div className="flex justify-between text-sm text-muted-foreground mt-2">
-                      <span>Total</span>
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Value</span>
                       <span className="font-display text-primary" data-testid="text-order-total">
                         ${parseFloat(orderData.order.total).toFixed(2)}
                       </span>
+                    </div>
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Currency</span>
+                      <span className="font-mono" data-testid="text-order-currency">USD</span>
                     </div>
                   </div>
                 )}
