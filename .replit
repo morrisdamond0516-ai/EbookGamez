@@ -65,7 +65,7 @@ isValidation = true
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run build"
+args = "npm run build:server"
 
 [[workflows.workflow]]
 name = "typecheck"
