@@ -16,6 +16,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { getObjStoreBucketName, createObjStoreReadStream, uploadFileToObjStore } from "./objectStorage";
+import { healthzHandler } from "./healthzHandler";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,47 +85,7 @@ const app = express();
 app.set("trust proxy", 1);
 
 // Health-check endpoint — registered before all body parsers so it is always reachable.
-app.get('/healthz', async (_req, res) => {
-  const CHECK_TIMEOUT_MS = 3000;
-  const checks: { db: boolean; stripe: boolean } = { db: false, stripe: false };
-
-  /** Races a promise against a timeout; rejects with a timeout error if exceeded. */
-  const withTimeout = <T>(promise: Promise<T>, label: string): Promise<T> => {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`${label} timed out after ${CHECK_TIMEOUT_MS}ms`)), CHECK_TIMEOUT_MS);
-      promise.then(
-        (val) => { clearTimeout(timer); resolve(val); },
-        (err) => { clearTimeout(timer); reject(err); },
-      );
-    });
-  };
-
-  // DB check: borrow a client from the shared pool — no new connection overhead
-  try {
-    const { pool: dbPool } = await import('./storage');
-    await withTimeout(dbPool.query('SELECT 1'), 'DB');
-    checks.db = true;
-  } catch (err: any) {
-    console.error('[Healthz] DB check failed:', err.message);
-  }
-
-  // Stripe check: verify the secret key is present and the client can be instantiated
-  try {
-    const secretKey = process.env.STRIPE_SECRET_KEY;
-    if (!secretKey) throw new Error('STRIPE_SECRET_KEY not set');
-    const Stripe = (await import('stripe')).default;
-    const stripe = new Stripe(secretKey, { apiVersion: '2025-11-17.clover' as any });
-    // A minimal read-only call to confirm the key is valid
-    await withTimeout(stripe.balance.retrieve(), 'Stripe');
-    checks.stripe = true;
-  } catch (err: any) {
-    console.error('[Healthz] Stripe check failed:', err.message);
-  }
-
-  const allOk = checks.db && checks.stripe;
-  const status = allOk ? 'ok' : 'degraded';
-  res.status(allOk ? 200 : 503).json({ status, ...checks });
-});
+app.get('/healthz', healthzHandler);
 
 function setupShutdownGuard() {
   const handleShutdown = (signal: string) => {
