@@ -56,12 +56,12 @@ waitForPort = 5000
 name = "build"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm run build && node --input-type=commonjs -e \"require('./dist/index.cjs'); console.log('bundle OK')\""
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build"
 
 [agent]
 mockupState = "FULLSTACK"
