@@ -136,6 +136,22 @@ async function pollHealthz(): Promise<void> {
 }
 
 /**
+ * Trigger a one-off simulated degraded alert for testing purposes.
+ * Sends a clearly-labelled test message to the configured Slack channel.
+ * Returns true when Slack confirms delivery, false otherwise.
+ * Never throws.
+ */
+export async function triggerTestAlert(): Promise<{ sent: boolean; channel: string }> {
+  const channel = process.env.SLACK_ALERT_CHANNEL || '#alerts';
+  const text =
+    `:test_tube: *[TEST] Production health alert test* — this is a manually-triggered test message.\n` +
+    `If you received this, the Slack integration is working correctly.\n` +
+    `Channel: ${channel}  |  Endpoint: /healthz`;
+  const sent = await sendSlackMessage(text);
+  return { sent, channel };
+}
+
+/**
  * Start the health monitor. Safe to call multiple times — only the first call
  * actually starts the interval.
  */

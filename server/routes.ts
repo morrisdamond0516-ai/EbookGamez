@@ -27,6 +27,7 @@ import epubGenMemory from "epub-gen-memory";
 import { generateDistributionEpub } from "./epubGenerator";
 import subscriptionSessionRouter from "./subscriptionSessionRoute";
 import { registerNewsletterRoutes } from "./newsletter";
+import { triggerTestAlert } from "./healthMonitor";
 const epub = (epubGenMemory as any).default || epubGenMemory;
 
 // Ensure upload directories exist
@@ -866,7 +867,24 @@ Allow: /
     return res.json({ authenticated: isAdminAuthenticated(req) });
   });
 
-  
+  // POST /api/admin/test-health-alert — trigger a simulated Slack alert for testing
+  app.post("/api/admin/test-health-alert", async (req, res) => {
+    if (!isAdminSyncAuthenticated(req)) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const result = await triggerTestAlert();
+      if (result.sent) {
+        return res.json({ message: "Test alert sent", channel: result.channel });
+      } else {
+        return res.status(502).json({ error: "Test alert delivery failed — check SLACK_LIVE_API_KEY and SLACK_ALERT_CHANNEL", channel: result.channel });
+      }
+    } catch (err: any) {
+      console.error("[AdminRoute] test-health-alert error:", err.message);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // GET /api/social-proof - Aggregate activity stats + recent book activity
   app.get("/api/social-proof", async (req, res) => {
     try {
