@@ -33,7 +33,8 @@ import {
   CheckSquare,
   Wand2,
   BarChart2,
-  ShieldCheck
+  ShieldCheck,
+  Bell
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -337,6 +338,9 @@ function ContentStudioMain() {
   const [selectedStyleId, setSelectedStyleId] = useState<string>("classic-cinematic");
   const [regeneratingWithStyle, setRegeneratingWithStyle] = useState(false);
   const [syncToProductionOpen, setSyncToProductionOpen] = useState(false);
+  const [healthSectionOpen, setHealthSectionOpen] = useState(false);
+  const [testAlertLoading, setTestAlertLoading] = useState(false);
+  const [testAlertResult, setTestAlertResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [productionUrl, setProductionUrl] = useState(() => {
     const saved = localStorage.getItem("ebgz_prod_url") || "";
     if (saved && !isLocalDevUrl(saved) && !isReplitIdePreviewUrl(saved)) return saved;
@@ -2875,6 +2879,71 @@ function ContentStudioMain() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Health Monitoring Panel */}
+        <div className="border border-emerald-500/30 rounded-lg bg-emerald-900/10">
+          <button
+            onClick={() => setHealthSectionOpen(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-emerald-500/10 transition-colors"
+            data-testid="button-toggle-health-section"
+          >
+            <div className="flex items-center gap-2">
+              <Bell className="h-4 w-4 text-emerald-400" />
+              <span className="text-sm font-semibold text-emerald-300">Health &amp; Alerts</span>
+              <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-xs">
+                Monitoring
+              </Badge>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-emerald-400 transition-transform ${healthSectionOpen ? "rotate-180" : ""}`} />
+          </button>
+          {healthSectionOpen && (
+            <div className="px-4 pb-4 space-y-3">
+              <p className="text-xs text-emerald-200/70 leading-relaxed">
+                Send a test Slack alert to verify the health-monitoring notification pipeline is working. No curl required.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  onClick={async () => {
+                    setTestAlertLoading(true);
+                    setTestAlertResult(null);
+                    try {
+                      const res = await fetch("/api/admin/test-health-alert", {
+                        method: "POST",
+                        headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || "Request failed");
+                      setTestAlertResult({ ok: true, message: data.message || "Test alert sent successfully." });
+                      toast({ title: "Test alert sent", description: data.message || "Check Slack for the test notification." });
+                    } catch (e: any) {
+                      setTestAlertResult({ ok: false, message: e.message || "Failed to send test alert." });
+                      toast({ title: "Test alert failed", description: e.message, variant: "destructive" });
+                    } finally {
+                      setTestAlertLoading(false);
+                    }
+                  }}
+                  disabled={testAlertLoading}
+                  className="bg-emerald-700 hover:bg-emerald-600 text-white h-8 px-4 text-sm whitespace-nowrap"
+                  data-testid="button-send-test-alert"
+                >
+                  {testAlertLoading ? (
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />Sending…</>
+                  ) : (
+                    <><Bell className="h-3 w-3 mr-1" />Send Test Alert</>
+                  )}
+                </Button>
+                {testAlertResult && (
+                  <div
+                    className={`rounded px-3 py-1.5 text-xs ${testAlertResult.ok ? "bg-green-900/20 border border-green-500/30 text-green-300" : "bg-red-900/20 border border-red-500/30 text-red-300"}`}
+                    data-testid="test-alert-result"
+                  >
+                    {testAlertResult.message}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
