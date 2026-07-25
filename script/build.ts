@@ -2,6 +2,7 @@ import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile, copyFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
+import { execSync } from "child_process";
 
 /** CJS bundles cannot use import.meta.url — strip the ESM dirname shim (esbuild injects __dirname). */
 function cjsImportMetaDirnamePlugin() {
@@ -54,6 +55,9 @@ const allowlist = [
 ];
 
 async function buildAll() {
+  console.log("type checking...");
+  execSync("npx tsc --noEmit", { stdio: "inherit" });
+
   await rm("dist", { recursive: true, force: true });
 
   console.log("building client...");
