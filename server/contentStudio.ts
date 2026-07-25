@@ -8445,7 +8445,7 @@ export async function repairIllustrationDistribution(draftIds: number[]): Promis
 
       if (ILLUSTRATION_EXEMPT_DRAFT_IDS.has(draftId)) {
         console.log(`[Illust Repair] Draft ${draftId} "${draft.title}" — illustration-exempt, skipping`);
-        contentGenProgress.current++;
+        contentGenProgress.completed++;
         continue;
       }
 
@@ -8474,7 +8474,7 @@ export async function repairIllustrationDistribution(draftIds: number[]): Promis
       }
       if (chapterStarts.length <= 1) {
         console.log(`[Illust Repair] "${draft.title}" — could not detect chapter boundaries, skipping`);
-        contentGenProgress.current++;
+        contentGenProgress.completed++;
         continue;
       }
 
@@ -8500,7 +8500,7 @@ export async function repairIllustrationDistribution(draftIds: number[]): Promis
 
       if (emptyChapters.length === 0) {
         console.log(`[Illust Repair] "${draft.title}" — all chapters have illustrations already`);
-        contentGenProgress.current++;
+        contentGenProgress.completed++;
         continue;
       }
 
@@ -8575,11 +8575,11 @@ Output ONLY a JSON array of 2 objects with:
 
       console.log(`[Illust Repair] Completed "${draft.title}"`);
       successCount++;
-      contentGenProgress.current++;
+      contentGenProgress.completed++;
     } catch (err: any) {
       console.error(`[Illust Repair] Failed for draft ${draftId}:`, err.message);
       failCount++;
-      contentGenProgress.current++;
+      contentGenProgress.completed++;
     }
   }
 

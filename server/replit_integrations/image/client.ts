@@ -21,7 +21,7 @@ export async function generateImageBuffer(
       prompt,
       size,
     });
-    const base64 = response.data[0]?.b64_json ?? "";
+    const base64 = response.data?.[0]?.b64_json ?? "";
     return Buffer.from(base64, "base64");
   } catch (err: any) {
     console.warn(`[Image] gpt-image-1.5 failed, falling back to gpt-image-1: ${err.message}`);
@@ -30,7 +30,7 @@ export async function generateImageBuffer(
       prompt,
       size,
     });
-    const base64 = response.data[0]?.b64_json ?? "";
+    const base64 = response.data?.[0]?.b64_json ?? "";
     return Buffer.from(base64, "base64");
   }
 }
@@ -68,7 +68,7 @@ export async function editImages(
     });
   }
 
-  const imageBase64 = response.data[0]?.b64_json ?? "";
+  const imageBase64 = response.data?.[0]?.b64_json ?? "";
   const imageBytes = Buffer.from(imageBase64, "base64");
 
   if (outputPath) {

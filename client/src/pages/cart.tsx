@@ -29,6 +29,7 @@ interface CartItem {
   price: number;
   coverUrl: string;
   purchaseType?: 'download' | 'read_online' | 'bundle';
+  genre?: string;
 }
 
 export default function Cart() {

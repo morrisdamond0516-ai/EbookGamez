@@ -9261,7 +9261,7 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
           .from(draftEbooks)
           .where(
             and(
-              inArray(draftEbooks.id, ids.slice(0, limit)),
+              inArray(draftEbooks.id, (ids as number[]).slice(0, limit)),
               eq(draftEbooks.status, "published"),
               isNotNull(draftEbooks.content),
             ),
@@ -9275,7 +9275,7 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
           .select()
           .from(draftEbooks)
           .where(and(eq(draftEbooks.status, "published"), isNotNull(draftEbooks.content)));
-        const lower = new Set(wanted.map((t) => t.toLowerCase()));
+        const lower = new Set((wanted as string[]).map((t) => t.toLowerCase()));
         rows = allPublished
           .filter((d) => lower.has(d.title.trim().toLowerCase()))
           .slice(0, limit);
