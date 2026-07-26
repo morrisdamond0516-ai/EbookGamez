@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { BookOpen, CheckCircle2, Star, ArrowRight, Loader2 } from "lucide-react";
@@ -62,19 +62,29 @@ function CoverGrid({ books }: { books: ApiBook[] }) {
 }
 
 export default function EbooksLanding() {
+  const searchString = useSearch();
+  const params = new URLSearchParams(searchString);
+  const genreParam = params.get("genre") ?? "";
+  // Normalise: match against known genres (case-insensitive), fall back to empty
+  const activeGenre = GENRES.find(g => g.toLowerCase() === genreParam.toLowerCase()) ?? genreParam.trim();
+
   useEffect(() => {
-    document.title = "Browse 600+ Ebooks — EbookGamez";
+    const title = activeGenre
+      ? `${activeGenre} Ebooks — EbookGamez`
+      : "Browse 600+ Ebooks — EbookGamez";
+    document.title = title;
     const desc = document.querySelector('meta[name="description"]') as HTMLMetaElement | null;
     const prev = desc?.content ?? "";
     if (desc) {
-      desc.content =
-        "Discover 600+ full-length ebooks across romance, thriller, fantasy, self-help, and more. Instant download, DRM-free. Buy individually or unlock everything with a Reading Pass.";
+      desc.content = activeGenre
+        ? `Browse our full collection of ${activeGenre} ebooks. Instant download, DRM-free. Buy individually or unlock everything with a Reading Pass.`
+        : "Discover 600+ full-length ebooks across romance, thriller, fantasy, self-help, and more. Instant download, DRM-free. Buy individually or unlock everything with a Reading Pass.";
     }
     return () => {
       document.title = "EbookGamez - Ebooks, Games, Downloads & Gaming Guides";
       if (desc) desc.content = prev;
     };
-  }, []);
+  }, [activeGenre]);
 
   useEffect(() => {
     resetScrollDepthTracking();
@@ -98,9 +108,12 @@ export default function EbooksLanding() {
   }, []);
 
   const { data, isLoading } = useQuery<{ books: ApiBook[] }>({
-    queryKey: ["ebooks-landing-covers"],
+    queryKey: ["ebooks-landing-covers", activeGenre],
     queryFn: async () => {
-      const res = await fetch("/api/books?page=1&limit=24");
+      const url = activeGenre
+        ? `/api/books?page=1&limit=24&genre=${encodeURIComponent(activeGenre)}`
+        : "/api/books?page=1&limit=24";
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -108,6 +121,23 @@ export default function EbooksLanding() {
   });
 
   const books = data?.books ?? [];
+
+  // Derived copy and links that change when a genre is active
+  const catalogHref = activeGenre
+    ? `/catalog?search=${encodeURIComponent(activeGenre)}`
+    : "/catalog";
+  const heroHeadlineTop = activeGenre
+    ? `Browse ${activeGenre} Ebooks`
+    : "Your Next Favourite Book";
+  const heroHeadlineBottom = activeGenre
+    ? "Handpicked & DRM-Free"
+    : "is Already Here";
+  const heroBadge = activeGenre
+    ? `600+ ${activeGenre} Ebooks · Instant Access`
+    : "600+ Ebooks · Instant Access";
+  const heroSubcopy = activeGenre
+    ? `Discover our full collection of ${activeGenre} ebooks — DRM-free and yours the moment you buy. Browse individually or unlock everything with a Reading Pass.`
+    : "Browse a handpicked library of 600+ full-length ebooks. Romance, thriller, fantasy, self-help, classics — all DRM-free and yours the moment you buy.";
 
   return (
     <div className="min-h-screen bg-background text-foreground font-body selection:bg-primary/30">
@@ -119,11 +149,11 @@ export default function EbooksLanding() {
               EbookGamez
             </span>
           </Link>
-          <Link href="/catalog">
+          <Link href={catalogHref}>
             <Button
               size="sm"
               className="bg-primary text-black hover:bg-primary/90 font-serif font-semibold"
-              onClick={() => trackEbooksCtaClick({ label: "Browse Library", destination: "/catalog", location: "header" })}
+              onClick={() => trackEbooksCtaClick({ label: "Browse Library", destination: catalogHref, location: "header" })}
             >
               Browse Library
             </Button>
@@ -140,23 +170,23 @@ export default function EbooksLanding() {
         >
           <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/30 rounded-full px-4 py-1.5 mb-6">
             <BookOpen className="w-4 h-4 text-primary" />
-            <span className="text-xs text-primary font-serif font-semibold tracking-wide uppercase">600+ Ebooks · Instant Access</span>
+            <span className="text-xs text-primary font-serif font-semibold tracking-wide uppercase">{heroBadge}</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-display text-white leading-tight mb-5">
-            Your Next Favourite Book<br />
-            <span className="text-primary">is Already Here</span>
+            {heroHeadlineTop}<br />
+            <span className="text-primary">{heroHeadlineBottom}</span>
           </h1>
 
           <p className="text-lg text-muted-foreground font-serif mb-8 max-w-xl mx-auto">
-            Browse a handpicked library of 600+ full-length ebooks. Romance, thriller, fantasy, self-help, classics — all DRM-free and yours the moment you buy.
+            {heroSubcopy}
           </p>
 
-          <Link href="/catalog">
+          <Link href={catalogHref}>
             <Button
               size="lg"
               className="bg-primary text-black hover:bg-primary/90 font-serif font-bold text-base px-8 py-6 rounded-lg shadow-lg shadow-primary/20 group"
-              onClick={() => trackEbooksCtaClick({ label: "Browse the Library", destination: "/catalog", location: "hero" })}
+              onClick={() => trackEbooksCtaClick({ label: "Browse the Library", destination: catalogHref, location: "hero" })}
             >
               Browse the Library
               <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
@@ -179,14 +209,14 @@ export default function EbooksLanding() {
           <CoverGrid books={books} />
         )}
         <div className="text-center mt-8">
-          <Link href="/catalog">
+          <Link href={catalogHref}>
             <Button
               variant="outline"
               size="lg"
               className="border-primary/40 text-primary hover:bg-primary/10 font-serif px-8"
-              onClick={() => trackEbooksCtaClick({ label: "See All 600+ Books", destination: "/catalog", location: "cover_grid" })}
+              onClick={() => trackEbooksCtaClick({ label: "See All 600+ Books", destination: catalogHref, location: "cover_grid" })}
             >
-              See All 600+ Books <ArrowRight className="ml-2 h-4 w-4" />
+              {activeGenre ? `See All ${activeGenre} Books` : "See All 600+ Books"} <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </Link>
         </div>
