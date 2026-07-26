@@ -1112,15 +1112,28 @@ Allow: /
   app.post("/api/admin/books/backfill-drafts", async (req, res) => {
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
     try {
-      // 1. Exact title match — link by title (case-insensitive)
-      const exactResult = await db.execute(sql`
+      // 1a. Exact title match for books with no draft at all
+      const exactNullResult = await db.execute(sql`
         UPDATE books b
         SET source_draft_id = d.id
         FROM draft_ebooks d
         WHERE lower(trim(b.title)) = lower(trim(d.title))
           AND b.source_draft_id IS NULL
       `);
-      const exactLinked = (exactResult as any).rowCount ?? 0;
+      const exactLinked = (exactNullResult as any).rowCount ?? 0;
+
+      // 1b. Fix books whose current draft title does NOT match the book title
+      //     (wrong link — e.g. book "Grade 2 Maths" points to draft "Mind Like Water")
+      const wrongLinked = await db.execute(sql`
+        UPDATE books b
+        SET source_draft_id = correct.id
+        FROM draft_ebooks correct
+        JOIN draft_ebooks current_draft ON current_draft.id = b.source_draft_id
+        WHERE lower(trim(b.title)) = lower(trim(correct.title))
+          AND lower(trim(b.title)) != lower(trim(current_draft.title))
+          AND b.source_draft_id IS NOT NULL
+      `);
+      const wrongFixed = (wrongLinked as any).rowCount ?? 0;
 
       // 2. Still-unlinked books that have no draft at all — create stubs
       const stillUnlinked = await db
@@ -1179,14 +1192,15 @@ Allow: /
         stubsCreated++;
       }
 
-      const total = exactLinked + stubsCreated;
+      const total = exactLinked + wrongFixed + stubsCreated;
       res.json({
         linked: exactLinked,
+        wrongFixed,
         stubsCreated,
         total,
         message: total === 0
-          ? "All books already linked to a draft — nothing to do."
-          : `Linked ${exactLinked} by title match, created ${stubsCreated} new stub draft(s).`,
+          ? "All books already linked to the correct draft — nothing to do."
+          : `Linked ${exactLinked} new, fixed ${wrongFixed} wrong link(s), created ${stubsCreated} stub draft(s).`,
       });
     } catch (error: any) {
       console.error("[BackfillDrafts] Error:", error);
