@@ -1,0 +1,7804 @@
+Sweep & Publish Ready (0)
+Audit Published (677)
+Delete All (774)
+Select items for bulk actions
+Select All (774)
+Write Missing Content (97)
+Rewrite Incomplete (97)
+Import from Catalog
+Download Titles List
+Titles (Text)
+Titles + Images (ZIP)
+Content (Text)
+Content + Images (ZIP)
+All EPUBs (ZIP)
+Selected EPUBs (0)
+Download Covers (0)
+Upload Covers
+Download PDFs (0)
+Upload PDFs
+Search by title, genre, or ID...
+	I.D. #	Cover	Title	Genre	Price	Content	Status	Actions
+	844	Solar & Renewable Energy Tech Intro	
+Solar & Renewable Energy Tech Intro
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	843	Bookkeeping for Small Business	
+Bookkeeping for Small Business
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	842	Real Estate License Prep Essentials	
+Real Estate License Prep Essentials
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	841	Entrepreneurship & Small Business Launch	
+Entrepreneurship & Small Business Launch
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	840	Project Management Foundations	
+Project Management Foundations
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	839	Digital Marketing Career Starter	
+Digital Marketing Career Starter
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	838	Cybersecurity Fundamentals	
+Cybersecurity Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	837	IT Support Career Starter	
+IT Support Career Starter
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	836	CDL Exam Prep Essentials	
+CDL Exam Prep Essentials
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	835	Culinary Arts Foundations	
+Culinary Arts Foundations
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	834	Cosmetology Fundamentals	
+Cosmetology Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	833	Dental Assisting Basics	
+Dental Assisting Basics
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	832	Pharmacy Technician Essentials	
+Pharmacy Technician Essentials
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	831	CNA Patient Care Basics	
+CNA Patient Care Basics
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	830	Medical Assisting Fundamentals	
+Medical Assisting Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	829	Construction Safety Essentials	
+Construction Safety Essentials
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	828	CNC & Manufacturing Intro	
+CNC & Manufacturing Intro
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	827	Welding Basics	
+Welding Basics
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	826	Automotive Fundamentals	
+Automotive Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	825	Plumbing Fundamentals	
+Plumbing Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	824	Residential Electrical Wiring Basics	
+Residential Electrical Wiring Basics
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	823	HVAC Fundamentals	
+HVAC Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	822	Human Anatomy & Physiology I	
+Human Anatomy & Physiology I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	821	Critical Thinking & Logic	
+Critical Thinking & Logic
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	820	College Success & Study Skills	
+College Success & Study Skills
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	819	Public Speaking for College	
+Public Speaking for College
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	818	Introduction to Programming	
+Introduction to Programming
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	817	Financial Accounting Fundamentals	
+Financial Accounting Fundamentals
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	816	Introduction to Business	
+Introduction to Business
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	815	Macroeconomics	
+Macroeconomics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	814	Microeconomics	
+Microeconomics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	813	American History Survey	
+American History Survey
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	812	College Physics I	
+College Physics I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	811	General Chemistry I	
+General Chemistry I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	810	General Biology I	
+General Biology I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	809	Introduction to Sociology	
+Introduction to Sociology
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	808	Introduction to Psychology	
+Introduction to Psychology
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	807	Introductory Statistics	
+Introductory Statistics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	806	Calculus I	
+Calculus I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	805	College Algebra	
+College Algebra
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	804	College Composition I	
+College Composition I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	803	Psychology for High School	
+Psychology for High School
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	802	Public Speaking & Debate	
+Public Speaking & Debate
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	801	Personal Finance for Teens	
+Personal Finance for Teens
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	800	Computer Science Principles	
+Computer Science Principles
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	799	High School Health	
+High School Health
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	798	Spanish II	
+Spanish II
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	797	Spanish I	
+Spanish I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	796	Economics for High School	
+Economics for High School
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	795	US Government & Civics	
+US Government & Civics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	794	World History	
+World History
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	793	United States History	
+United States History
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	792	Earth & Environmental Science	
+Earth & Environmental Science
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	791	Physics	
+Physics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	790	Chemistry	
+Chemistry
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	789	Biology	
+Biology
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	788	High School Statistics	
+High School Statistics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	787	Precalculus	
+Precalculus
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	786	Algebra II	
+Algebra II
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	785	Geometry	
+Geometry
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	784	Algebra I	
+Algebra I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	783	English 12: College & Career Writing	
+English 12: College & Career Writing
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	782	English 11: American Literature	
+English 11: American Literature
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	781	English 10: World Literature & Argument	
+English 10: World Literature & Argument
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	780	English 9: Literature & Composition	
+English 9: Literature & Composition
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	779	Grade 8 Computer Science Foundations	
+Grade 8 Computer Science Foundations
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	778	Grade 8 Health & Life Skills	
+Grade 8 Health & Life Skills
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	777	Grade 8 Social Studies	
+Grade 8 Social Studies
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	776	Grade 8 Science	
+Grade 8 Science
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	775	Grade 8 Mathematics	
+Grade 8 Mathematics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	774	Grade 8 Reading & Writing	
+Grade 8 Reading & Writing
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	773	Grade 7 Computer Science Foundations	
+Grade 7 Computer Science Foundations
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	772	Grade 7 Health & Life Skills	
+Grade 7 Health & Life Skills
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	771	Grade 7 Social Studies	
+Grade 7 Social Studies
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	770	Grade 7 Science	
+Grade 7 Science
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	769	Grade 7 Mathematics	
+Grade 7 Mathematics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	768	Grade 7 Reading & Writing	
+Grade 7 Reading & Writing
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	767	Grade 6 Computer Science Foundations	
+Grade 6 Computer Science Foundations
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	766	Grade 6 Health & Life Skills	
+Grade 6 Health & Life Skills
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	765	Grade 6 Social Studies	
+Grade 6 Social Studies
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	764	Grade 6 Science	
+Grade 6 Science
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	763	Grade 6 Mathematics	
+Grade 6 Mathematics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	762	Grade 6 Reading & Writing	
+Grade 6 Reading & Writing
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	761	Grade 2 Phonics & Early Reading	
+Grade 2 Phonics & Early Reading
+Workbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	760	Grade 1 Phonics & Early Reading	
+Grade 1 Phonics & Early Reading
+Workbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	759	Kindergarten Phonics & Early Reading	
+Kindergarten Phonics & Early Reading
+Workbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	758	Grade 5 Health & Wellness	
+Grade 5 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	757	Grade 4 Health & Wellness	
+Grade 4 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	756	Grade 3 Health & Wellness	
+Grade 3 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	755	Grade 2 Health & Wellness	
+Grade 2 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	754	Grade 1 Health & Wellness	
+Grade 1 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	753	Kindergarten Health & Wellness	
+Kindergarten Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	752	Grade 5 Social Studies: Complete School Year	
+Grade 5 Social Studies: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	751	Grade 5 Science: Complete School Year	
+Grade 5 Science: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	750	Grade 5 Mathematics: Complete School Year	
+Grade 5 Mathematics: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	749	Grade 5 Reading & Writing: Complete School Year	
+Grade 5 Reading & Writing: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	748	Grade 4 Social Studies: Complete School Year	
+Grade 4 Social Studies: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+
+Published Books
+677
+Title renames pushed
+677 synced fingerprint
+All (677)
+To do: push (0)
+Done (677)
+Title repaired (35)
+Live column = production sync. “Need push” means not yet on ebookgamez.com; “On live” means a successful push was recorded.
+	I.D. #	Cover	Title	Genre	Live	Price	Content	Status	Actions
+	747	Grade 4 Science: Complete School Year	
+Grade 4 Science: Complete School Year
+Textbooks	On live	$10.99	41,043 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	746	Grade 4 Mathematics: Complete School Year	
+Grade 4 Mathematics: Complete School Year
+Textbooks	On live	$10.99	36,268 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	745	Grade 4 Reading & Writing: Complete School Year	
+Grade 4 Reading & Writing: Complete School Year
+Textbooks	On live	$10.99	44,167 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	744	Grade 3 Social Studies: Complete School Year	
+Grade 3 Social Studies: Complete School Year
+Textbooks	On live	$10.99	40,026 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	743	Grade 3 Science: Complete School Year	
+Grade 3 Science: Complete School Year
+Textbooks	On live	$10.99	42,190 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	742	Grade 3 Mathematics: Complete School Year	
+Grade 3 Mathematics: Complete School Year
+Textbooks	On live	$10.99	37,354 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	741	Grade 3 Reading & Writing: Complete School Year	
+Grade 3 Reading & Writing: Complete School Year
+Textbooks	On live	$10.99	42,626 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	740	Grade 2 Social Studies: Complete School Year	
+Grade 2 Social Studies: Complete School Year
+Textbooks	On live	$10.99	35,499 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	739	Grade 2 Science: Complete School Year	
+Grade 2 Science: Complete School Year
+Textbooks	On live	$10.99	42,130 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	738	Grade 2 Mathematics: Complete School Year	
+Grade 2 Mathematics: Complete School Year
+Textbooks	On live	$10.99	37,072 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	737	Grade 2 Reading & Writing: Complete School Year	
+Grade 2 Reading & Writing: Complete School Year
+Textbooks	On live	$10.99	38,572 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	736	Grade 1 Social Studies: Complete School Year	
+Grade 1 Social Studies: Complete School Year
+Textbooks	On live	$10.99	34,957 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	735	Grade 1 Science: Complete School Year	
+Grade 1 Science: Complete School Year
+Textbooks	On live	$10.99	38,122 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	734	Grade 1 Mathematics: Complete School Year	
+Grade 1 Mathematics: Complete School Year
+Textbooks	On live	$10.99	39,093 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	733	Grade 1 Reading & Writing: Complete School Year	
+Grade 1 Reading & Writing: Complete School Year
+Textbooks	On live	$10.99	36,278 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	732	Kindergarten Social Studies: Complete School Year	
+Kindergarten Social Studies: Complete School Year
+Textbooks	On live	$10.99	35,964 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	731	Kindergarten Science: Complete School Year	
+Kindergarten Science: Complete School Year
+Textbooks	On live	$10.99	33,166 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	730	Kindergarten Mathematics: Complete School Year	
+Kindergarten Mathematics: Complete School Year
+Textbooks	On live	$10.99	35,215 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	729	Kindergarten Reading & Writing: Complete School Year	
+Kindergarten Reading & Writing: Complete School Year
+Textbooks	On live	$10.99	34,029 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	728	Puzzle Planet: Dinosaur Detectives	
+Puzzle Planet: Dinosaur Detectives
+Activity Books	On live	$12.99	32,655 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	727	Brain Busters: Space Edition	
+Brain Busters: Space Edition
+Activity Books	On live	$12.99	36,347 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	726	The Dragon Academy Trials	
+The Dragon Academy Trials
+Young Adult Fiction	On live	$13.99	60,362 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	725	Captain Whiskers and the Pirate Moon	
+Captain Whiskers and the Pirate Moon
+Children's Fiction	On live	$12.99	61,456 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	724	Luna Ortiz and the Unbuttoning Stars	
+Luna Ortiz and the Unbuttoning Stars
+Children's Fiction	On live	$12.99	63,788 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	723	The Clockwork Forest	
+The Clockwork Forest
+Children's Fiction	On live	$12.99	63,414 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	722	Stillness in the Signalstorm: Stoic Mindfulness for the Notification Age	
+Stillness in the Signalstorm: Stoic Mindfulness for the Notification Age
+Mindfulness	On live	$11.99	40,103 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	721	Calm Without Shame: A CBT Workbook of Grounding Scripts and Anxiety Worksheets	
+Calm Without Shame: A CBT Workbook of Grounding Scripts and Anxiety Worksheets
+Health & Wellness	On live	$12.99	41,515 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	720	The 5-Minute Reset	
+The 5-Minute Reset
+Self-Help / Personal Development	On live	$12.99	42,337 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	719	Ash-Cipher Atlas: The Kingdom History Erased	
+Ash-Cipher Atlas: The Kingdom History Erased
+Adventure	On live	$13.99	65,126 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	718	The House on Briar Lane	
+The House on Briar Lane
+Romance	On live	$14.99	73,505 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	717	Readathon Rivals on Paper Street	
+Readathon Rivals on Paper Street
+Romance	On live	$14.99	78,057 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	716	Afterlight: The Astronaut Who Brought Back the Missing Sky	
+Afterlight: The Astronaut Who Brought Back the Missing Sky
+Science Fiction	On live	$14.99	73,666 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	715	Code Black: Silicon Valley	
+Code Black: Silicon Valley
+Thriller	On live	$14.99	52,928 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	714	The Midnight Librarian	
+The Midnight Librarian
+Fantasy	On live	$14.99	83,166 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	713	Shadows of the Fae Court	
+Shadows of the Fae Court
+Fantasy	On live	$14.99	76,718 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	712	Secrets of Hollowmere Hall	
+Secrets of Hollowmere Hall
+Horror	On live	$14.99	61,737 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	711	Love in Extra Innings	
+Love in Extra Innings
+Romance	On live	$14.99	73,499 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	710	Murder at the Maple Inn	
+Murder at the Maple Inn
+Mystery / Thriller	On live	$14.99	53,997 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	709	The Last Upload	
+The Last Upload
+Science Fiction	On live	$14.99	62,976 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	708	The Neighbor's Lie	
+The Neighbor's Lie
+Mystery / Thriller	On live	$14.99	54,308 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	707	The Ember Bond	
+The Ember Bond
+Fantasy	On live	$14.99	79,872 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	699	Mastering Micro-Meditations: Using 2-Minute Practices to Reduce Stress and Increase Focus in a Busy World	
+Mastering Micro-Meditations: Using 2-Minute Practices to Reduce Stress and Increase Focus in a Busy World
+Mindfulness	On live	$11.99	40,727 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	696	The Secret Library Under the Stairs: A Chapter Book for Young Readers	
+The Secret Library Under the Stairs: A Chapter Book for Young Readers
+Children's Fiction	On live	$12.99	62,303 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	695	The Research Methods Toolkit: Designing Studies That Produce Reliable Results	
+The Research Methods Toolkit: Designing Studies That Produce Reliable Results
+Research Books	On live	$10.99	47,143 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	694	The Ultimate Brain Games Collection: 500 Puzzles, Riddles, and Logic Challenges	
+The Ultimate Brain Games Collection: 500 Puzzles, Riddles, and Logic Challenges
+Activity Books	On live	$12.99	41,645 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	693	The Art of the Graphic Memoir: Visual Storytelling for Personal Narratives	
+The Art of the Graphic Memoir: Visual Storytelling for Personal Narratives
+Graphic Novels	On live	$12.99	56,495 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	692	How to Create Your Own Comic Book: From Concept to Published Issue	
+How to Create Your Own Comic Book: From Concept to Published Issue
+Comics, Self-Help	On live	$12.99	45,872 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	691	The Glitch in the Simulation: A YA Sci-Fi Thriller	
+The Glitch in the Simulation: A YA Sci-Fi Thriller
+Young Adult Fiction	On live	$12.99	57,488 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	690	The Manifestation Blueprint: A 60-Day System for Turning Vision into Reality	
+The Manifestation Blueprint: A 60-Day System for Turning Vision into Reality
+Manifestation / Law of Attraction	On live	$11.99	42,079 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	689	Words That Built Empires: 500 Quotes on Leadership, Strategy, and Power	
+Words That Built Empires: 500 Quotes on Leadership, Strategy, and Power
+Quote Books	On live	$10.99	47,038 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	688	The Pearl Diver's Map: A South Pacific Adventure	
+The Pearl Diver's Map: A South Pacific Adventure
+Adventure	On live	$13.99	68,423 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	687	The Shadow Work Journal: 90 Days of Deep Self-Discovery and Emotional Healing	
+The Shadow Work Journal: 90 Days of Deep Self-Discovery and Emotional Healing
+Journals	On live	$10.99	41,499 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	686	Startup Failures Decoded: 25 Post-Mortems from Founders Who Lost Everything	
+Startup Failures Decoded: 25 Post-Mortems from Founders Who Lost Everything
+Case Studies	On live	$10.99	45,304 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	685	Introduction to Data Science with Python: From Statistics to Machine Learning	
+Introduction to Data Science with Python: From Statistics to Machine Learning
+Textbooks	On live	$10.99	39,726 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	684	The Digital Nomad Handbook: Working Remotely from Anywhere in the World	
+The Digital Nomad Handbook: Working Remotely from Anywhere in the World
+Guides & Manuals	On live	$12.99	43,880 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	683	The First-Time Homebuyer's Complete Guide: From Pre-Approval to Closing Day	
+The First-Time Homebuyer's Complete Guide: From Pre-Approval to Closing Day
+Guides & Manuals	On live	$12.99	46,437 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	682	The Content Creator's Planning System: 12 Months of Strategy, Scheduling, and Growth	
+The Content Creator's Planning System: 12 Months of Strategy, Scheduling, and Growth
+Planners	On live	$10.99	39,611 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	681	The Intentional Year Planner: Goal Setting, Habit Tracking, and Monthly Reflection	
+The Intentional Year Planner: Goal Setting, Habit Tracking, and Monthly Reflection
+Planners	On live	$10.99	45,577 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	680	Geometric Dreams: A Modern Pattern Coloring Book	
+Geometric Dreams: A Modern Pattern Coloring Book
+Coloring Books	On live	$7.99	719 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	679	Enchanted Gardens: A Botanical Coloring Book for Mindful Adults	
+Enchanted Gardens: A Botanical Coloring Book for Mindful Adults
+Coloring Books	On live	$7.99	2,668 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	678	Class in America: The Invisible Lines That Shape Everything	
+Class in America: The Invisible Lines That Shape Everything
+Sociology	On live	$13.99	48,839 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	677	The Loneliness Epidemic: Why We're More Connected and More Alone Than Ever	
+The Loneliness Epidemic: Why We're More Connected and More Alone Than Ever
+Sociology	On live	$12.99	47,392 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	676	Small Engine Repair Manual: Lawn Mowers, Generators, and Power Equipment	
+Small Engine Repair Manual: Lawn Mowers, Generators, and Power Equipment
+Technical Manuals	On live	$10.99	41,869 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	675	The Complete Home Electrical Wiring Guide: Safe DIY from Outlets to Panels	
+The Complete Home Electrical Wiring Guide: Safe DIY from Outlets to Panels
+Technical Manuals	On live	$10.99	42,562 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	674	The Vintage Home Revival: Thrifting, Upcycling, and Styling Secondhand Finds	
+The Vintage Home Revival: Thrifting, Upcycling, and Styling Secondhand Finds
+Home Décor	On live	$11.99	41,693 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	673	Small Space, Big Style: Interior Design for Apartments Under 800 Square Feet	
+Small Space, Big Style: Interior Design for Apartments Under 800 Square Feet
+Home Décor	On live	$11.99	46,992 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	672	Fermentation at Home: Kombucha, Kimchi, Sourdough, and Beyond	
+Fermentation at Home: Kombucha, Kimchi, Sourdough, and Beyond
+Food & Drink	On live	$11.99	45,832 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	671	The Home Barista Handbook: Espresso, Latte Art, and Coffee Science	
+The Home Barista Handbook: Espresso, Latte Art, and Coffee Science
+Food & Drink	On live	$11.99	46,978 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	670	Boundaries Without Guilt: Protecting Your Peace in Every Relationship	
+Boundaries Without Guilt: Protecting Your Peace in Every Relationship
+Relationships	On live	$13.99	41,499 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	669	The Communication Cure: Conflict Resolution Skills for Couples Who Actually Love Each Other	
+The Communication Cure: Conflict Resolution Skills for Couples Who Actually Love Each Other
+Relationships	On live	$12.99	39,726 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	668	Night Photography: Capturing Stars, Cities, and Everything After Dark	
+Night Photography: Capturing Stars, Cities, and Everything After Dark
+Photography Books	On live	$12.99	37,659 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	667	Street Photography Masterclass: Capturing Life in the Urban Wild	
+Street Photography Masterclass: Capturing Life in the Urban Wild
+Photography Books	On live	$12.99	44,232 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	666	Learn Guitar in 8 Weeks: A Day-by-Day Practice Plan for Complete Beginners	
+Learn Guitar in 8 Weeks: A Day-by-Day Practice Plan for Complete Beginners
+Tutorials	On live	$12.99	43,471 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	665	Watercolor Painting for Absolute Beginners: Your First 30 Paintings	
+Watercolor Painting for Absolute Beginners: Your First 30 Paintings
+Tutorials	On live	$12.99	42,863 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	664	The Home Repair Encyclopedia: Fix Everything from Faucets to Foundations	
+The Home Repair Encyclopedia: Fix Everything from Faucets to Foundations
+Reference Books	On live	$13.99	46,278 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	663	The Modern Herbalist's Desk Reference: 300 Medicinal Plants and Their Uses	
+The Modern Herbalist's Desk Reference: 300 Medicinal Plants and Their Uses
+Reference Books	On live	$13.99	44,544 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	662	The Business Launch Workbook: From Idea to First Sale in 30 Days	
+The Business Launch Workbook: From Idea to First Sale in 30 Days
+Workbooks	On live	$12.99	43,364 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	661	The Anxiety Workbook: 12 Weeks of CBT Exercises for Calming Your Mind	
+The Anxiety Workbook: 12 Weeks of CBT Exercises for Calming Your Mind
+Workbooks	On live	$12.99	43,904 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	660	The ChatGPT Power User's Prompt Vault: 500 Expert Prompts for Business, Writing, and Life	
+The ChatGPT Power User's Prompt Vault: 500 Expert Prompts for Business, Writing, and Life
+Prompt Books	On live	$10.99	47,229 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	659	1,000 AI Art Prompts: A Creative Director's Guide to Stunning Image Generation	
+1,000 AI Art Prompts: A Creative Director's Guide to Stunning Image Generation
+Prompt Books	On live	$10.99	46,771 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	658	The Meme Machine: How Internet Culture Shapes Politics, Language, and Identity	
+The Meme Machine: How Internet Culture Shapes Politics, Language, and Identity
+Pop Culture	On live	$11.99	42,232 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	657	Fandom Economy: How Fan Communities Built Billion-Dollar Industries	
+Fandom Economy: How Fan Communities Built Billion-Dollar Industries
+Pop Culture	On live	$11.99	46,582 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	656	Independent Film on a Shoestring: Making Your First Feature for Under $10,000	
+Independent Film on a Shoestring: Making Your First Feature for Under $10,000
+Film & Cinema	On live	$11.99	40,927 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	655	The Director's Eye: Visual Storytelling Techniques from 50 Iconic Films	
+The Director's Eye: Visual Storytelling Techniques from 50 Iconic Films
+Film & Cinema	On live	$9.99	27,709 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	654	The Homeschool Revolution: Modern Approaches to Self-Directed Education	
+The Homeschool Revolution: Modern Approaches to Self-Directed Education
+Education / Learning	On live	$12.99	43,846 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	653	Learning How to Learn: Science-Backed Strategies for Mastering Any Skill	
+Learning How to Learn: Science-Backed Strategies for Mastering Any Skill
+Education / Learning	On live	$12.99	42,562 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	652	The Rhythm of Resistance: How Music Fueled Every Major Social Movement	
+The Rhythm of Resistance: How Music Fueled Every Major Social Movement
+Music	On live	$11.99	45,606 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	651	Bedroom Producer to Billboard: Making Music That Gets Heard in 2026	
+Bedroom Producer to Billboard: Making Music That Gets Heard in 2026
+Music	On live	$11.99	43,645 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	650	The Game Designer's Blueprint: Mechanics, Psychology, and Player Experience	
+The Game Designer's Blueprint: Mechanics, Psychology, and Player Experience
+Gaming	On live	$13.99	47,596 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	649	From Pixels to Billions: The Business Behind the World's Biggest Games	
+From Pixels to Billions: The Business Behind the World's Biggest Games
+Gaming	On live	$12.99	44,704 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	648	The Speedrunner's Playbook: Breaking Games and Setting World Records	
+The Speedrunner's Playbook: Breaking Games and Setting World Records
+Gaming	On live	$12.99	37,875 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	647	The Ocean's Memory: Climate Stories Written in Coral, Ice, and Tide	
+The Ocean's Memory: Climate Stories Written in Coral, Ice, and Tide
+Nature & Environment	On live	$12.99	46,094 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	646	Urban Rewilding: Bringing Nature Back to Concrete Jungles	
+Urban Rewilding: Bringing Nature Back to Concrete Jungles
+Nature & Environment	On live	$12.99	45,576 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	645	The Hidden Language of Forests: What Trees Communicate and Why It Matters	
+The Hidden Language of Forests: What Trees Communicate and Why It Matters
+Nature & Environment	On live	$12.99	46,700 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	644	Dialogue That Crackles: Writing Conversations Readers Can't Put Down	
+Dialogue That Crackles: Writing Conversations Readers Can't Put Down
+Writing & Creativity	On live	$11.99	47,499 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	643	Worldbuilding Mastery: Creating Believable Fictional Universes from Scratch	
+Worldbuilding Mastery: Creating Believable Fictional Universes from Scratch
+Writing & Creativity	On live	$11.99	42,801 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	642	The Writer's Deep Work Protocol: Focus Systems for Finishing Your Book in 90 Days	
+The Writer's Deep Work Protocol: Focus Systems for Finishing Your Book in 90 Days
+Writing & Creativity	On live	$11.99	43,588 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	641	Terraform: The First Hundred Years on Mars	
+Terraform: The First Hundred Years on Mars
+Science Fiction	On live	$14.99	75,390 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	640	The Memory Merchant: A Cyberpunk Noir	
+The Memory Merchant: A Cyberpunk Noir
+Science Fiction	On live	$14.99	75,493 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	639	The Last Transmission from Colony Seven: A Deep Space Mystery	
+The Last Transmission from Colony Seven: A Deep Space Mystery
+Science Fiction	On live	$14.99	75,425 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	638	The Dollmaker's Workshop: A Psychological Horror Story	
+The Dollmaker's Workshop: A Psychological Horror Story
+Horror	On live	$13.99	62,208 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	637	Harvest Moon Rising: Folk Horror of the American Heartland	
+Harvest Moon Rising: Folk Horror of the American Heartland
+Horror	On live	$13.99	66,528 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	636	The Whispering Pines Sanatorium: Tales of the Forgotten Ward	
+The Whispering Pines Sanatorium: Tales of the Forgotten Ward
+Horror	On live	$12.99	41,625 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	635	The House That Remembers: A Gothic Horror Novel	
+The House That Remembers: A Gothic Horror Novel
+Horror	On live	$13.99	64,099 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	634	The Beekeeper's Secret: A Village Mystery	
+The Beekeeper's Secret: A Village Mystery
+Mystery / Thriller	On live	$14.99	61,714 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	633	Death on the Midnight Express: A Train Car Mystery	
+Death on the Midnight Express: A Train Car Mystery
+Mystery / Thriller	On live	$14.99	57,968 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	632	The Cipher in the Clocktower: A Historical Whodunit	
+The Cipher in the Clocktower: A Historical Whodunit
+Mystery / Thriller	On live	$14.99	61,920 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	631	The Vanishing at Thornfield Manor: A Country House Mystery	
+The Vanishing at Thornfield Manor: A Country House Mystery
+Mystery / Thriller	On live	$14.99	58,317 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	630	The Bookshop on Maple Street: A Small-Town Romance	
+The Bookshop on Maple Street: A Small-Town Romance
+Romance	On live	$14.99	81,038 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	629	Dancing in the Rain at Midnight: A Second-Chance Love Story	
+Dancing in the Rain at Midnight: A Second-Chance Love Story
+Romance	On live	$14.99	74,130 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	628	The Lighthouse Keeper's Promise: A Coastal Romance	
+The Lighthouse Keeper's Promise: A Coastal Romance
+Romance	On live	$14.99	76,116 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	627	Letters Across the Lavender Fields: A Provence Love Story	
+Letters Across the Lavender Fields: A Provence Love Story
+Romance	On live	$14.99	77,079 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	626	Between Two Fires: A Teacher's Stand in a Divided City	
+Between Two Fires: A Teacher's Stand in a Divided City
+Literary Fiction	On live	$14.99	71,934 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	625	The Orchard Keeper's Daughter: A Story of Land, Loss, and Letting Go	
+The Orchard Keeper's Daughter: A Story of Land, Loss, and Letting Go
+Literary Fiction	On live	$14.99	64,474 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	624	Curtain Call at the Majestic: A Theater Company's Final Season	
+Curtain Call at the Majestic: A Theater Company's Final Season
+Literary Fiction	On live	$14.99	60,960 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	623	The Weight of Water: A Small Town's Reckoning	
+The Weight of Water: A Small Town's Reckoning
+Literary Fiction	On live	$14.99	72,640 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	622	The Glass Between Us: A Family Drama Spanning Three Decades	
+The Glass Between Us: A Family Drama Spanning Three Decades
+Literary Fiction	On live	$14.99	68,848 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	621	Oath of the Broken Shield: Legacy of the Five Armies	
+Oath of the Broken Shield: Legacy of the Five Armies
+Fantasy	On live	$14.99	76,427 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	620	The Wanderer's Chronicle: A Thousand Miles to the Forgotten Throne	
+The Wanderer's Chronicle: A Thousand Miles to the Forgotten Throne
+Fantasy	On live	$14.99	77,583 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	619	The Crown of Salt and Stars: An Epic of Two Continents	
+The Crown of Salt and Stars: An Epic of Two Continents
+Fantasy	On live	$14.99	72,181 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	618	Rivers of Dust and Empire: The Fall of the Seventh Kingdom	
+Rivers of Dust and Empire: The Fall of the Seventh Kingdom
+Fantasy	On live	$14.99	64,453 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	617	The Siege of the Iron Coast: A Sweeping Saga of War and Honor	
+The Siege of the Iron Coast: A Sweeping Saga of War and Honor
+Fantasy	On live	$14.99	84,383 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	616	The Alchemist's Heir: Blood, Gold, and the Philosopher's Burden	
+The Alchemist's Heir: Blood, Gold, and the Philosopher's Burden
+Fantasy	On live	$14.99	78,407 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	615	Thornwood Academy: The Scholarship of Shadows	
+Thornwood Academy: The Scholarship of Shadows
+Fantasy	On live	$14.99	80,447 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	614	The Weaver of Storms: A Tale of Elemental Magic and Rebellion	
+The Weaver of Storms: A Tale of Elemental Magic and Rebellion
+Fantasy	On live	$14.99	85,400 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	613	The Last Dragonbinder: Chronicles of the Ember Throne	
+The Last Dragonbinder: Chronicles of the Ember Throne
+Fantasy	On live	$14.99	85,823 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	612	The Cartographer of Forgotten Realms: A High Fantasy Epic	
+The Cartographer of Forgotten Realms: A High Fantasy Epic
+Fantasy	On live	$14.99	91,366 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	611	Socrates on Trial: The Case That Shaped 2,500 Years of Free Thought	
+Socrates on Trial: The Case That Shaped 2,500 Years of Free Thought
+Philosophy	On live	$14.99	51,748 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	610	Eastern Meets Western Thought: Parallel Paths in Philosophy from Confucius to Camus	
+Eastern Meets Western Thought: Parallel Paths in Philosophy from Confucius to Camus
+Philosophy	On live	$14.99	48,717 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	609	The Philosophy of Everyday Decisions: How Aristotle, Kant, and Mill Shape Your Daily Choices	
+The Philosophy of Everyday Decisions: How Aristotle, Kant, and Mill Shape Your Daily Choices
+Philosophy	On live	$14.99	52,490 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	608	Stoic Resilience: Ancient Wisdom for Modern Adversity from Marcus Aurelius to Epictetus	
+Stoic Resilience: Ancient Wisdom for Modern Adversity from Marcus Aurelius to Epictetus
+Philosophy	On live	$13.99	46,600 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	607	The Examined Life: 50 Timeless Thought Experiments That Changed How We Think	
+The Examined Life: 50 Timeless Thought Experiments That Changed How We Think
+Philosophy	On live	$14.99	49,871 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	606	Concrete Crown Oaths	
+Concrete Crown Oaths
+Mystery / Thriller	On live	$14.99	53,764 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	605	Romeo and Juliet	
+Romeo and Juliet
+Classic Drama	On live	$1.99	24,805 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	604	The Hound of the Baskervilles	
+The Hound of the Baskervilles
+Classic Mystery	On live	$1.99	57,737 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	603	The Jungle Book	
+The Jungle Book
+Classic Adventure	On live	$1.99	41,117 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	602	Around the World in 80 Days	
+Around the World in 80 Days
+Classic Adventure	On live	$1.99	61,161 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	601	The War of the Worlds	
+The War of the Worlds
+Classic Science Fiction	On live	$1.99	54,675 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	600	Twenty Thousand Leagues Under the Sea	
+Twenty Thousand Leagues Under the Sea
+Classic Science Fiction	On live	$1.99	102,032 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	599	The Odyssey	
+The Odyssey
+Classic Epic	On live	$1.99	128,280 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	598	Little Women	
+Little Women
+Classic Literature	On live	$1.99	182,081 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	597	The Strange Case of Dr. Jekyll and Mr. Hyde	
+The Strange Case of Dr. Jekyll and Mr. Hyde
+Classic Horror	On live	$1.99	23,460 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	596	The Art of War	
+The Art of War
+Classic Philosophy	On live	$1.99	53,915 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	595	Treasure Island	
+Treasure Island
+Classic Adventure	On live	$1.99	64,295 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	594	War and Peace	
+War and Peace
+Classic Literature	On live	$1.99	551,188 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	593	Crime and Punishment	
+Crime and Punishment
+Classic Literature	On live	$1.99	199,574 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	592	The Picture of Dorian Gray	
+The Picture of Dorian Gray
+Classic Literature	On live	$1.99	77,065 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	591	Moby Dick	
+Moby Dick
+Classic Adventure	On live	$1.99	210,107 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	590	Wuthering Heights	
+Wuthering Heights
+Classic Romance	On live	$1.99	114,004 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	589	Jane Eyre	
+Jane Eyre
+Classic Romance	On live	$1.99	181,317 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	588	The Count of Monte Cristo	
+The Count of Monte Cristo
+Classic Adventure	On live	$1.99	445,542 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	587	Alice's Adventures in Wonderland	
+Alice's Adventures in Wonderland
+Classic Fantasy	On live	$1.99	25,911 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	586	The Adventures of Sherlock Holmes	
+The Adventures of Sherlock Holmes
+Classic Mystery	On live	$1.99	95,471 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	585	A Tale of Two Cities	
+A Tale of Two Cities
+Classic Literature	On live	$1.99	132,394 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	584	The Great Gatsby	
+The Great Gatsby
+Classic Literature	On live	$1.99	43,841 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	583	Frankenstein	
+Frankenstein
+Classic Science Fiction	On live	$1.99	74,275 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	582	Dracula	
+Dracula
+Classic Horror	On live	$1.99	162,165 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	581	Pride and Prejudice	
+Pride and Prejudice
+Classic Literature	On live	$1.99	129,179 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	570	Folk Horror Revival Building Bone-Deep Fear with Local Legends Rituals and Small Town	
+Folk Horror Revival Building Bone-Deep Fear with Local Legends Rituals and Small Town
+Horror	On live	$13.99	59,845 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	569	Social Media Thriller Deepfake Scandals Influencer Culture and a High-Stakes Hunt to Expose an Anonymous Hacker	
+Social Media Thriller Deepfake Scandals Influencer Culture and a High-Stakes Hunt to Expose an Anonymous Hacker
+Young Adult Fiction	On live	$12.99	64,600 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	568	Tulsa 1921 Through Three Lives A multi-POV historical fiction novel centered on Black Wall Street before, during, and after the massacre	
+Tulsa 1921 Through Three Lives A multi-POV historical fiction novel centered on Black Wall Street before, during, and after the massacre
+Historical Fiction	On live	$13.99	67,739 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	567	Modern Myth Retellings That Sell Turning Global Folklore into Fresh Fantasy Without Cultural Missteps	
+Modern Myth Retellings That Sell Turning Global Folklore into Fresh Fantasy Without Cultural Missteps
+Fantasy	On live	$14.99	78,738 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	566	Digital Closet and Outfit Content How to Photograph Looks Build a Wardrobe Catalog App Workflow and Style for TikTok Instagram	
+Digital Closet and Outfit Content How to Photograph Looks Build a Wardrobe Catalog App Workflow and Style for TikTok Instagram
+Fashion & Beauty	On live	$11.99	42,966 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	565	Writing Binge-Readable Comic Series Story Arcs Cliffhangers and Worldbuilding for Long-Running Webcomics	
+Writing Binge-Readable Comic Series Story Arcs Cliffhangers and Worldbuilding for Long-Running Webcomics
+Comics	On live	$12.99	38,490 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	564	Carry-On Only Mastery Capsule Wardrobes Packing Systems and One-Bag Gear Lists for 3 30 Day Trips	
+Carry-On Only Mastery Capsule Wardrobes Packing Systems and One-Bag Gear Lists for 3 30 Day Trips
+Travel	On live	$12.99	42,820 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	563	When Supply Chains Ruled the World A History of Trade Routes Shipping and Globalization	
+When Supply Chains Ruled the World A History of Trade Routes Shipping and Globalization
+History	On live	$12.99	46,421 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	562	Slow-Burn and Friends-to-Lovers Blueprint Practical Steps to Turn a Friendship into a Healthy Lasting Romance	
+Slow-Burn and Friends-to-Lovers Blueprint Practical Steps to Turn a Friendship into a Healthy Lasting Romance
+Romance	On live	$14.99	76,204 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	561	Space Mining and Lunar Industry A Near-Term Roadmap to Asteroid Resources Moon Bases and the Corporate Wars of the Final Frontier	
+Space Mining and Lunar Industry A Near-Term Roadmap to Asteroid Resources Moon Bases and the Corporate Wars of the Final Frontier
+Science Fiction	On live	$14.99	76,207 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	560	Adulting Is a Scam A Humor Guide to Money Anxiety Side Hustles and Life Admin for People Who Hate Spreadsheets	
+Adulting Is a Scam A Humor Guide to Money Anxiety Side Hustles and Life Admin for People Who Hate Spreadsheets
+Humor	On live	$11.99	44,187 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	559	Mindful Money Activity Book Cash-Stuffing Challenges Debt-Payoff Games and Budget-by-Paycheck Trackers	
+Mindful Money Activity Book Cash-Stuffing Challenges Debt-Payoff Games and Budget-by-Paycheck Trackers
+Activity Books	On live	$12.99	39,993 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	558	Citation Intelligence Advanced Literature Searching Across Google Scholar Scopus Web of Science and Semantic Scholar	
+Citation Intelligence Advanced Literature Searching Across Google Scholar Scopus Web of Science and Semantic Scholar
+Research Books	On live	$10.99	44,646 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	557	Found Poetry From Your Life Turn Text Messages Emails News and Journaling into Powerful Poems	
+Found Poetry From Your Life Turn Text Messages Emails News and Journaling into Powerful Poems
+Poetry	On live	$11.99	44,035 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	556	High-End Paper Crafts at Home Foiling, Embossing, and Laser/Cutting-Machine Techniques for Wedding Invites, Stickers, and Packaging	
+High-End Paper Crafts at Home Foiling, Embossing, and Laser/Cutting-Machine Techniques for Wedding Invites, Stickers, and Packaging
+DIY / Crafts	On live	$12.99	43,862 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	555	From Autofiction to Ethical Memoir-Novel Turning Personal Material into Literary Fiction While Protecting Privacy and Avoiding Defamation	
+From Autofiction to Ethical Memoir-Novel Turning Personal Material into Literary Fiction While Protecting Privacy and Avoiding Defamation
+Literary Fiction	On live	$14.99	53,330 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	554	Diverse Mythology Retellings for Modern Kids Norse West African Indigenous and Asian	
+Diverse Mythology Retellings for Modern Kids Norse West African Indigenous and Asian
+Children's Fiction	On live	$12.99	66,992 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	553	Recovery Science for Athletes Sleep, HRV, Cold/Heat, Mobility, and Micro-Habits to Train Harder with Less Injury	
+Recovery Science for Athletes Sleep, HRV, Cold/Heat, Mobility, and Micro-Habits to Train Harder with Less Injury
+Sports & Fitness	On live	$12.99	42,448 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	552	Modern Virtue Ethics for Real Life Building Character Habits and Relationships in a Polarized World	
+Modern Virtue Ethics for Real Life Building Character Habits and Relationships in a Polarized World
+Philosophy	On live	$14.99	52,771 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	551	From Layoff to Reinvention A Midlife Career-Change Memoir Using Remote Work Upskilling and the Creator Economy	
+From Layoff to Reinvention A Midlife Career-Change Memoir Using Remote Work Upskilling and the Creator Economy
+Biographies & Memoirs	On live	$13.99	52,151 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	550	AI-Generated Stained Glass Coloring Book Intricate Mosaic Animals, Flowers & Gothic Windows (Advanced)	
+AI-Generated Stained Glass Coloring Book Intricate Mosaic Animals, Flowers & Gothic Windows (Advanced)
+Coloring Books	On live	$7.99	763 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	549	Sustainable Thrift-to-Chic Decorating Curating Vintage Finds Upcycling Basics and Creating a Designer Look with Secondhand Pieces	
+Sustainable Thrift-to-Chic Decorating Curating Vintage Finds Upcycling Basics and Creating a Designer Look with Secondhand Pieces
+Home Décor	On live	$11.99	44,185 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	548	Screen Time Without Meltdowns A Family Digital Plan Device Boundaries Content Filters Gaming Limits and Habit-Building for Kids	
+Screen Time Without Meltdowns A Family Digital Plan Device Boundaries Content Filters Gaming Limits and Habit-Building for Kids
+Parenting	On live	$12.99	44,778 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	547	AI Pop Culture Deepfakes, Voice Clones, Virtual Influencers, and the Future of Music, Movies, and Celebrity Identity—What’s Real, What’s Legal, What’s Next	
+AI Pop Culture Deepfakes, Voice Clones, Virtual Influencers, and the Future of Music, Movies, and Celebrity Identity—What’s Real, What’s Legal, What’s Next
+Pop Culture	On live	$11.99	40,925 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	546	Mindful Boundaries People-Pleasing Recovery How to Say No Without Guilt Using	
+Mindful Boundaries People-Pleasing Recovery How to Say No Without Guilt Using
+Mindfulness	On live	$11.99	45,296 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	545	ETF Mastery for Volatile Markets Factor ETFs, Covered-Call ETFs, Buffer ETFs, and Smart Rebalancing to Reduce Drawdowns	
+ETF Mastery for Volatile Markets Factor ETFs, Covered-Call ETFs, Buffer ETFs, and Smart Rebalancing to Reduce Drawdowns
+Finance / Investing	On live	$14.99	50,149 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	544	Scripting That Actually Works Evidence-Inspired Journaling Prompts, Future Self Letters, and a 30-Day Manifestation Challenge	
+Scripting That Actually Works Evidence-Inspired Journaling Prompts, Future Self Letters, and a 30-Day Manifestation Challenge
+Manifestation / Law of Attraction	On live	$11.99	42,376 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	543	Biblical Money Minimalism Tithing Debt Investing and Generosity for a Sustainable	
+Biblical Money Minimalism Tithing Debt Investing and Generosity for a Sustainable
+Religion	On live	$11.99	43,886 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	542	Personal Finance Investing Quick Reference 2026 Index Funds ETFs HYSA Budget	
+Personal Finance Investing Quick Reference 2026 Index Funds ETFs HYSA Budget
+Reference Books	On live	$13.99	42,358 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	541	Diabetic-Friendly Desserts That Don t Taste Sugar-Free Low-GI Baking Fiber-Boosted	
+Diabetic-Friendly Desserts That Don t Taste Sugar-Free Low-GI Baking Fiber-Boosted
+Cookbooks	On live	$12.99	40,500 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	539	Build a Standout Personal Brand on LinkedIn Content + Networking Playbooks That Convert to Interviews and Clients	
+Build a Standout Personal Brand on LinkedIn Content + Networking Playbooks That Convert to Interviews and Clients
+Career Guides	On live	$12.99	38,821 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	538	Personal Finance and Financial Literacy for Gen Z Budgeting Credit Taxes Investing and Student Loans	
+Personal Finance and Financial Literacy for Gen Z Budgeting Credit Taxes Investing and Student Loans
+Textbooks	On live	$10.99	44,834 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	537	The Psychology of Loneliness Social Fitness How to Build Deep Friendships Improve	
+The Psychology of Loneliness Social Fitness How to Build Deep Friendships Improve
+Psychology	On live	$14.99	49,174 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	536	Ancestral Healing Epigenetics Safe Trauma-Informed Rituals to Break Family Patterns	
+Ancestral Healing Epigenetics Safe Trauma-Informed Rituals to Break Family Patterns
+Spirituality	On live	$12.99	49,656 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	535	Hyrox-Style Hybrid Training Blueprint A 10-Week Strength + Running Program to Prepare for Fitness Racing (All Levels)	
+Hyrox-Style Hybrid Training Blueprint A 10-Week Strength + Running Program to Prepare for Fitness Racing (All Levels)
+Sports & Fitness	On live	$12.99	45,706 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	534	High-Impact Personal Finance Turnarounds Case Studies of Families Using the Debt Snowball/Avalanche + Budgeting Apps to Eliminate Debt and Build Emergency Funds	
+High-Impact Personal Finance Turnarounds Case Studies of Families Using the Debt Snowball/Avalanche + Budgeting Apps to Eliminate Debt and Build Emergency Funds
+Case Studies	On live	$10.99	41,163 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	533	The One-Hour-a-Day Side Hustle Framework Turn Small Daily Sprints Into Consistent Income	
+The One-Hour-a-Day Side Hustle Framework Turn Small Daily Sprints Into Consistent Income
+Productivity	On live	$13.99	48,445 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	532	Cinematic Street Photography Color Grading Creating Film-Like Looks with Modern Cameras	
+Cinematic Street Photography Color Grading Creating Film-Like Looks with Modern Cameras
+Photography Books	On live	$12.99	39,762 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	531	Career-Ready Learning Paths Designing Self-Taught Curriculums for High-Demand Skills (Data, Cybersecurity, UX, Cloud)	
+Career-Ready Learning Paths Designing Self-Taught Curriculums for High-Demand Skills (Data, Cybersecurity, UX, Cloud)
+Education / Learning	On live	$12.99	44,888 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	530	Budget Gourmet Restaurant-Quality Meals for Two on $10–$15 (Smart Shopping, Pantry Plans & Weekly Menus)	
+Budget Gourmet Restaurant-Quality Meals for Two on $10–$15 (Smart Shopping, Pantry Plans & Weekly Menus)
+Food & Drink	On live	$11.99	39,658 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	529	Home Energy Tech Upgrade Guide Solar + Batteries + EV Charging + Heat Pumps—How to Design a Cheaper, More Resilient Home Power System	
+Home Energy Tech Upgrade Guide Solar + Batteries + EV Charging + Heat Pumps—How to Design a Cheaper, More Resilient Home Power System
+Science & Technology	On live	$13.99	44,327 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	528	Modern Myth Retellings in 10 Minutes Diverse Contemporary Spins on Greek Norse Folklore Classics	
+Modern Myth Retellings in 10 Minutes Diverse Contemporary Spins on Greek Norse Folklore Classics
+Short Story Collections	On live	$13.99	73,634 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	527	Glucose-Friendly Meal Planning Planner Blood-Sugar Balancing Menus, Grocery Lists & Macro Tracking for Metabolic Health	
+Glucose-Friendly Meal Planning Planner Blood-Sugar Balancing Menus, Grocery Lists & Macro Tracking for Metabolic Health
+Planners	On live	$10.99	43,548 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	526	Micro-Habits for Busy Minds A 10-Minute-a-Day Method to Build Consistency, Discipline, and Self-Trust	
+Micro-Habits for Busy Minds A 10-Minute-a-Day Method to Build Consistency, Discipline, and Self-Trust
+Self-Help / Personal Development	On live	$13.99	48,304 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	525	Perimenopause Hormone Balance Workbook Symptom Tracking Nutrition Plans Strength	
+Perimenopause Hormone Balance Workbook Symptom Tracking Nutrition Plans Strength
+Workbooks	On live	$12.99	42,838 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	524	Discipline for the Anxious Mind Motivation Strategies for Overthinkers, Perfectionists, and People Who Freeze	
+Discipline for the Anxious Mind Motivation Strategies for Overthinkers, Perfectionists, and People Who Freeze
+Motivational	On live	$11.99	41,887 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	523	Color Lettering Layout Masterclass Pro Techniques for Cinematic Lighting Readable	
+Color Lettering Layout Masterclass Pro Techniques for Cinematic Lighting Readable
+Graphic Novels	On live	$12.99	38,391 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	522	Metabolic Flexibility Made Simple A Practical Guide to Time-Restricted Eating, Protein Targets, and Blood-Sugar Control (Without Extreme Dieting)	
+Metabolic Flexibility Made Simple A Practical Guide to Time-Restricted Eating, Protein Targets, and Blood-Sugar Control (Without Extreme Dieting)
+Health & Wellness	On live	$12.99	42,543 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	521	AI Prompts for Personal Finance Budgeting, Debt Payoff Plans, Side-Hustle Ideation & Negotiation Scripts	
+AI Prompts for Personal Finance Budgeting, Debt Payoff Plans, Side-Hustle Ideation & Negotiation Scripts
+Prompt Books	On live	$10.99	45,514 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	520	Sober-Curious Alcohol-Free Living Quotes 30 Days of Social Scripts Craving Breakers	
+Sober-Curious Alcohol-Free Living Quotes 30 Days of Social Scripts Craving Breakers
+Quote Books	On live	$10.99	43,202 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	519	Terraform + GitOps Infrastructure Manual Build Reproducible Cloud Environments with Modules Policy-as-Code and CI/CD	
+Terraform + GitOps Infrastructure Manual Build Reproducible Cloud Environments with Modules Policy-as-Code and CI/CD
+Technical Manuals	On live	$10.99	45,600 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	518	LinkedIn Deal Flow Engine Modern B2B Client Acquisition Using Thought Leadership, DM Funnels, and Warm Outbound	
+LinkedIn Deal Flow Engine Modern B2B Client Acquisition Using Thought Leadership, DM Funnels, and Warm Outbound
+Business / Entrepreneurship	On live	$14.99	47,757 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	517	The Ultimate Guide to Human-Friendly Meal Planning with GLP-1s Protein Targets Grocery Systems and Side-Effect-Friendly Recipes	
+The Ultimate Guide to Human-Friendly Meal Planning with GLP-1s Protein Targets Grocery Systems and Side-Effect-Friendly Recipes
+Guides & Manuals	On live	$12.99	37,454 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	516	Trauma-Informed Inner Child Healing Journal Safe Reparenting Prompts, Boundary Scripts, and Self-Compassion Practices	
+Trauma-Informed Inner Child Healing Journal Safe Reparenting Prompts, Boundary Scripts, and Self-Compassion Practices
+Journals	On live	$10.99	42,755 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	515	Influencer Cult Wellness Retreat Mystery A Psychological Thriller About Social Media	
+Influencer Cult Wellness Retreat Mystery A Psychological Thriller About Social Media
+Mystery / Thriller	On live	$14.99	60,765 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	514	Biohacked Class System CRISPR-Based Inequality, Designer Immunity, and the Underground Market for Human Upgrades	
+Biohacked Class System CRISPR-Based Inequality, Designer Immunity, and the Underground Market for Human Upgrades
+Dystopian	On live	$14.99	74,471 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	513	Adventure Travel Safety for Solo Explorers Risk Assessment Navigation First Aid and Emergency Plans for Remote Trips	
+Adventure Travel Safety for Solo Explorers Risk Assessment Navigation First Aid and Emergency Plans for Remote Trips
+Adventure	On live	$14.99	66,418 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	512	Sell Digital Products with Canva Etsy A Complete Tutorial Design SEO Mockups	
+Sell Digital Products with Canva Etsy A Complete Tutorial Design SEO Mockups
+Tutorials	On live	$12.99	39,364 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	511	Backrooms Liminal Horror Shorts Urban Legends of Endless Hallways Dead Malls and Found Footage	
+Backrooms Liminal Horror Shorts Urban Legends of Endless Hallways Dead Malls and Found Footage
+Short Story Collections	On live	$12.99	63,991 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	510	Indie Comic Kickstarter Blueprint 2026 Funding, Reward Tiers, Fulfillment, and Marketing That Converts	
+Indie Comic Kickstarter Blueprint 2026 Funding, Reward Tiers, Fulfillment, and Marketing That Converts
+Comics	On live	$12.99	41,411 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	509	Attachment Styles in Romance How to Attract Secure Love, Break Anxious/Avoidant Cycles, and Communicate Better	
+Attachment Styles in Romance How to Attract Secure Love, Break Anxious/Avoidant Cycles, and Communicate Better
+Romance	On live	$14.99	75,151 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	508	Cosmic Horror for Modern Anxiety Crafting Lovecraftian Dread Around Climate, Pandemics, and Existential Tech	
+Cosmic Horror for Modern Anxiety Crafting Lovecraftian Dread Around Climate, Pandemics, and Existential Tech
+Horror	On live	$14.99	63,405 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	507	Spiritual Warfare in the Age of Algorithms Discernment, Deliverance, and Mental Health (Without Fear-Based Theology)	
+Spiritual Warfare in the Age of Algorithms Discernment, Deliverance, and Mental Health (Without Fear-Based Theology)
+Religion	On live	$11.99	46,626 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	506	The Last Vikings in North America Historical fiction exploring Norse Greenland’s collapse, Indigenous alliances, and the Vinland voyages	
+The Last Vikings in North America Historical fiction exploring Norse Greenland’s collapse, Indigenous alliances, and the Vinland voyages
+Historical Fiction	On live	$14.99	78,198 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	505	Cozy Fantasy Quest with Found Family low-stakes adventure magical creatures and heart-healing friendship romance	
+Cozy Fantasy Quest with Found Family low-stakes adventure magical creatures and heart-healing friendship romance
+Young Adult Fiction	On live	$13.99	73,757 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	504	Trekking the World's New Bucket-List Trails A 2026 Guide to Permits Logistics and Less-Crowded Alternatives	
+Trekking the World's New Bucket-List Trails A 2026 Guide to Permits Logistics and Less-Crowded Alternatives
+Adventure	On live	$13.99	67,572 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	503	Eco-Adventure Climate Heroes saving habitats ocean cleanups and kid-led environmental missions	
+Eco-Adventure Climate Heroes saving habitats ocean cleanups and kid-led environmental missions
+Children's Fiction	On live	$12.99	61,585 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	502	Smart Home Murder Puzzle A Locked-Room Thriller Where IoT Devices, Sensor Logs, and Home Automation Become the Clues	
+Smart Home Murder Puzzle A Locked-Room Thriller Where IoT Devices, Sensor Logs, and Home Automation Become the Clues
+Mystery / Thriller	On live	$13.99	50,866 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	501	The Subscription Society A Near-Future Dystopia Where Housing, Healthcare, and Freedom Are Paywalled and Auto-Debited	
+The Subscription Society A Near-Future Dystopia Where Housing, Healthcare, and Freedom Are Paywalled and Auto-Debited
+Dystopian	On live	$14.99	75,890 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	500	Hidden Networks of Resistance Unsung Women, Spies, and Underground Movements That Changed 20th-Century History	
+Hidden Networks of Resistance Unsung Women, Spies, and Underground Movements That Changed 20th-Century History
+History	On live	$12.99	44,568 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	499	Indie Graphic Novel Publishing Marketing Playbook Kickstarter Launches	
+Indie Graphic Novel Publishing Marketing Playbook Kickstarter Launches
+Graphic Novels	On live	$12.99	38,793 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	498	The Modern Personal Style Reset Find Your Aesthetic, Create a Signature Look, and Shop Intentionally (Without Overbuying)	
+The Modern Personal Style Reset Find Your Aesthetic, Create a Signature Look, and Shop Intentionally (Without Overbuying)
+Fashion & Beauty	On live	$11.99	45,662 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	497	AI-Assisted Poetry Without Losing Your Voice Use ChatGPT/Ethical Tools to Draft, Revise, and Publish Original Poems	
+AI-Assisted Poetry Without Losing Your Voice Use ChatGPT/Ethical Tools to Draft, Revise, and Publish Original Poems
+Poetry	On live	$12.99	49,865 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	496	Sports Nutrition for GLP-1 Users Fueling Training, Preserving Muscle, and Optimizing Performance While on Weight-Loss Medications	
+Sports Nutrition for GLP-1 Users Fueling Training, Preserving Muscle, and Optimizing Performance While on Weight-Loss Medications
+Sports & Fitness	On live	$12.99	43,480 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	495	The Anti-Influencer Playbook Satirical Lessons on Going Viral, Personal Branding, and Not Losing Your Soul Online	
+The Anti-Influencer Playbook Satirical Lessons on Going Viral, Personal Branding, and Not Losing Your Soul Online
+Humor	On live	$11.99	43,547 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	494	Perimenopause and Menopause Activity Book Symptom Trackers Strength Nutrition Plans and Mood Sleep Worksheets	
+Perimenopause and Menopause Activity Book Symptom Trackers Strength Nutrition Plans and Mood Sleep Worksheets
+Activity Books	On live	$12.99	41,502 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	493	Write a Bingeable Fantasy Series with AI-Assisted Planning Ethically Outlines Lore	
+Write a Bingeable Fantasy Series with AI-Assisted Planning Ethically Outlines Lore
+Fantasy	On live	$14.99	78,582 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	492	AI-Powered Interior Styling How to Use AI Tools to Design Your Room, Build Mood Boards, and Shop a Cohesive Look	
+AI-Powered Interior Styling How to Use AI Tools to Design Your Room, Build Mood Boards, and Shop a Cohesive Look
+Home Décor	On live	$11.99	43,215 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	491	Sound Bathing at Home A Step-by-Step Guide to Singing Bowls 432 528 Hz Humming and Voice Practices for Deep Relaxation	
+Sound Bathing at Home A Step-by-Step Guide to Singing Bowls 432 528 Hz Humming and Voice Practices for Deep Relaxation
+Spirituality	On live	$11.99	40,394 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	490	Research Data Management FAIR in Practice Organizing Documenting and Sharing Datasets	
+Research Data Management FAIR in Practice Organizing Documenting and Sharing Datasets
+Research Books	On live	$10.99	47,269 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	489	The Caregiver s Untold Story A Memoir of Supporting a Parent with Dementia and Navigating	
+The Caregiver s Untold Story A Memoir of Supporting a Parent with Dementia and Navigating
+Biographies & Memoirs	On live	$13.99	53,665 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	488	By the Light of a Southern Moon	
+By the Light of a Southern Moon
+Literary Fiction	On live	$14.99	53,013 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	487	Literary Fiction in the Attention Economy Writing Page-Turner Prose (Pacing, Scene Design, Micro-Tension) Without Losing Depth	
+Literary Fiction in the Attention Economy Writing Page-Turner Prose (Pacing, Scene Design, Micro-Tension) Without Losing Depth
+Literary Fiction	On live	$14.99	63,030 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	486	Manifestation for Money in a High-Cost Economy Identity Shifts Wealth Habits and Aligned Action for Consistent Income	
+Manifestation for Money in a High-Cost Economy Identity Shifts Wealth Habits and Aligned Action for Consistent Income
+Manifestation / Law of Attraction	On live	$11.99	46,313 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	485	Mixed-Media Collage and Junk Journaling Texture Layering and Aesthetic Spread Design for Social Media	
+Mixed-Media Collage and Junk Journaling Texture Layering and Aesthetic Spread Design for Social Media
+Art & Design	On live	$11.99	38,668 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	484	CRISPR Species Posthuman Evolution Building Plausible Gene Edited Humans Designer	
+CRISPR Species Posthuman Evolution Building Plausible Gene Edited Humans Designer
+Science Fiction	On live	$14.99	75,832 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	483	Modern Fiber Arts for Stress Relief Chunky Knit & Crochet Projects You Can Finish in a Weekend (Blankets, Wearables, Home Accents)	
+Modern Fiber Arts for Stress Relief Chunky Knit & Crochet Projects You Can Finish in a Weekend (Blankets, Wearables, Home Accents)
+DIY / Crafts	On live	$12.99	41,656 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	482	Real-World Notion and Airtable Systems Case Studies of Teams Replacing Spreadsheets with Ops Dashboards CRMs and Knowledge Bases	
+Real-World Notion and Airtable Systems Case Studies of Teams Replacing Spreadsheets with Ops Dashboards CRMs and Knowledge Bases
+Case Studies	On live	$10.99	44,373 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	481	The ADHD-Friendly Productivity Playbook Tools Routines and Workflows That Actually Stick	
+The ADHD-Friendly Productivity Playbook Tools Routines and Workflows That Actually Stick
+Productivity	On live	$13.99	48,865 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	480	Crypto Beyond Bitcoin Practical Strategies for Stablecoins Tokenized Treasuries and On-Chain Yield With Risk Controls	
+Crypto Beyond Bitcoin Practical Strategies for Stablecoins Tokenized Treasuries and On-Chain Yield With Risk Controls
+Finance / Investing	On live	$14.99	50,673 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	479	Cybersecurity Privacy Quick Reference for Everyday Users 2026 Scam Phishing	
+Cybersecurity Privacy Quick Reference for Everyday Users 2026 Scam Phishing
+Reference Books	On live	$13.99	42,753 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	478	AI Consciousness Explained Philosophy of Mind for Non-Experts Qualia Self Free Will	
+AI Consciousness Explained Philosophy of Mind for Non-Experts Qualia Self Free Will
+Philosophy	On live	$14.99	54,417 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	477	AI-Powered Productivity Motivation How to Use ChatGPT & Simple Tools to Stay Accountable and Finish Goals	
+AI-Powered Productivity Motivation How to Use ChatGPT & Simple Tools to Stay Accountable and Finish Goals
+Motivational	On live	$11.99	43,513 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	476	Money Trauma to Money Plan Workbook Break Scarcity Patterns Build a Budget and Create a Debt Payoff Strategy	
+Money Trauma to Money Plan Workbook Break Scarcity Patterns Build a Budget and Create a Debt Payoff Strategy
+Workbooks	On live	$12.99	40,214 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	475	Skip the Crowds Off-Season & Shoulder-Season Travel in Europe (Where to Go, What to Book, Weather Reality, and Savings Strategies)	
+Skip the Crowds Off-Season & Shoulder-Season Travel in Europe (Where to Go, What to Book, Weather Reality, and Savings Strategies)
+Travel	On live	$12.99	44,929 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	474	Perimenopause Hormone Balance Quotes Empowering Words for Mood Sleep Energy Body	
+Perimenopause Hormone Balance Quotes Empowering Words for Mood Sleep Energy Body
+Quote Books	On live	$10.99	42,613 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	473	High-Income Skill Roadmap Planner 90-Day Upskilling Sprints for AI Data Design and Tech Career Switchers	
+High-Income Skill Roadmap Planner 90-Day Upskilling Sprints for AI Data Design and Tech Career Switchers
+Planners	On live	$10.99	43,842 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	472	No-Alcohol Craft Drinks at Home Zero-Proof Cocktails Adaptogens Flavor Pairing Like a Pro	
+No-Alcohol Craft Drinks at Home Zero-Proof Cocktails Adaptogens Flavor Pairing Like a Pro
+Food & Drink	On live	$11.99	43,149 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	471	Anti-Inflammatory Mediterranean in 30 Minutes Low-Prep Weeknight Dinners 4-Week Plan	
+Anti-Inflammatory Mediterranean in 30 Minutes Low-Prep Weeknight Dinners 4-Week Plan
+Cookbooks	On live	$12.99	41,049 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	470	The 30-Day Home EV Charging Guide Choosing a Charger, Estimating Costs, Permits, Utility Rebates, and Safe Installation Checklists	
+The 30-Day Home EV Charging Guide Choosing a Charger, Estimating Costs, Permits, Utility Rebates, and Safe Installation Checklists
+Guides & Manuals	On live	$12.99	44,310 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	469	Modern API Security Technical Manual OAuth2/OIDC, JWT, Passkeys, Rate Limiting, and Threat Modeling for REST/GraphQL	
+Modern API Security Technical Manual OAuth2/OIDC, JWT, Passkeys, Rate Limiting, and Threat Modeling for REST/GraphQL
+Technical Manuals	On live	$10.99	47,707 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	468	Product Photography for Etsy Amazon Sellers Lighting Setups Flatlays Background Removal	
+Product Photography for Etsy Amazon Sellers Lighting Setups Flatlays Background Removal
+Photography Books	On live	$12.99	38,926 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	467	Salary Negotiation in 2026 Data-Backed Scripts, Counteroffers, and Total Compensation Strategies (including remote/hybrid)	
+Salary Negotiation in 2026 Data-Backed Scripts, Counteroffers, and Total Compensation Strategies (including remote/hybrid)
+Career Guides	On live	$12.99	45,275 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	466	Climate Tech Sustainability Analytics Carbon Accounting ESG Reporting and Life-Cycle	
+Climate Tech Sustainability Analytics Carbon Accounting ESG Reporting and Life-Cycle
+Textbooks	On live	$10.99	45,629 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	465	Mindfulness for Sleep Optimization A Science-Backed Evening Routine to Quiet Racing Thoughts and Fix Revenge Bedtime Procrastination	
+Mindfulness for Sleep Optimization A Science-Backed Evening Routine to Quiet Racing Thoughts and Fix Revenge Bedtime Procrastination
+Mindfulness	On live	$11.99	43,634 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	464	Your Gut-Brain Upgrade Repair Microbiome Imbalances to Reduce Bloating, Improve Mental Health, and Boost Energy in 30 Days	
+Your Gut-Brain Upgrade Repair Microbiome Imbalances to Reduce Bloating, Improve Mental Health, and Boost Energy in 30 Days
+Health & Wellness	On live	$12.99	44,378 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	463	The Boundaries System Scripts and Strategies to Stop People-Pleasing Without Guilt (Work, Family, and Dating)	
+The Boundaries System Scripts and Strategies to Stop People-Pleasing Without Guilt (Work, Family, and Dating)
+Self-Help / Personal Development	On live	$12.99	45,971 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	462	Practical Cybersecurity for Non-Techies Secure Your Home Devices and Accounts	
+Practical Cybersecurity for Non-Techies Secure Your Home Devices and Accounts
+Tutorials	On live	$12.99	40,266 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	461	Inner Child Reparenting for Adults Trauma-Informed Exercises to Heal Emotional Triggers, Shame, and People-Pleasing	
+Inner Child Reparenting for Adults Trauma-Informed Exercises to Heal Emotional Triggers, Shame, and People-Pleasing
+Psychology	On live	$14.99	48,751 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	460	Positive Discipline for Big Feelings Co-Regulation Scripts Boundary-Setting and Tantrum-Proof Routines for Ages 2-8	
+Positive Discipline for Big Feelings Co-Regulation Scripts Boundary-Setting and Tantrum-Proof Routines for Ages 2-8
+Parenting	On live	$12.99	42,702 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	459	The Desk-to-Strong Program 15-Minute Micro-Workouts + Mobility Routine to Fix Tech Neck, Tight Hips, and Build Lean Muscle	
+The Desk-to-Strong Program 15-Minute Micro-Workouts + Mobility Routine to Fix Tech Neck, Tight Hips, and Build Lean Muscle
+Sports & Fitness	On live	$12.99	43,158 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	458	Evidence-Based Note-Taking 2 0 Modern Spaced Repetition Active Recall and Digital PKM	
+Evidence-Based Note-Taking 2 0 Modern Spaced Repetition Active Recall and Digital PKM
+Education / Learning	On live	$12.99	40,327 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	457	The Celebrity Rebrand Playbook How Stars Use Podcasts, Beauty Brands, and ‘Authenticity’ Marketing to Come Back Stronger (with Case Studies)	
+The Celebrity Rebrand Playbook How Stars Use Podcasts, Beauty Brands, and ‘Authenticity’ Marketing to Come Back Stronger (with Case Studies)
+Pop Culture	On live	$11.99	43,211 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	456	Cybersecurity for Modern Life Passkeys, Hardware Keys, Scam-Proofing, and Securing Smart Homes & Devices	
+Cybersecurity for Modern Life Passkeys, Hardware Keys, Scam-Proofing, and Securing Smart Homes & Devices
+Science & Technology	On live	$13.99	44,610 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	455	Creator-to-Commerce Playbook Launching High-Margin Communities, Memberships, and Cohorts That Scale Without Ads	
+Creator-to-Commerce Playbook Launching High-Margin Communities, Memberships, and Cohorts That Scale Without Ads
+Business / Entrepreneurship	On live	$14.99	49,975 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	454	Prompt Engineering for Creators YouTube TikTok Script Hook Thumbnail and Repurposing Prompts	
+Prompt Engineering for Creators YouTube TikTok Script Hook Thumbnail and Repurposing Prompts
+Prompt Books	On live	$10.99	42,677 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	453	ADHD Executive Function Journal Task Breakdown Pages, Time-Blocking Experiments, and Motivation/Overwhelm Trackers	
+ADHD Executive Function Journal Task Breakdown Pages, Time-Blocking Experiments, and Motivation/Overwhelm Trackers
+Journals	On live	$10.99	43,361 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	452	Deconstruction Without Losing God A Practical Roadmap for Rebuilding Belief, Church Belonging, and Spiritual Practices	
+Deconstruction Without Losing God A Practical Roadmap for Rebuilding Belief, Church Belonging, and Spiritual Practices
+Religion	On live	$12.99	48,732 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	451	Climate In The Flash Futures  Short Stories for 2030	
+Climate In The Flash Futures Short Stories for 2030
+Short Story Collections	On live	$13.99	71,949 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	450	Dating in the Age of AI How to Use Apps Prompts and Boundaries to Find a Real Relationship	
+Dating in the Age of AI How to Use Apps Prompts and Boundaries to Find a Real Relationship
+Romance	On live	$14.99	70,410 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	449	Backrooms Liminal Space Horror Turning Internet Mythos into a Full-Length High-Tension	
+Backrooms Liminal Space Horror Turning Internet Mythos into a Full-Length High-Tension
+Horror	On live	$14.99	54,556 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	448	AI-Assisted Comic Production Ethical Legal Using GenAI for Thumbnails References	
+AI-Assisted Comic Production Ethical Legal Using GenAI for Thumbnails References
+Comics	On live	$12.99	38,982 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	447	The Lost Kingdom of Kush A sweeping historical fiction adventure through ancient Nubia, Meroë’s queens, and Rome’s African frontier	
+The Lost Kingdom of Kush A sweeping historical fiction adventure through ancient Nubia, Meroë’s queens, and Rome’s African frontier
+Historical Fiction	On live	$14.99	74,825 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	446	AI Productivity Activity Book ChatGPT Prompt Workouts, Workflow Templates, and 14-Day Automation Challenges	
+AI Productivity Activity Book ChatGPT Prompt Workouts, Workflow Templates, and 14-Day Automation Challenges
+Activity Books	On live	$12.99	42,708 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	445	Secular Spirituality for Skeptics Evidence-Based Meditation Awe Practices and Meaning-Making Without Dogma	
+Secular Spirituality for Skeptics Evidence-Based Meditation Awe Practices and Meaning-Making Without Dogma
+Spirituality	On live	$11.99	44,400 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	444	Mindfulness Big Feelings Fiction for Kids anxiety anger confidence and emotional	
+Mindfulness Big Feelings Fiction for Kids anxiety anger confidence and emotional
+Children's Fiction	On live	$13.99	75,253 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	443	Dark Web Vanishing Market A Tech-Noir Mystery About Disappearances-for-Hire, Crypto Trails, and Online Personas	
+Dark Web Vanishing Market A Tech-Noir Mystery About Disappearances-for-Hire, Crypto Trails, and Online Personas
+Mystery / Thriller	On live	$12.99	38,719 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	442	Healing Poetry Journal Guided Prompts and Poem Forms for Anxiety, Burnout, Grief, and Self-Compassion (Poetry Therapy-Inspired)	
+Healing Poetry Journal Guided Prompts and Poem Forms for Anxiety, Burnout, Grief, and Self-Compassion (Poetry Therapy-Inspired)
+Poetry	On live	$11.99	44,674 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	441	Main Character Energy A Funny Self-Help Parody for Confidence Dating and Everyday Awkwardness	
+Main Character Energy A Funny Self-Help Parody for Confidence Dating and Everyday Awkwardness
+Humor	On live	$11.99	43,765 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	440	Dark Academia Mystery at an Elite Boarding School coded diaries, unreliable narrators, and a true-crime-style disappearance	
+Dark Academia Mystery at an Elite Boarding School coded diaries, unreliable narrators, and a true-crime-style disappearance
+Young Adult Fiction	On live	$12.99	59,346 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	439	Pickleball Performance Playbook Drills, Strategy, Footwork, and Injury-Proofing for Rapid Skill Jumps	
+Pickleball Performance Playbook Drills, Strategy, Footwork, and Injury-Proofing for Rapid Skill Jumps
+Sports & Fitness	On live	$12.99	41,786 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	438	Mid-Size Petite Fit Mastery Tailoring Tricks Proportion Rules and Brand Cheat Sheets	
+Mid-Size Petite Fit Mastery Tailoring Tricks Proportion Rules and Brand Cheat Sheets
+Fashion & Beauty	On live	$12.99	46,864 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	437	Mindful Mandalas Patterns for Anxiety Relief Guided Coloring Prompts Daily Calm Challenges	
+Mindful Mandalas Patterns for Anxiety Relief Guided Coloring Prompts Daily Calm Challenges
+Coloring Books	On live	$7.99	2,648 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	436	Reproducible Research with Python Jupyter From Data Cleaning to Shareable Pipelines	
+Reproducible Research with Python Jupyter From Data Cleaning to Shareable Pipelines
+Research Books	On live	$10.99	39,913 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	435	Progression Fantasy LitRPG for Authors System Design Power Curves and Leveling Plots	
+Progression Fantasy LitRPG for Authors System Design Power Curves and Leveling Plots
+Fantasy	On live	$14.99	82,139 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	434	Climate Refugee Megacities Survival Black-Market Water and Borderless Corporations in a Heat-Ravaged World	
+Climate Refugee Megacities Survival Black-Market Water and Borderless Corporations in a Heat-Ravaged World
+Dystopian	On live	$14.99	66,372 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	433	Vanlife Overland Routes for Beginners The New Adventure Roadmap Permits Gear Camps	
+Vanlife Overland Routes for Beginners The New Adventure Roadmap Permits Gear Camps
+Adventure	On live	$13.99	64,806 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	432	The 0 Ad-Spend Growth Playbook Case Studies of Brands Scaling with SEO Programmatic	
+The 0 Ad-Spend Growth Playbook Case Studies of Brands Scaling with SEO Programmatic
+Case Studies	On live	$10.99	43,677 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	431	Urban Sketching for Beginners Fast Perspective People and Architecture in Pen Watercolor	
+Urban Sketching for Beginners Fast Perspective People and Architecture in Pen Watercolor
+Art & Design	On live	$11.99	39,635 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	430	Leaving a High-Control Group A Survivor's Memoir of Cult Dynamics Deconstruction and Starting Over	
+Leaving a High-Control Group A Survivor's Memoir of Cult Dynamics Deconstruction and Starting Over
+Biographies & Memoirs	On live	$12.99	53,115 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	429	Private Credit Income Investing for Individuals BDCs Interval Funds and Alternatives	
+Private Credit Income Investing for Individuals BDCs Interval Funds and Alternatives
+Finance / Investing	On live	$14.99	50,299 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	428	Motivation After Burnout Rebuilding Energy Focus and Ambition Without Hustle Culture	
+Motivation After Burnout Rebuilding Energy Focus and Ambition Without Hustle Culture
+Motivational	On live	$11.99	44,001 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	427	Shadow Work Manifestation Identify Hidden Blocks Heal Limiting Beliefs and Stop	
+Shadow Work Manifestation Identify Hidden Blocks Heal Limiting Beliefs and Stop
+Manifestation / Law of Attraction	On live	$12.99	48,287 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	425	The Witness Reel: Black Cinema as America's Conscience	
+The Witness Reel: Black Cinema as America's Conscience
+Black History	On live	$12.99	45,059 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	426	Anxious Attachment to Secure Love Quotes Daily Reframes for Overthinking Boundaries and Calm Communication	
+Anxious Attachment to Secure Love Quotes Daily Reframes for Overthinking Boundaries and Calm Communication
+Quote Books	On live	$10.99	46,023 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	424	Resin Crafting for Small-Batch Sales Safe Setup, Mold-Making Basics, and Trendy Products (Trays, Keycaps, Jewelry) Without Bubbles or Sticky Cures	
+Resin Crafting for Small-Batch Sales Safe Setup, Mold-Making Basics, and Trendy Products (Trays, Keycaps, Jewelry) Without Bubbles or Sticky Cures
+DIY / Crafts	On live	$12.99	44,103 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	423	The Philosophy of Attention Deep Work, Digital Minimalism, and the Ethics of Being Constantly Online	
+The Philosophy of Attention Deep Work, Digital Minimalism, and the Ethics of Being Constantly Online
+Philosophy	On live	$14.99	48,762 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	422	From Sorrow Songs to Superstars: The Black Sound Revolution	
+From Sorrow Songs to Superstars: The Black Sound Revolution
+Black History	On live	$12.99	42,185 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	421	Four Titans in a Room: The Night That Changed Black America	
+Four Titans in a Room: The Night That Changed Black America
+Black History	On live	$13.99	48,721 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	420	When Harlem Sang: The Renaissance That Changed the World	
+When Harlem Sang: The Renaissance That Changed the World
+Black History	On live	$12.99	43,575 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	419	AI + Digital Art for Graphic Novels Ethical, Copyright-Safe Workflows for Speeding Up Thumbnails, Inking, Coloring & Lettering	
+AI + Digital Art for Graphic Novels Ethical, Copyright-Safe Workflows for Speeding Up Thumbnails, Inking, Coloring & Lettering
+Graphic Novels	On live	$12.99	40,659 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	418	Dopamine Reset for Focus A Practical 14-Day Plan to Break Phone Addiction and Deep Work Again	
+Dopamine Reset for Focus A Practical 14-Day Plan to Break Phone Addiction and Deep Work Again
+Productivity	On live	$12.99	45,374 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	417	The Invisible Equations: Black Minds That Launched a Nation to the Stars	
+The Invisible Equations: Black Minds That Launched a Nation to the Stars
+Black History	On live	$13.99	47,691 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	416	Tender as Thunder: Black Love Stories Across the Ages	
+Tender as Thunder: Black Love Stories Across the Ages
+Black History	On live	$13.99	48,237 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	415	Corner Store Prophets: Growing Up Black in the Concrete Garden	
+Corner Store Prophets: Growing Up Black in the Concrete Garden
+Black History	On live	$13.99	49,431 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	414	The GLP-1 Companion Fitness Program Muscle-Retention & Strength Plan for Ozempic/Wegovy Users (Beginner-Friendly)	
+The GLP-1 Companion Fitness Program Muscle-Retention & Strength Plan for Ozempic/Wegovy Users (Beginner-Friendly)
+Sports & Fitness	On live	$12.99	41,865 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	413	The High-Agency Playbook How to Build Confidence Take Initiative and Create Momentum in Your Career and Life	
+The High-Agency Playbook How to Build Confidence Take Initiative and Create Momentum in Your Career and Life
+Self-Help / Personal Development	On live	$13.99	47,985 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	412	Tomorrow's Ancestors: Imagining Black Futures Beyond Borders	
+Tomorrow's Ancestors: Imagining Black Futures Beyond Borders
+Black History	On live	$12.99	47,031 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	411	The Long March: Black Resistance from Reconstruction to Revolution	
+The Long March: Black Resistance from Reconstruction to Revolution
+Black History	On live	$12.99	44,546 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	410	Chains into Chapters: The Enslaved Who Wrote Their Freedom	
+Chains into Chapters: The Enslaved Who Wrote Their Freedom
+Black History	On live	$12.99	46,840 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	409	Digital Nomad Visas and Remote-Work Relocation Step-by-Step Country Guides Tax Basics and How to Set Up Life Abroad	
+Digital Nomad Visas and Remote-Work Relocation Step-by-Step Country Guides Tax Basics and How to Set Up Life Abroad
+Travel	On live	$12.99	45,817 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	408	The Perimenopause Blueprint (Ages 35-50) Fix Sleep Mood Swings Weight Gain and Hormone-Related Anxiety	
+The Perimenopause Blueprint (Ages 35-50) Fix Sleep Mood Swings Weight Gain and Hormone-Related Anxiety
+Health & Wellness	On live	$12.99	45,147 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	407	The Veil and the Vision: Black Consciousness in the 21st Century	
+The Veil and the Vision: Black Consciousness in the 21st Century
+Black History	On live	$12.99	43,494 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	406	Beats and Boulevards: How Urban Cinema Shaped a Generation	
+Beats and Boulevards: How Urban Cinema Shaped a Generation
+Black History	On live	$12.99	43,148 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	405	Through Her Lens: Black Women Who Conquered the Director's Chair	
+Through Her Lens: Black Women Who Conquered the Director's Chair
+Black History	On live	$12.99	45,717 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	404	Cybersecurity Fundamentals for Everyday Tech Zero Trust, Passwordless, Phishing Defense, and Incident Response (With Labs)	
+Cybersecurity Fundamentals for Everyday Tech Zero Trust, Passwordless, Phishing Defense, and Incident Response (With Labs)
+Textbooks	On live	$10.99	40,664 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	403	The Sunken Place: Social Horror and Black Awakening	
+The Sunken Place: Social Horror and Black Awakening
+Black History	On live	$12.99	43,251 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	402	Kingdom Rising: Afrofuturism and the New Black Mythology	
+Kingdom Rising: Afrofuturism and the New Black Mythology
+Black History	On live	$12.99	41,177 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	401	The Radical Lens: Visionary Black Directors Who Rewrote Cinema	
+The Radical Lens: Visionary Black Directors Who Rewrote Cinema
+Black History	On live	$12.99	42,208 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	400	From the Stage to the Screen: A Black Filmmaking Odyssey	
+From the Stage to the Screen: A Black Filmmaking Odyssey
+Black History	On live	$12.99	41,605 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	399	Builders Without Monuments: The Black Architects of America	
+Builders Without Monuments: The Black Architects of America
+Black History	On live	$12.99	47,380 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	398	Embers and Elegance: The Untamed Women Who Forged a Nation	
+Embers and Elegance: The Untamed Women Who Forged a Nation
+Black History	On live	$12.99	43,950 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	397	Ashes of the Greenwood Empire	
+Ashes of the Greenwood Empire
+Black History	On live	$12.99	44,165 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	396	Perimenopause and Hormone Balance Symptom Journal Cycle-less Tracking Mood Sleep Logs and Nutrition Insights	
+Perimenopause and Hormone Balance Symptom Journal Cycle-less Tracking Mood Sleep Logs and Nutrition Insights
+Journals	On live	$10.99	41,350 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	395	Quantum Computing in Plain English 2026 Edition What s Real What s Hype and Practical	
+Quantum Computing in Plain English 2026 Edition What s Real What s Hype and Practical
+Science & Technology	On live	$13.99	43,740 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	394	Micro-SaaS in 30 Days Validate Pre-Sell and Launch a Niche SaaS With No-Code Low-Code and AI	
+Micro-SaaS in 30 Days Validate Pre-Sell and Launch a Niche SaaS With No-Code Low-Code and AI
+Business / Entrepreneurship	On live	$14.99	48,831 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	393	Nervous System and Spiritual Practice Trauma-Informed Prayer Worship and Community for Healing	
+Nervous System and Spiritual Practice Trauma-Informed Prayer Worship and Community for Healing
+Religion	On live	$11.99	46,654 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	392	Nervous System Regulation Activity Book Somatic Exercises Vagus Nerve Practices and Anxiety-Calming Prompts	
+Nervous System Regulation Activity Book Somatic Exercises Vagus Nerve Practices and Anxiety-Calming Prompts
+Activity Books	On live	$12.99	38,141 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	391	Romantasy Micro-Tales Bite-Sized Enemies-to-Lovers in Magical Kingdoms Spice-Light to Spicy	
+Romantasy Micro-Tales Bite-Sized Enemies-to-Lovers in Magical Kingdoms Spice-Light to Spicy
+Short Story Collections	On live	$12.99	70,317 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	390	AI Modern Mysticism Practical Prompts and Rituals to Use ChatGPT for Journaling Shadow	
+AI Modern Mysticism Practical Prompts and Rituals to Use ChatGPT for Journaling Shadow
+Spirituality	On live	$11.99	45,181 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	389	Analog Horror and VHS Nightmares How to Create Found-Footage Terror That Feels Real	
+Analog Horror and VHS Nightmares How to Create Found-Footage Terror That Feels Real
+Horror	On live	$12.99	45,698 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	388	Zone 2 Threshold Mastery for Runners and Cyclists A Practical Guide to Faster Times	
+Zone 2 Threshold Mastery for Runners and Cyclists A Practical Guide to Faster Times
+Sports & Fitness	On live	$12.99	44,589 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	387	The AI Broke My Brain A Comedy Guide to ChatGPT Deepfakes and Surviving the New Tech Panic	
+The AI Broke My Brain A Comedy Guide to ChatGPT Deepfakes and Surviving the New Tech Panic
+Humor	On live	$11.99	41,531 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	386	Manga-Style Character Design for Beginners From Facial Expressions to Dynamic Action Poses (with Procreate/Clip Studio workflows)	
+Manga-Style Character Design for Beginners From Facial Expressions to Dynamic Action Poses (with Procreate/Clip Studio workflows)
+Comics	On live	$12.99	36,647 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	385	Kawaii Food Drink Coloring Book Cute Snacks Boba Desserts Caf Scenes Easy Bold Lines	
+Kawaii Food Drink Coloring Book Cute Snacks Boba Desserts Caf Scenes Easy Bold Lines
+Coloring Books	On live	$7.99	801 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	384	Sustainable Style on a Budget Thrifting, Upcycling, and Building Ethical Outfits Without Paying Luxury Prices	
+Sustainable Style on a Budget Thrifting, Upcycling, and Building Ethical Outfits Without Paying Luxury Prices
+Fashion & Beauty	On live	$11.99	43,680 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	383	Second-Chance Romance After a Breakup or Divorce A Modern Dating Playbook for Rebuilding Trust and Finding Love Again	
+Second-Chance Romance After a Breakup or Divorce A Modern Dating Playbook for Rebuilding Trust and Finding Love Again
+Romance	On live	$14.99	73,253 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	382	True-Crime DNA Genealogy Gone Wrong A Cold-Case Thriller Involving Consumer DNA Databases and Family Secrets	
+True-Crime DNA Genealogy Gone Wrong A Cold-Case Thriller Involving Consumer DNA Databases and Family Secrets
+Mystery / Thriller	On live	$14.99	54,079 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	381	Procreate Masterclass Modern Digital Illustration Techniques Brushes and Portfolio-Building	
+Procreate Masterclass Modern Digital Illustration Techniques Brushes and Portfolio-Building
+Art & Design	On live	$11.99	39,114 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	380	The Literary Unreliable Narrator Playbook Building Voice, Ambiguity, and Reader Trust Without Plot Tricks	
+The Literary Unreliable Narrator Playbook Building Voice, Ambiguity, and Reader Trust Without Plot Tricks
+Literary Fiction	On live	$14.99	54,962 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	379	Micro-Habits for Busy People The 10-Minute Daily System to Stay Motivated and Consistent	
+Micro-Habits for Busy People The 10-Minute Daily System to Stay Motivated and Consistent
+Motivational	On live	$11.99	41,403 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	378	Notion Obsidian Knowledge Management Reference Book 500 Templates Database Schemas	
+Notion Obsidian Knowledge Management Reference Book 500 Templates Database Schemas
+Reference Books	On live	$13.99	42,686 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	377	Shanghai Under Occupation 1937 1945 A noir-style historical fiction saga of refugees	
+Shanghai Under Occupation 1937 1945 A noir-style historical fiction saga of refugees
+Historical Fiction	On live	$14.99	74,113 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	376	Spoken Word Performance Toolkit Write, Rehearse, and Deliver Slam Poetry That Wins Auditions and Open Mics	
+Spoken Word Performance Toolkit Write, Rehearse, and Deliver Slam Poetry That Wins Auditions and Open Mics
+Poetry	On live	$11.99	42,977 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	375	Detaching Without Giving Up A Practical Law of Attraction Plan for Letting Go, Reducing Anxiety, and Manifesting Faster	
+Detaching Without Giving Up A Practical Law of Attraction Plan for Letting Go, Reducing Anxiety, and Manifesting Faster
+Manifestation / Law of Attraction	On live	$11.99	43,277 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	374	AI and Career-Proofing Quotes 500 Micro-Lessons on Staying Valuable Learning Fast and Thriving in the Age of Automation	
+AI and Career-Proofing Quotes 500 Micro-Lessons on Staying Valuable Learning Fast and Thriving in the Age of Automation
+Quote Books	On live	$10.99	38,509 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	373	Faceless Short-Form Video That Sells Case Studies of TikTok/Reels Channels Turning Views into Revenue (Affiliate, Digital Products, and Shops)	
+Faceless Short-Form Video That Sells Case Studies of TikTok/Reels Channels Turning Views into Revenue (Affiliate, Digital Products, and Shops)
+Case Studies	On live	$10.99	41,629 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	372	Near-Future Climate Dystopia Survival teen-led community building eco-tech hacks and hopepunk resistance	
+Near-Future Climate Dystopia Survival teen-led community building eco-tech hacks and hopepunk resistance
+Young Adult Fiction	On live	$12.99	67,543 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	371	Systematic Review Meta-Analysis in 2026 PRISMA 2020 Workflows Screening Automation	
+Systematic Review Meta-Analysis in 2026 PRISMA 2020 Workflows Screening Automation
+Research Books	On live	$10.99	44,288 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	370	GLP-1 Appetite-Friendly Cooking Small-Plate High-Satiety Recipes for People Using	
+GLP-1 Appetite-Friendly Cooking Small-Plate High-Satiety Recipes for People Using
+Cookbooks	On live	$12.99	42,691 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	369	ADHD-Friendly Productivity Workbook Time-Blocking, Dopamine Menu Planning & Focus Sprints for Adults	
+ADHD-Friendly Productivity Workbook Time-Blocking, Dopamine Menu Planning & Focus Sprints for Adults
+Workbooks	On live	$12.99	36,843 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	368	The New Retirement Playbook (2026) FIRE Updates, Social Security Optimization, and Tax-Efficient Withdrawals in a High-Rate Era	
+The New Retirement Playbook (2026) FIRE Updates, Social Security Optimization, and Tax-Efficient Withdrawals in a High-Rate Era
+Finance / Investing	On live	$14.99	51,930 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	367	Kubernetes Troubleshooting Manual Diagnose, Debug, and Fix Cluster Issues with kubectl, Logs, and eBPF	
+Kubernetes Troubleshooting Manual Diagnose, Debug, and Fix Cluster Issues with kubectl, Logs, and eBPF
+Technical Manuals	On live	$10.99	40,816 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	366	Manga-Style Storytelling for Western Creators Pacing, Emotional Beats, and Visual Language Readers Expect	
+Manga-Style Storytelling for Western Creators Pacing, Emotional Beats, and Visual Language Readers Expect
+Graphic Novels	On live	$12.99	35,440 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	365	STEM Magic Quest Stories coding robotics and science experiments woven into fantasy adventures	
+STEM Magic Quest Stories coding robotics and science experiments woven into fantasy adventures
+Children's Fiction	On live	$12.99	64,737 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	364	Meaning Without Certainty Existentialism and Nihilism Tools for Anxiety Burnout and Life Transitions	
+Meaning Without Certainty Existentialism and Nihilism Tools for Anxiety Burnout and Life Transitions
+Philosophy	On live	$14.99	50,280 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	363	Zone 2 Cardio Made Simple An 8-Week Fat-Loss & Endurance Plan Using Heart-Rate or RPE (No Fancy Gear Needed)	
+Zone 2 Cardio Made Simple An 8-Week Fat-Loss & Endurance Plan Using Heart-Rate or RPE (No Fancy Gear Needed)
+Sports & Fitness	On live	$12.99	41,865 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	362	From Burnout to Balance A High-Achiever's Memoir of Quitting Hustle Culture and Recovering Mental Health	
+From Burnout to Balance A High-Achiever's Memoir of Quitting Hustle Culture and Recovering Mental Health
+Biographies & Memoirs	On live	$13.99	52,674 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	361	AI-Powered Productivity Planner ChatGPT Prompts + Weekly Review Framework to Plan Goals, Tasks, and Content	
+AI-Powered Productivity Planner ChatGPT Prompts + Weekly Review Framework to Plan Goals, Tasks, and Content
+Planners	On live	$10.99	42,532 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	360	Empire of Disease Pandemics That Changed History from the Black Death to COVID-19 and What Comes Next	
+Empire of Disease Pandemics That Changed History from the Black Death to COVID-19 and What Comes Next
+History	On live	$12.99	44,449 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	359	Dopamine Detox and Digital Minimalism Journal Screen-Time Triggers Habit Rewires and 30-Day Focus Challenges	
+Dopamine Detox and Digital Minimalism Journal Screen-Time Triggers Habit Rewires and 30-Day Focus Challenges
+Journals	On live	$10.99	42,495 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	357	Eco-Luxury Upcycling Turn Old Jeans, Towels, and T-Shirts into Modern Home Decor (No-Sew + Basic Sewing Options)	
+Eco-Luxury Upcycling Turn Old Jeans, Towels, and T-Shirts into Modern Home Decor (No-Sew + Basic Sewing Options)
+DIY / Crafts	On live	$12.99	45,803 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	358	Romantasy Blueprint Crafting Spice Levels Tropes and Series Arcs That Perform on Kindle BookTok	
+Romantasy Blueprint Crafting Spice Levels Tropes and Series Arcs That Perform on Kindle BookTok
+Fantasy	On live	$14.99	76,448 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	356	GLP-1 Weight Loss Without the Shots Nutrition Strength Training and Habit Protocols	
+GLP-1 Weight Loss Without the Shots Nutrition Strength Training and Habit Protocols
+Health & Wellness	On live	$12.99	45,081 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	355	Somatic Mindfulness Body-Based Practices to Release Stress, Trauma Tension, and Burnout (No Meditation Experience Needed)	
+Somatic Mindfulness Body-Based Practices to Release Stress, Trauma Tension, and Burnout (No Meditation Experience Needed)
+Mindfulness	On live	$11.99	43,855 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	354	2026 Dopamine Décor Color Psychology, Bold Patterns & Room-by-Room Makeover Plans That Actually Work	
+2026 Dopamine Décor Color Psychology, Bold Patterns & Room-by-Room Makeover Plans That Actually Work
+Home Décor	On live	$11.99	43,324 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	353	Air Fryer Mediterranean 60 Heart-Healthy Anti-Inflammatory Recipes in 20 Minutes or Less	
+Air Fryer Mediterranean 60 Heart-Healthy Anti-Inflammatory Recipes in 20 Minutes or Less
+Food & Drink	On live	$11.99	39,222 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	352	The Neurodivergent-Friendly Home Everyday Parenting Systems for ADHD/Autism Kids—Routines, Transitions, and Emotional Regulation That Actually Work	
+The Neurodivergent-Friendly Home Everyday Parenting Systems for ADHD/Autism Kids—Routines, Transitions, and Emotional Regulation That Actually Work
+Parenting	On live	$12.99	45,175 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	351	Deepfake Theocracy Life Under a Regime Where Synthetic Scripture and AI Miracles Dictate Law	
+Deepfake Theocracy Life Under a Regime Where Synthetic Scripture and AI Miracles Dictate Law
+Dystopian	On live	$14.99	70,741 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	350	TikTok-to-Netflix Pipeline How Short-Form Trends Become Hit Shows, Music Breakouts, and Global Memes (and How to Spot the Next One)	
+TikTok-to-Netflix Pipeline How Short-Form Trends Become Hit Shows, Music Breakouts, and Global Memes (and How to Spot the Next One)
+Pop Culture	On live	$11.99	43,426 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	349	Manual of Modern Digital Privacy A Step-by-Step Setup Guide for Password Managers, Passkeys, 2FA, and Identity Theft Protection in 2026	
+Manual of Modern Digital Privacy A Step-by-Step Setup Guide for Password Managers, Passkeys, 2FA, and Identity Theft Protection in 2026
+Guides & Manuals	On live	$12.99	43,446 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	348	Nervous System Regulation for Real Life Somatic Tools to Reduce Anxiety, Stop Overthinking, and Prevent Burnout	
+Nervous System Regulation for Real Life Somatic Tools to Reduce Anxiety, Stop Overthinking, and Prevent Burnout
+Self-Help / Personal Development	On live	$13.99	47,473 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	347	Japan on a Budget in 2026 The Updated Playbook for Cheap Trains, Smart Passes, Affordable Ryokans, and Convenience-Store Meals	
+Japan on a Budget in 2026 The Updated Playbook for Cheap Trains, Smart Passes, Affordable Ryokans, and Convenience-Store Meals
+Travel	On live	$12.99	42,329 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	346	Private Local AI on Your Laptop Running LLMs Offline with Ollama LM Studio RAG and Data Privacy Best Practices	
+Private Local AI on Your Laptop Running LLMs Offline with Ollama LM Studio RAG and Data Privacy Best Practices
+Science & Technology	On live	$13.99	43,887 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	345	Land a Remote Job Fast Modern Job Search Systems for 2026 (ATS, portfolios, async interviews, and global hiring)	
+Land a Remote Job Fast Modern Job Search Systems for 2026 (ATS, portfolios, async interviews, and global hiring)
+Career Guides	On live	$12.99	42,745 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	344	iPhone Photography Mastery for 2026 ProRAW Night Mode Cinematic Portraits Social-Ready Editing	
+iPhone Photography Mastery for 2026 ProRAW Night Mode Cinematic Portraits Social-Ready Editing
+Photography Books	On live	$12.99	36,699 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	343	Solarpunk Cities After Collapse Designing Climate‑Resilient Futures with Clean Tech, Circular Economies, and Hopeful Sci‑Fi Worldbuilding	
+Solarpunk Cities After Collapse Designing Climate‑Resilient Futures with Clean Tech, Circular Economies, and Hopeful Sci‑Fi Worldbuilding
+Science Fiction	On live	$14.99	70,600 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	342	AI-Powered Adventure Planning How to Use ChatGPT + Free Apps to Build Safe, Epic Itineraries on a Budget	
+AI-Powered Adventure Planning How to Use ChatGPT + Free Apps to Build Safe, Epic Itineraries on a Budget
+Adventure	On live	$13.99	62,055 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	341	Microlearning Mastery Build a 15-Minute-a-Day System to Learn Any Skill in 30 Days	
+Microlearning Mastery Build a 15-Minute-a-Day System to Learn Any Skill in 30 Days
+Education / Learning	On live	$12.99	42,567 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	340	The Anti-Burnout Productivity System Sustainable Routines for High Performance Without Overwhelm	
+The Anti-Burnout Productivity System Sustainable Routines for High Performance Without Overwhelm
+Productivity	On live	$13.99	52,939 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	339	Data Literacy AI-Ready Statistics with Python From Spreadsheets to Machine Learning	
+Data Literacy AI-Ready Statistics with Python From Spreadsheets to Machine Learning
+Textbooks	On live	$10.99	39,344 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	338	AI Prompts for Small Business Marketing 30-Day Content Ads Email Funnels SEO Briefs	
+AI Prompts for Small Business Marketing 30-Day Content Ads Email Funnels SEO Briefs
+Prompt Books	On live	$10.99	42,224 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	337	Beginner-to-Pro Notion Systems Create a Second-Brain Workspace (Databases, Dashboards, Automations, Templates)	
+Beginner-to-Pro Notion Systems Create a Second-Brain Workspace (Databases, Dashboards, Automations, Templates)
+Tutorials	On live	$12.99	41,416 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	336	Anxious Attachment Modern Dating Evidence-Based Tools to Stop Overthinking Set	
+Anxious Attachment Modern Dating Evidence-Based Tools to Stop Overthinking Set
+Psychology	On live	$14.99	49,722 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	335	From Viral to Viable Turning Short-Form Content (TikTok/Reels/Shorts) Into a Profitable Productized Service or Digital Offer	
+From Viral to Viable Turning Short-Form Content (TikTok/Reels/Shorts) Into a Profitable Productized Service or Digital Offer
+Business / Entrepreneurship	On live	$14.99	46,652 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	334	Dopamine Reset Quotes 365 Short Reminders for Breaking Phone Addiction, Reclaiming Focus, and Feeling Motivated Again	
+Dopamine Reset Quotes 365 Short Reminders for Breaking Phone Addiction, Reclaiming Focus, and Feeling Motivated Again
+Quote Books	On live	$10.99	43,452 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	333	Dopamine Reset Activity Book 30-Day Habit Tracker Mini Challenges Screen-Time Detox Worksheets	
+Dopamine Reset Activity Book 30-Day Habit Tracker Mini Challenges Screen-Time Detox Worksheets
+Activity Books	On live	$12.99	36,350 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	332	Cozy Fantasy Coloring Book Cottagecore Scenes, Magical Forest Creatures & Bookish Nooks (Stress-Relief)	
+Cozy Fantasy Coloring Book Cottagecore Scenes, Magical Forest Creatures & Bookish Nooks (Stress-Relief)
+Coloring Books	On live	$7.99	2,667 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	331	ChatGPT Prompt Playbook for Job Seekers Resume LinkedIn ATS Optimization Interview Prep	
+ChatGPT Prompt Playbook for Job Seekers Resume LinkedIn ATS Optimization Interview Prep
+Prompt Books	On live	$10.99	43,884 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	330	ADHD-Friendly Daily Planner System Time-Blocking, Dopamine Menus & Executive-Function Support Templates	
+ADHD-Friendly Daily Planner System Time-Blocking, Dopamine Menus & Executive-Function Support Templates
+Planners	On live	$10.99	42,190 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	329	The Nervous System Reset Journal Daily Somatic Prompts, Vagus Nerve Check-Ins & Stress-Release Tracking	
+The Nervous System Reset Journal Daily Somatic Prompts, Vagus Nerve Check-Ins & Stress-Release Tracking
+Journals	On live	$10.99	39,149 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	328	Hybrid Athlete Blueprint How to Combine Strength + Endurance Training Without Burning Out (2026 Evidence-Based Plans)	
+Hybrid Athlete Blueprint How to Combine Strength + Endurance Training Without Burning Out (2026 Evidence-Based Plans)
+Sports & Fitness	On live	$12.99	44,278 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	327	High-Protein High-Fiber Meal Prep for GLP-1 Users Smaller Portions Big Nutrition Zero	
+High-Protein High-Fiber Meal Prep for GLP-1 Users Smaller Portions Big Nutrition Zero
+Food & Drink	On live	$11.99	42,804 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	326	Biophilic Home D cor on a Budget Plant Styling Natural Textures Light Hacks for Small Spaces	
+Biophilic Home D cor on a Budget Plant Styling Natural Textures Light Hacks for Small Spaces
+Home Décor	On live	$11.99	44,872 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	325	Capsule Wardrobe 2 0 Build a Versatile Closet with AI Outfit Planning Color Analysis	
+Capsule Wardrobe 2 0 Build a Versatile Closet with AI Outfit Planning Color Analysis
+Fashion & Beauty	On live	$11.99	44,584 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	324	The New Rules of Fandom 2026 How Stan Culture Parasocial Relationships and Creator	
+The New Rules of Fandom 2026 How Stan Culture Parasocial Relationships and Creator
+Pop Culture	On live	$11.99	43,080 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	323	Laughing Through Burnout A Humor-First Survival Guide for Overworked Professionals (with jokes, scripts, and coping hacks)	
+Laughing Through Burnout A Humor-First Survival Guide for Overworked Professionals (with jokes, scripts, and coping hacks)
+Humor	On live	$11.99	46,308 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	322	AI Prompt Engineering Reference Manual (2026) Tested Prompt Patterns, Templates, and Troubleshooting for ChatGPT, Claude, Gemini, and Copilot	
+AI Prompt Engineering Reference Manual (2026) Tested Prompt Patterns, Templates, and Troubleshooting for ChatGPT, Claude, Gemini, and Copilot
+Reference Books	On live	$13.99	42,223 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	321	From 0 to 10K MRR with AI Case Studies of Solo Founders Using ChatGPT Claude and Automation to Launch Micro-SaaS	
+From 0 to 10K MRR with AI Case Studies of Solo Founders Using ChatGPT Claude and Automation to Launch Micro-SaaS
+Case Studies	On live	$10.99	45,594 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	320	Practical Local AI on Your Laptop Install, Run, and Secure LLMs (Ollama/LM Studio) for Real Workflows	
+Practical Local AI on Your Laptop Install, Run, and Secure LLMs (Ollama/LM Studio) for Real Workflows
+Technical Manuals	On live	$10.99	45,689 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	319	Prompt-to-Paper A Researcher’s Field Guide to Using Generative AI for Literature Reviews, Coding, and Writing (Ethics + Reproducibility Included)	
+Prompt-to-Paper A Researcher’s Field Guide to Using Generative AI for Literature Reviews, Coding, and Writing (Ethics + Reproducibility Included)
+Research Books	On live	$10.99	45,681 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	318	Practical Generative AI for Students ChatGPT Claude Copilot Research Writing	
+Practical Generative AI for Students ChatGPT Claude Copilot Research Writing
+Textbooks	On live	$10.99	44,653 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	317	Neuroscience-Backed Manifestation Rewire Your Reticular Activating System (RAS) to Spot Opportunities and Attract Results	
+Neuroscience-Backed Manifestation Rewire Your Reticular Activating System (RAS) to Spot Opportunities and Attract Results
+Manifestation / Law of Attraction	On live	$11.99	43,885 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	316	Dopamine Reset Motivation A 30-Day Plan to Beat Scroll Addiction and Get Your Drive Back	
+Dopamine Reset Motivation A 30-Day Plan to Beat Scroll Addiction and Get Your Drive Back
+Motivational	On live	$11.99	43,766 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	315	Mindfulness for Anxiety Panic in the Age of Doomscrolling A 21-Day Nervous System Reset	
+Mindfulness for Anxiety Panic in the Age of Doomscrolling A 21-Day Nervous System Reset
+Mindfulness	On live	$11.99	43,747 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	314	Nervous System Spirituality Polyvagal-Informed Practices to Heal Anxiety Burnout and Feel Spiritually Connected Again	
+Nervous System Spirituality Polyvagal-Informed Practices to Heal Anxiety Burnout and Feel Spiritually Connected Again
+Spirituality	On live	$11.99	44,245 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	313	AI and Faith How Christians Can Discern, Use, and Set Boundaries with ChatGPT, Deepfakes, and Digital Life	
+AI and Faith How Christians Can Discern, Use, and Set Boundaries with ChatGPT, Deepfakes, and Digital Life
+Religion	On live	$11.99	47,689 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	312	How to Create Vertical Webtoons for TikTok Instagram Paneling Pacing and Monetization	
+How to Create Vertical Webtoons for TikTok Instagram Paneling Pacing and Monetization
+Comics	On live	$12.99	39,150 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	311	From Script to Panels A Practical Guide to Writing Graphic Novel Scripts (with Beat Sheets, Page Turns & Dialogue That Fits the Art)	
+From Script to Panels A Practical Guide to Writing Graphic Novel Scripts (with Beat Sheets, Page Turns & Dialogue That Fits the Art)
+Graphic Novels	On live	$12.99	41,053 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	310	AI-Assisted Photo Editing Workflow Lightroom Photoshop Generative Fill Faster	
+AI-Assisted Photo Editing Workflow Lightroom Photoshop Generative Fill Faster
+Photography Books	On live	$12.99	37,215 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	309	AI-Assisted Art Prompt Craft Style Consistency and Ethical Workflows for Artists Collectors	
+AI-Assisted Art Prompt Craft Style Consistency and Ethical Workflows for Artists Collectors
+Art & Design	On live	$11.99	46,133 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	308	Cozy AI Mysteries A Short Story Collection of Small-Town Whodunits with Smart-Home Clues	
+Cozy AI Mysteries A Short Story Collection of Small-Town Whodunits with Smart-Home Clues
+Short Story Collections	On live	$12.99	71,261 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	307	Micro-Poetry for TikTok Instagram Write Scroll-Stopping Poems Haiku One-Liners Visual	
+Micro-Poetry for TikTok Instagram Write Scroll-Stopping Poems Haiku One-Liners Visual
+Poetry	On live	$11.99	42,357 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	306	AI-Proof Your Career A Practical Upskilling Roadmap for the Next 18 Months (with role-by-role pathways)	
+AI-Proof Your Career A Practical Upskilling Roadmap for the Next 18 Months (with role-by-role pathways)
+Career Guides	On live	$12.99	45,538 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	305	Beginner-Friendly AI-Assisted Crafting Use ChatGPT + Free Design Tools (Canva/Midjourney Alternatives) to Create Sellable Cricut/Silhouette SVGs & Printables	
+Beginner-Friendly AI-Assisted Crafting Use ChatGPT + Free Design Tools (Canva/Midjourney Alternatives) to Create Sellable Cricut/Silhouette SVGs & Printables
+DIY / Crafts	On live	$13.99	47,201 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	304	Perimenopause Strength Metabolism Reset A 12-Week Progressive Lifting Nutrition	
+Perimenopause Strength Metabolism Reset A 12-Week Progressive Lifting Nutrition
+Sports & Fitness	On live	$12.99	44,043 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	303	Build AI Agents That Actually Work A Step-by-Step Tutorial with OpenAI API + LangChain/LlamaIndex (Tools, Memory, RAG, Evaluation)	
+Build AI Agents That Actually Work A Step-by-Step Tutorial with OpenAI API + LangChain/LlamaIndex (Tools, Memory, RAG, Evaluation)
+Tutorials	On live	$12.99	40,208 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	302	30-Day Nervous System Reset Workbook Somatic Exercises Breathwork and Micro-Habits for Anxiety Relief	
+30-Day Nervous System Reset Workbook Somatic Exercises Breathwork and Micro-Habits for Anxiety Relief
+Workbooks	On live	$12.99	35,995 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	301	High-Protein Meal Prep Cookbook for Busy People 30 40g Protein Meals Budget-Friendly	
+High-Protein Meal Prep Cookbook for Busy People 30 40g Protein Meals Budget-Friendly
+Cookbooks	On live	$12.99	41,063 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	300	The Practical Guide to On-Device AI Using iPhone/Android AI Tools for Daily Productivity, Photos, and Workflows (No Coding Required)	
+The Practical Guide to On-Device AI Using iPhone/Android AI Tools for Daily Productivity, Photos, and Workflows (No Coding Required)
+Guides & Manuals	On live	$12.99	42,370 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	299	AI Study Coach Playbook How to Use ChatGPT AI Tools to Learn Faster Without Cheating	
+AI Study Coach Playbook How to Use ChatGPT AI Tools to Learn Faster Without Cheating
+Education / Learning	On live	$12.99	36,873 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	298	Raising Kids With AI Practical, Safe Ways to Use ChatGPT & AI Tools for Homework Help, Creativity, and Digital Literacy (Without Cheating or Overexposure)	
+Raising Kids With AI Practical, Safe Ways to Use ChatGPT & AI Tools for Homework Help, Creativity, and Digital Literacy (Without Cheating or Overexposure)
+Parenting	On live	$12.99	44,822 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	297	AI-Powered Travel Planning How to Build a Perfect 7–14 Day Itinerary in Minutes (Best Prompts, Tools, and Real Examples)	
+AI-Powered Travel Planning How to Build a Perfect 7–14 Day Itinerary in Minutes (Best Prompts, Tools, and Real Examples)
+Travel	On live	$12.99	43,339 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	296	Stoicism for the Algorithm Age Staying Calm Focused and Ethical in a World Run by Feeds AI	
+Stoicism for the Algorithm Age Staying Calm Focused and Ethical in a World Run by Feeds AI
+Philosophy	On live	$14.99	53,360 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	295	Everyday AI Agents How to Build Personal Automations with ChatGPT, Claude & Open-Source Tools (No Coding Required)	
+Everyday AI Agents How to Build Personal Automations with ChatGPT, Claude & Open-Source Tools (No Coding Required)
+Science & Technology	On live	$13.99	44,063 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	294	The AI Cold War How U.S.–China Tech Rivalry Is Reshaping Global Power (A Historical Lens from the Original Cold War)	
+The AI Cold War How U.S.–China Tech Rivalry Is Reshaping Global Power (A Historical Lens from the Original Cold War)
+History	On live	$12.99	45,864 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	293	Surviving a Deepfake A Memoir of Identity Theft AI Scams and Rebuilding Trust Online	
+Surviving a Deepfake A Memoir of Identity Theft AI Scams and Rebuilding Trust Online
+Biographies & Memoirs	On live	$13.99	53,039 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	292	Dopamine Reset in the Age of TikTok A Psychology-Based 30-Day Plan to Rewire Motivation, Focus, and Pleasure	
+Dopamine Reset in the Age of TikTok A Psychology-Based 30-Day Plan to Rewire Motivation, Focus, and Pleasure
+Psychology	On live	$13.99	47,678 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	291	AI-Assisted Time Blocking How to Use ChatGPT Automation to Plan Your Week in 30 Minutes	
+AI-Assisted Time Blocking How to Use ChatGPT Automation to Plan Your Week in 30 Minutes
+Productivity	On live	$12.99	44,885 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	290	The 28-Day Cortisol Reset A Science-Backed Plan to Lower Stress, Sleep Deeper, and Lose Stubborn Belly Fat	
+The 28-Day Cortisol Reset A Science-Backed Plan to Lower Stress, Sleep Deeper, and Lose Stubborn Belly Fat
+Health & Wellness	On live	$12.99	44,920 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	289	AI-Powered Personal Investing How to Use Robo-Advisors, Screeners, and ChatGPT-Style Tools to Build and Manage a Portfolio	
+AI-Powered Personal Investing How to Use Robo-Advisors, Screeners, and ChatGPT-Style Tools to Build and Manage a Portfolio
+Finance / Investing	On live	$14.99	51,883 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	288	AI-Powered Solopreneur Systems Build a One-Person Business Using Agents Automations and No-Code Workflows	
+AI-Powered Solopreneur Systems Build a One-Person Business Using Agents Automations and No-Code Workflows
+Business / Entrepreneurship	On live	$14.99	50,609 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	287	The Dopamine Reset Blueprint Break Phone Social Media Addiction and Rebuild Focus in 30 Days	
+The Dopamine Reset Blueprint Break Phone Social Media Addiction and Rebuild Focus in 30 Days
+Self-Help / Personal Development	On live	$12.99	45,451 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	286	Cozy Mystery Adventures for Ages 7 10 kid detectives school secrets and safe suspense	
+Cozy Mystery Adventures for Ages 7 10 kid detectives school secrets and safe suspense
+Children's Fiction	On live	$12.99	63,789 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	285	Romantasy Academy with Neurodivergent Heroine magic classes secret societies and a slow-burn rivals-to-lovers arc	
+Romantasy Academy with Neurodivergent Heroine magic classes secret societies and a slow-burn rivals-to-lovers arc
+Young Adult Fiction	On live	$13.99	73,168 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	284	AI Welfare State Gone Wrong A Dystopian Thriller Where Universal Basic Income Is Controlled by a Social-Score Algorithm	
+AI Welfare State Gone Wrong A Dystopian Thriller Where Universal Basic Income Is Controlled by a Social-Score Algorithm
+Dystopian	On live	$14.99	71,019 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	283	Microadventures Near Home 52 Weekend Quests You Can Do Within 2 Hours of Your Door (No Flights, Big Thrills)	
+Microadventures Near Home 52 Weekend Quests You Can Do Within 2 Hours of Your Door (No Flights, Big Thrills)
+Adventure	On live	$13.99	69,955 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	282	The Women Codebreakers of WWII A historical fiction thriller set inside Bletchley Park and the U.S. Navy’s WAVES program	
+The Women Codebreakers of WWII A historical fiction thriller set inside Bletchley Park and the U.S. Navy’s WAVES program
+Historical Fiction	On live	$14.99	71,850 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	281	AI Hauntings Digital Possession Writing and Surviving Horror in a World of Deepfakes	
+AI Hauntings Digital Possession Writing and Surviving Horror in a World of Deepfakes
+Horror	On live	$13.99	62,557 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	280	Romantasy Relationship Guide Building Chemistry, Consent & Emotional Intimacy Inspired by Popular Fantasy Romance Tropes	
+Romantasy Relationship Guide Building Chemistry, Consent & Emotional Intimacy Inspired by Popular Fantasy Romance Tropes
+Romance	On live	$14.99	80,877 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	279	AI Deepfake Blackmail A Cyber-Thriller Mystery About Identity Theft Voice Cloning and Digital Alibis	
+AI Deepfake Blackmail A Cyber-Thriller Mystery About Identity Theft Voice Cloning and Digital Alibis
+Mystery / Thriller	On live	$14.99	58,795 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	278	Cozy Fantasy Worldbuilding Masterclass How to Write Low-Stakes High-Comfort Stories	
+Cozy Fantasy Worldbuilding Masterclass How to Write Low-Stakes High-Comfort Stories
+Fantasy	On live	$14.99	80,448 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	277	AI Companions Digital Immortality A Near Future Sci Fi Guide to Mind Uploading	
+AI Companions Digital Immortality A Near Future Sci Fi Guide to Mind Uploading
+Science Fiction	On live	$14.99	70,716 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	276	Writing Climate Grief as Literary Fiction Crafting Character-Driven Stories in the Age of Eco-Anxiety	
+Writing Climate Grief as Literary Fiction Crafting Character-Driven Stories in the Age of Eco-Anxiety
+Literary Fiction	On live	$14.99	65,977 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	275	The Inkborn Chronicles	
+The Inkborn Chronicles
+Fantasy	On live	$14.99	77,825 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	273	The Echoes Beneath	
+The Echoes Beneath
+Mystery / Thriller	On live	$14.99	49,936 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	270	The Forgotten Pantheon	
+The Forgotten Pantheon
+Fantasy	On live	$14.99	83,237 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	268	Sunlit Covenant of the Elderwood	
+Sunlit Covenant of the Elderwood
+Fantasy	On live	$14.99	82,495 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	267	The Shadow Algorithm	
+The Shadow Algorithm
+Mystery / Thriller	On live	$14.99	57,428 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	266	The Silent Witness Chronicles	
+The Silent Witness Chronicles
+Mystery / Thriller	On live	$14.99	55,293 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	265	Palimpsest of the Blackwell Dynasty	
+Palimpsest of the Blackwell Dynasty
+Mystery / Thriller	On live	$10.49	30,865 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	263	The Lumina Accord	
+The Lumina Accord
+Fantasy	On live	$14.99	76,599 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	262	The Clockmaker's Heir	
+The Clockmaker's Heir
+Fantasy	On live	$14.99	82,440 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	261	The Eternal Bargain	
+The Eternal Bargain
+Fantasy	On live	$14.99	58,108 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	259	The 5 Core Archetypes	
+The 5 Core Archetypes
+Self-Help / Personal Development	On live	$13.99	52,601 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	258	Map Your Mythic Rise: A Hero’s-Journey Playbook for Turning Setbacks into Your Success Story	
+Map Your Mythic Rise: A Hero’s-Journey Playbook for Turning Setbacks into Your Success Story
+Motivational	On live	$11.99	38,187 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	257	Around the World in a Life	
+Around the World in a Life
+Travel	On live	$13.99	48,902 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	256	One Pan Endless Feasts	
+One Pan Endless Feasts
+Cookbooks	On live	$12.99	39,890 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	255	Infinity Compass	
+Infinity Compass
+Adventure	On live	$13.99	63,379 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	254	The Echo of Us	
+The Echo of Us
+Romance	On live	$14.99	75,740 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	253	The Algorithm's Republic	
+The Algorithm's Republic
+Dystopian	On live	$14.99	66,372 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	252	Event-Horizon Heartwork: A Cosmic Sequence of Love and Leaving	
+Event-Horizon Heartwork: A Cosmic Sequence of Love and Leaving
+Poetry	On live	$12.99	48,768 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	251	The Time Travel Network	
+The Time Travel Network
+History	On live	$12.99	45,533 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	250	The Minor Choice Continuum: Interlinked Tales Across Elsewheres	
+The Minor Choice Continuum: Interlinked Tales Across Elsewheres
+Short Story Collections	On live	$13.99	77,297 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	249	Conversations With My Future Self	
+Conversations With My Future Self
+Biographies & Memoirs	On live	$13.99	49,877 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	248	The Mindfulness Blueprint	
+The Mindfulness Blueprint
+Mindfulness	On live	$11.99	37,298 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	247	A Song for the Forgotten	
+A Song for the Forgotten
+Historical Fiction	On live	$13.99	63,286 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	246	Galaxy of Gags	
+Galaxy of Gags
+Humor	On live	$11.99	47,083 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	245	The Eternal Labyrinth	
+The Eternal Labyrinth
+Fantasy	On live	$14.99	74,777 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	244	The Endless Carnival	
+The Endless Carnival
+Horror	On live	$13.99	63,123 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	243	Code of the Silent Cell	
+Code of the Silent Cell
+Mystery / Thriller	On live	$14.99	56,583 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	242	The Simulated Revolution	
+The Simulated Revolution
+Science Fiction	On live	$14.99	71,082 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	240	Compound Choices	
+Compound Choices
+Finance / Investing	On live	$14.99	48,573 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	239	Momentum Mechanics	
+Momentum Mechanics
+Productivity	On live	$12.99	42,379 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	238	The Paradox Chronicles	
+The Paradox Chronicles
+Philosophy	On live	$14.99	59,655 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	237	Esports Evolution	
+Esports Evolution
+Gaming	On live	$12.99	38,352 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	236	Inner Cinematics	
+Inner Cinematics
+Psychology	On live	$13.99	35,017 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	235	The Mind	
+The Mind
+Health & Wellness	On live	$10.49	30,583 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	234	Faith and Modern Science	
+Faith and Modern Science
+Religion	On live	$11.99	47,540 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	233	Agile Entrepreneurship	
+Agile Entrepreneurship
+Business / Entrepreneurship	On live	$14.99	54,663 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	232	Mastering Minimalist Beauty	
+Mastering Minimalist Beauty
+Fashion & Beauty	On live	$11.99	36,677 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	231	AI and the Future of Investing	
+AI and the Future of Investing
+Finance / Investing	On live	$14.99	47,617 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	230	Podium Mind Protocol: Elite Athlete Psychology for Peak Performance	
+Podium Mind Protocol: Elite Athlete Psychology for Peak Performance
+Sports & Fitness	On live	$12.99	42,220 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	229	The Workforce Revolution	
+The Workforce Revolution
+Sociology	On live	$12.99	45,936 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	228	Empires Decoded	
+Empires Decoded
+History	On live	$12.99	45,279 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	227	The Sevenfold Traveler: A Persona Map to Your Inner Explorer	
+The Sevenfold Traveler: A Persona Map to Your Inner Explorer
+Travel	On live	$12.99	45,432 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	226	The Last Laugh Survival Guide	
+The Last Laugh Survival Guide
+Humor	On live	$11.99	46,298 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	225	The Fractured Compass	
+The Fractured Compass
+Short Story Collections	On live	$12.99	59,296 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	224	Stanzas of the Soul	
+Stanzas of the Soul
+Poetry	On live	$11.99	44,595 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	223	The Flavor Quest	
+The Flavor Quest
+Cookbooks	On live	$10.49	31,630 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	222	The 5-Room Blueprint	
+The 5-Room Blueprint
+Motivational	On live	$9.99	32,512 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	221	Ten Turning Days: A Memoir of Ordinary Moments That Remade Me	
+Ten Turning Days: A Memoir of Ordinary Moments That Remade Me
+Biographies & Memoirs	On live	$13.99	57,190 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	220	Echoes of the Blackout: Humanity's Greatest Threat	
+Echoes of the Blackout: Humanity's Greatest Threat
+Dystopian	On live	$14.99	73,872 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	218	The Twelve Trials of Eryndor	
+The Twelve Trials of Eryndor
+Adventure	On live	$14.99	74,754 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	217	Static in the Deadband: The Briar Hollow Dossier	
+Static in the Deadband: The Briar Hollow Dossier
+Horror	On live	$13.99	62,448 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	216	10 Frames of Focus	
+10 Frames of Focus
+Mindfulness	On live	$11.99	39,184 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	215	Twelve Bearings of Significance: A Philosophical Compass for Purpose in Modern Life	
+Twelve Bearings of Significance: A Philosophical Compass for Purpose in Modern Life
+Philosophy	On live	$13.99	46,075 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	213	The Psychology Blueprint	
+The Psychology Blueprint
+Psychology	On live	$13.99	44,540 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	212	Fated Threads	
+Fated Threads
+Romance	On live	$14.99	79,976 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	211	The Fractured Day	
+The Fractured Day
+Mystery / Thriller	On live	$10.49	30,148 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	210	The Shattered Prophecy	
+The Shattered Prophecy
+Fantasy	On live	$14.99	70,598 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	209	Chronicles of the Memory Weavers	
+Chronicles of the Memory Weavers
+Science Fiction	On live	$14.99	73,557 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	208	The Four Pillars of Vital Energy A Health Guide Inspired by The Four Agreements Structure	
+The Four Pillars of Vital Energy A Health Guide Inspired by The Four Agreements Structure
+Health & Wellness	On live	$12.99	43,660 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	207	The 5 Keystone Decisions	
+The 5 Keystone Decisions
+Self-Help / Personal Development	On live	$12.99	37,717 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	206	The Wealth Archetypes	
+The Wealth Archetypes
+Finance / Investing	On live	$14.99	50,247 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	205	Momentum Mastery	
+Momentum Mastery
+Business / Entrepreneurship	On live	$13.99	46,715 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	204	Micro Habits for Macro Success	
+Micro Habits for Macro Success
+Self-Help / Personal Development	On live	$13.99	48,819 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	203	Energy Healing Unlocked	
+Energy Healing Unlocked
+Spirituality	On live	$11.99	41,865 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	202	Navigating Modern Love	
+Navigating Modern Love
+Relationships	On live	$12.99	44,809 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	201	Web3 Investment Strategies	
+Web3 Investment Strategies
+Business / Entrepreneurship	On live	$13.99	45,813 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	200	Finding Spiritual Balance	
+Finding Spiritual Balance
+Religion	On live	$11.99	40,018 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	199	Mastering Financial Freedom	
+Mastering Financial Freedom
+Finance / Investing	On live	$13.99	41,799 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	197	Mastering Functional Fitness	
+Mastering Functional Fitness
+Sports & Fitness	On live	$12.99	42,158 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	196	Secrets Beneath the Surface	
+Secrets Beneath the Surface
+Mystery / Thriller	On live	$14.99	54,551 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	195	Threadlight Wardrobe: Eco-Chic Style on a Real-World Budget	
+Threadlight Wardrobe: Eco-Chic Style on a Real-World Budget
+Fashion & Beauty	On live	$11.99	43,566 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	194	Digital Communities	
+Digital Communities
+Sociology	On live	$12.99	43,932 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	193	Cryptid Chronicles	
+Cryptid Chronicles
+Horror	On live	$13.99	60,028 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	192	Mastering Sleep Optimization	
+Mastering Sleep Optimization
+Health & Wellness	On live	$12.99	41,042 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	191	Time Traveler's Heart	
+Time Traveler's Heart
+Romance	On live	$14.99	72,921 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	189	Supercharge Success	
+Supercharge Success
+Productivity	On live	$13.99	47,231 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	188	The Art of Disconnection	
+The Art of Disconnection
+Literary Fiction	On live	$14.99	66,706 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	187	The Sustainable Artist	
+The Sustainable Artist
+Art & Design	On live	$11.99	39,246 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	186	Cinderlogic Rebellion: After the Human Age	
+Cinderlogic Rebellion: After the Human Age
+Science Fiction	On live	$14.99	71,897 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	185	Beginner Resin Art	
+Beginner Resin Art
+DIY / Crafts	On live	$12.99	35,545 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	184	Blockchain Beyond Cryptocurrency	
+Blockchain Beyond Cryptocurrency
+Science & Technology	On live	$13.99	43,744 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	183	Code and Culture: Five Decades of Technology Remaking Everyday Life	
+Code and Culture: Five Decades of Technology Remaking Everyday Life
+History	On live	$12.99	46,331 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	182	Sustainable Travel on a Budget	
+Sustainable Travel on a Budget
+Travel	On live	$12.99	42,747 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	181	Zero-Waste Living	
+Zero-Waste Living
+Nature & Environment	On live	$12.99	43,000 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	180	Unlocking the Power of Music Theory	
+Unlocking the Power of Music Theory
+Music	On live	$11.99	35,639 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	179	The Antihero's Journey	
+The Antihero's Journey
+Fantasy	On live	$14.99	80,675 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	178	The Everyday Productivity Blueprint	
+The Everyday Productivity Blueprint
+Self-Help / Personal Development	On live	$12.99	39,613 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	177	Surviving Modern Life with a Smile	
+Surviving Modern Life with a Smile
+Humor	On live	$11.99	45,471 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	176	Mastering the AI Revolution	
+Mastering the AI Revolution
+Career Guides	On live	$12.99	42,473 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	175	The Silk Road Chronicles	
+The Silk Road Chronicles
+Historical Fiction	On live	$14.99	72,355 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	174	Micro Moments	
+Micro Moments
+Short Story Collections	On live	$12.99	55,000 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	173	Mindful Technology	
+Mindful Technology
+Mindfulness	On live	$11.99	41,388 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	172	Neural Narrative Craft: Cognitive Keys to Unforgettable Stories	
+Neural Narrative Craft: Cognitive Keys to Unforgettable Stories
+Writing & Creativity	On live	$11.99	38,048 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	171	The Philosophy of AI Ethics	
+The Philosophy of AI Ethics
+Philosophy	On live	$14.99	50,396 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	170	The Rise of AI in Filmmaking	
+The Rise of AI in Filmmaking
+Film & Cinema	On live	$9.99	27,282 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	169	Understanding the Human Microbiome	
+Understanding the Human Microbiome
+Science & Technology	On live	$13.99	42,824 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	168	Urban Myths Reimagined	
+Urban Myths Reimagined
+Literary Fiction	On live	$14.99	67,629 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	167	Modern Love in Metaphors	
+Modern Love in Metaphors
+Poetry	On live	$12.99	49,142 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	166	Navigating Gentle Discipline	
+Navigating Gentle Discipline
+Parenting	On live	$12.99	38,165 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	165	Unbound Voices: Journeys of Today’s Social Justice Pathfinders	
+Unbound Voices: Journeys of Today’s Social Justice Pathfinders
+Biographies & Memoirs	On live	$13.99	48,080 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	164	One Vessel, Many Nations: Speedy One-Pot Dinners for the Weeknight Kitchen	
+One Vessel, Many Nations: Speedy One-Pot Dinners for the Weeknight Kitchen
+Cookbooks	On live	$12.99	39,235 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	163	Navigating Magical Realms	
+Navigating Magical Realms
+Adventure	On live	$14.99	73,355 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	162	PromptOps for Professionals: A Practical System for AI-Driven Productivity from ChatGPT to MidJourney	
+PromptOps for Professionals: A Practical System for AI-Driven Productivity from ChatGPT to MidJourney
+Science & Technology	On live	$13.99	42,059 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	161	The Regenerative Revolution	
+The Regenerative Revolution
+Nature & Environment	On live	$12.99	46,427 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	160	The Rise of Slow Travel	
+The Rise of Slow Travel
+Travel	On live	$12.99	43,192 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	159	Mastering Music Production	
+Mastering Music Production
+Music	On live	$11.99	38,407 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	157	Navigating Career Pivots	
+Navigating Career Pivots
+Career Guides	On live	$12.99	41,706 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	156	Eco-Friendly DIY Projects	
+Eco-Friendly DIY Projects
+DIY / Crafts	On live	$12.99	36,322 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	155	Modern Stoicism for Everyday Resilience	
+Modern Stoicism for Everyday Resilience
+Philosophy	On live	$13.99	42,627 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	154	Unveiling Ancient Civilizations	
+Unveiling Ancient Civilizations
+History	On live	$12.99	42,328 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	153	Signalborne Fables: Twisted Tales from the Screenlit World	
+Signalborne Fables: Twisted Tales from the Screenlit World
+Short Story Collections	On live	$12.99	67,941 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	152	Healing Through Verse	
+Healing Through Verse
+Poetry	On live	$11.99	39,953 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	151	The Art of Laughing	
+The Art of Laughing
+Humor	On live	$11.99	38,307 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	149	Branchpoint Reverie: A Multiverse of Choice-Driven Realities	
+Branchpoint Reverie: A Multiverse of Choice-Driven Realities
+Science Fiction	On live	$14.99	75,310 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	148	The Attentive Parent Playbook: Raising Resilient, Emotionally Smart Kids Amid Constant Distraction	
+The Attentive Parent Playbook: Raising Resilient, Emotionally Smart Kids Amid Constant Distraction
+Parenting	On live	$12.99	42,712 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	146	Silent Saboteuses of the Second World War: Women History Almost Erased	
+Silent Saboteuses of the Second World War: Women History Almost Erased
+Historical Fiction	On live	$14.99	77,276 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	145	From Dream to Screen	
+From Dream to Screen
+Film & Cinema	On live	$11.99	37,249 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	142	The Secret Lives of Forgotten Places	
+The Secret Lives of Forgotten Places
+Literary Fiction	On live	$14.99	61,705 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	141	Mastering Emotional Resilience	
+Mastering Emotional Resilience
+Self-Help / Personal Development	On live	$13.99	49,970 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	140	The Future of Quantum Computing	
+The Future of Quantum Computing
+Science & Technology	On live	$13.99	44,615 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	139	Hearth & Harvest: Indulgent Vegan Classics for Everyday Sustainability	
+Hearth & Harvest: Indulgent Vegan Classics for Everyday Sustainability
+Cookbooks	On live	$12.99	42,048 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	138	The Ultimate Backpacking Adventure	
+The Ultimate Backpacking Adventure
+Adventure	On live	$14.99	72,628 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	137	The Flavor Quest: A Culinary Journey Through the Five Tastes	
+The Flavor Quest: A Culinary Journey Through the Five Tastes
+Cookbooks	On live	$12.99	42,073 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	136	Empires Decoded: Unpacking History Through 6 Defining Forces	
+Empires Decoded: Unpacking History Through 6 Defining Forces
+History	On live	$12.99	43,768 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	135	Wanderlist: 7 Travel Archetypes to Discover Your Inner Explorer	
+Wanderlist: 7 Travel Archetypes to Discover Your Inner Explorer
+Travel	On live	$12.99	44,577 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	134	The Last Laugh Survival Guide: Lessons from Life’s Most Awkward Moments	
+The Last Laugh Survival Guide: Lessons from Life’s Most Awkward Moments
+Humor	On live	$11.99	40,796 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	132	Stanzas of the Soul: A Journey Through the Four Seasons of Life	
+Stanzas of the Soul: A Journey Through the Four Seasons of Life
+Poetry	On live	$11.99	43,405 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	131	The 5-Room Blueprint: Unlock Your Full Potential One Life Space at a Time	
+The 5-Room Blueprint: Unlock Your Full Potential One Life Space at a Time
+Motivational	On live	$11.99	44,192 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	130	Beachside Stillness A Screenwriter s Guide to Mindful Living	
+Beachside Stillness A Screenwriter s Guide to Mindful Living
+Mindfulness	On live	$12.99	48,006 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	129	Threads of Resilience: A Life Woven Through Ten Defining Days	
+Threads of Resilience: A Life Woven Through Ten Defining Days
+Biographies & Memoirs	On live	$13.99	57,814 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	128	The Ladders of Meaning: A Journey Through 12 Levels of Purpose	
+The Ladders of Meaning: A Journey Through 12 Levels of Purpose
+Philosophy	On live	$14.99	51,034 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	127	Echoes of the Blackout	
+Echoes of the Blackout
+Dystopian	On live	$13.99	40,009 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	126	The Apothecary's Dilemma	
+The Apothecary's Dilemma
+Historical Fiction	On live	$13.99	63,349 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	124	Phantom Echoes A Haunted Town's Truth Unveiled through Found Footage	
+Phantom Echoes A Haunted Town's Truth Unveiled through Found Footage
+Horror	On live	$14.99	56,498 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	123	The Lattice Effect	
+The Lattice Effect
+Productivity	On live	$12.99	47,001 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	122	Heart Reactor: The Four Laws of Human Performance	
+Heart Reactor: The Four Laws of Human Performance
+Productivity	On live	$13.99	51,278 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	121	The Psychology Blueprint: 7 Key Mental Frameworks for Navigating Life	
+The Psychology Blueprint: 7 Key Mental Frameworks for Navigating Life
+Psychology	On live	$14.99	47,704 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	118	The Shattered Prophecy A Multi-Character Narrative	
+The Shattered Prophecy A Multi-Character Narrative
+Fantasy	On live	$14.99	69,172 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	117	The Orrery at the Edge of Time	
+The Orrery at the Edge of Time
+Science Fiction	On live	$14.99	72,990 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	116	The Wealth Archetypes: Unlock Your Personal Money Blueprint	
+The Wealth Archetypes: Unlock Your Personal Money Blueprint
+Finance / Investing	On live	$14.99	54,122 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	115	Momentum Mastery: Building a Business Flywheel from Scratch	
+Momentum Mastery: Building a Business Flywheel from Scratch
+Business / Entrepreneurship	On live	$14.99	48,267 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	114	The 5 Keystone Decisions: Unlocking Life’s Fulfillment Through Purposeful Choices	
+The 5 Keystone Decisions: Unlocking Life’s Fulfillment Through Purposeful Choices
+Self-Help / Personal Development	On live	$13.99	50,245 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	113	Unlocking the Power of Energy Healing: A Practical Guide to Chakras, Auras, and Vibrational Medicine	
+Unlocking the Power of Energy Healing: A Practical Guide to Chakras, Auras, and Vibrational Medicine
+Spirituality	On live	$11.99	46,088 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	112	Navigating Modern Love How to Build Healthy Relationships in the Era of Digital	
+Navigating Modern Love How to Build Healthy Relationships in the Era of Digital
+Relationships	On live	$12.99	45,333 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	111	The Circadian Compass	
+The Circadian Compass
+Health & Wellness	On live	$12.99	44,471 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	110	Cryptid Chronicles: Unlocking the Dark Secrets of Urban Legends	
+Cryptid Chronicles: Unlocking the Dark Secrets of Urban Legends
+Horror	On live	$13.99	61,336 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	109	Astrolabe of the Forgotten	
+Astrolabe of the Forgotten
+Fantasy	On live	$14.99	78,495 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	108	Investment Strategies for the Web3 Era	
+Investment Strategies for the Web3 Era
+Business / Entrepreneurship	On live	$14.99	52,180 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	107	10X Productivity Hacks Using AI Tools and Automation Strategies	
+10X Productivity Hacks Using AI Tools and Automation Strategies
+Productivity	On live	$12.99	46,293 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	106	Time Traveler's Heart: A Love Story Across Centuries	
+Time Traveler's Heart: A Love Story Across Centuries
+Romance	On live	$14.99	74,148 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	105	Secrets Beneath the Surface Unraveling Mysteries in an Abandoned Lake Town	
+Secrets Beneath the Surface Unraveling Mysteries in an Abandoned Lake Town
+Mystery / Thriller	On live	$14.99	52,864 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	103	Stairway to the Vault of Freedom	
+Stairway to the Vault of Freedom
+Finance / Investing	On live	$14.99	54,046 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	102	Sustainable Fashion: Building a Stylish Wardrobe That’s Eco-Friendly and Affordable	
+Sustainable Fashion: Building a Stylish Wardrobe That’s Eco-Friendly and Affordable
+Fashion & Beauty	On live	$11.99	41,956 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	101	Mastering Game Design	
+Mastering Game Design
+Gaming	On live	$12.99	44,379 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	100	Mastering Functional Fitness: Strategies to Build Strength, Mobility, and Endurance for Real-Life Performance	
+Mastering Functional Fitness: Strategies to Build Strength, Mobility, and Endurance for Real-Life Performance
+Sports & Fitness	On live	$12.99	44,411 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	99	The Sociology of Digital Communities: How Social Media Shapes Identity and Belonging	
+The Sociology of Digital Communities: How Social Media Shapes Identity and Belonging
+Sociology	On live	$13.99	49,207 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	98	Mastering AI-Powered Productivity Tools From ChatGPT to MidJourney	
+Mastering AI-Powered Productivity Tools From ChatGPT to MidJourney
+Science & Technology	On live	$13.99	40,434 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	97	Stillwater Garden: A Cedar Hollow Mystery	
+Stillwater Garden: A Cedar Hollow Mystery
+Mystery / Thriller	On live	$14.99	55,695 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	96	The Rise of Slow Travel: How to Explore the World at Your Own Pace and Create Meaningful Experiences	
+The Rise of Slow Travel: How to Explore the World at Your Own Pace and Create Meaningful Experiences
+Travel	On live	$12.99	45,812 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	95	Award-Winning Screenplays	
+Award-Winning Screenplays
+Film & Cinema	On live	$11.99	41,208 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	94	Mastering Music Production: A Beginner’s Guide to Home Studio Success	
+Mastering Music Production: A Beginner’s Guide to Home Studio Success
+Music	On live	$11.99	40,017 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	93	Mastering AI-Powered Digital Art: Combining Creativity with Cutting-Edge Technology	
+Mastering AI-Powered Digital Art: Combining Creativity with Cutting-Edge Technology
+Art & Design	On live	$11.99	39,060 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	92	Mastering AI-Assisted Creativity How to Write and Innovate with ChatGPT and Other AI Tools	
+Mastering AI-Assisted Creativity How to Write and Innovate with ChatGPT and Other AI Tools
+Writing & Creativity	On live	$11.99	43,638 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	91	Healing Attachment Styles	
+Healing Attachment Styles
+Relationships	On live	$12.99	45,487 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	89	Eco-Friendly DIY Projects: Upcycling Everyday Items for Sustainable Living	
+Eco-Friendly DIY Projects: Upcycling Everyday Items for Sustainable Living
+DIY / Crafts	On live	$12.99	43,954 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	87	Modern Stoicism for Everyday Resilience: Applying Ancient Wisdom to 21st-Century Challenges	
+Modern Stoicism for Everyday Resilience: Applying Ancient Wisdom to 21st-Century Challenges
+Philosophy	On live	$14.99	48,539 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	86	Unveiling Ancient Civilizations: Secrets of the Lost Empires from Around the World	
+Unveiling Ancient Civilizations: Secrets of the Lost Empires from Around the World
+History	On live	$12.99	42,739 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	85	The Rise of AI Mavericks	
+The Rise of AI Mavericks
+Biographies & Memoirs	On live	$12.99	46,685 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	83	The Science of Deep Work	
+The Science of Deep Work
+Productivity	On live	$12.99	46,633 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	82	Mastering Modern Mindfulness	
+Mastering Modern Mindfulness
+Spirituality	On live	$11.99	41,810 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	80	The Comprehensive Guide to Gut Health	
+The Comprehensive Guide to Gut Health
+Health & Wellness	On live	$12.99	45,800 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	78	Mastering Emotional Resilience: How to Overcome Anxiety and Thrive in Uncertain Times	
+Mastering Emotional Resilience: How to Overcome Anxiety and Thrive in Uncertain Times
+Self-Help / Personal Development	On live	$13.99	47,904 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	77	Graveyard AI	
+Graveyard AI
+Horror	On live	$14.99	59,926 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	76	The AI Detective	
+The AI Detective
+Mystery / Thriller	On live	$14.99	53,378 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	75	Love Beyond Algorithms	
+Love Beyond Algorithms
+Romance	On live	$14.99	67,247 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	74	Mythic Realms Reclaimed	
+Mythic Realms Reclaimed
+Fantasy	On live	$14.99	66,795 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	73	Forgotten Rebels: The Untold Stories of Women Who Shaped World War II	
+Forgotten Rebels: The Untold Stories of Women Who Shaped World War II
+Historical Fiction	On live	$13.99	52,762 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	72	The Pilgrims of the Gilded Gate	
+The Pilgrims of the Gilded Gate
+Fantasy	On live	$14.99	71,098 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	71	The Future of Quantum Computing Revolutionizing Technology and Everyday Life	
+The Future of Quantum Computing Revolutionizing Technology and Everyday Life
+Science & Technology	On live	$13.99	44,568 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	70	The Ultimate Backpacking Adventure: How to Explore Remote Wilderness Safely and Sustainably	
+The Ultimate Backpacking Adventure: How to Explore Remote Wilderness Safely and Sustainably
+Adventure	On live	$13.99	61,187 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	69	Modern Folklore: Twisted Tales for the Digital Age	
+Modern Folklore: Twisted Tales for the Digital Age
+Short Story Collections	On live	$12.99	64,209 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	68	Healing Through Verse: Poetry for Mental Health and Emotional Resilience	
+Healing Through Verse: Poetry for Mental Health and Emotional Resilience
+Poetry	On live	$11.99	46,758 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	67	The Art of Laughing: How to Develop a Sense of Humor That Wins Hearts and Minds	
+The Art of Laughing: How to Develop a Sense of Humor That Wins Hearts and Minds
+Humor	On live	$11.99	41,926 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	66	Mindful Parenting: How to Raise Resilient, Emotionally Intelligent Kids in a Distracted World	
+Mindful Parenting: How to Raise Resilient, Emotionally Intelligent Kids in a Distracted World
+Parenting	On live	$12.99	45,088 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	65	Lanterns in the Moss: A Garden Witch’s Guide to Quiet Power	
+Lanterns in the Moss: A Garden Witch’s Guide to Quiet Power
+Cozy Fantasy	On live	$14.99	82,891 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	64	Rediscovering Spirituality: Combining Ancient Practices with Modern Mindfulness	
+Rediscovering Spirituality: Combining Ancient Practices with Modern Mindfulness
+Religion	On live	$11.99	40,179 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	63	Mastering AI-Powered Investing Harness Artificial Intelligence to Maximize Your Portfolio Returns	
+Mastering AI-Powered Investing Harness Artificial Intelligence to Maximize Your Portfolio Returns
+Finance / Investing	On live	$14.99	49,378 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	62	Sustainable Style: A Beginner's Guide to Eco-Friendly Fashion and Beauty	
+Sustainable Style: A Beginner's Guide to Eco-Friendly Fashion and Beauty
+Fashion & Beauty	On live	$11.99	46,735 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	61	Mastering the Art of Esports: Strategies to Compete and Earn in Competitive Gaming	
+Mastering the Art of Esports: Strategies to Compete and Earn in Competitive Gaming
+Gaming	On live	$12.99	42,279 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	60	Mastering Hybrid Workouts: Combining Strength Training and Cardio for Maximum Results	
+Mastering Hybrid Workouts: Combining Strength Training and Cardio for Maximum Results
+Sports & Fitness	On live	$12.99	43,002 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	59	The Impact of Social Media on Modern Relationships: Navigating Connection in a Digital Era	
+The Impact of Social Media on Modern Relationships: Navigating Connection in a Digital Era
+Sociology	On live	$13.99	47,937 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	57	The Quantum Revolution: Understanding Quantum Computing and How it Will Change the World	
+The Quantum Revolution: Understanding Quantum Computing and How it Will Change the World
+Science & Technology	On live	$13.99	45,135 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	56	Microfiction Masterpieces: Tiny Stories with Big Impact	
+Microfiction Masterpieces: Tiny Stories with Big Impact
+Short Story Collections	On live	$12.99	68,732 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	55	Healing Through Poetry: Writing for Emotional Resilience and Self-Discovery	
+Healing Through Poetry: Writing for Emotional Resilience and Self-Discovery
+Poetry	On live	$11.99	46,046 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	54	How to Laugh Through Life: Turning Everyday Struggles into Comedy Gold	
+How to Laugh Through Life: Turning Everyday Struggles into Comedy Gold
+Humor	On live	$11.99	44,236 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	53	Mindful Parenting: Cultivating Emotional Intelligence in a Digital Age	
+Mindful Parenting: Cultivating Emotional Intelligence in a Digital Age
+Parenting	On live	$12.99	46,753 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	52	The Mindful Edge Protocol: Meditation Methods to Amplify Daily Output and Original Thinking	
+The Mindful Edge Protocol: Meditation Methods to Amplify Daily Output and Original Thinking
+Mindfulness	On live	$11.99	41,749 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	51	Regenerative Living: Harnessing Nature's Cycles for a Sustainable Future	
+Regenerative Living: Harnessing Nature's Cycles for a Sustainable Future
+Nature & Environment	On live	$12.99	46,386 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	50	The Ultimate Guide to Digital Nomad Life: How to Travel the World While Working Remotely	
+The Ultimate Guide to Digital Nomad Life: How to Travel the World While Working Remotely
+Travel	On live	$12.99	47,139 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	49	The Art of Cinematic Storytelling: How to Craft Compelling Narratives for Film	
+The Art of Cinematic Storytelling: How to Craft Compelling Narratives for Film
+Film & Cinema	On live	$11.99	42,336 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	48	The AI Revolution in Music: How Artificial Intelligence Is Reshaping Songwriting and Production	
+The AI Revolution in Music: How Artificial Intelligence Is Reshaping Songwriting and Production
+Music	On live	$11.99	47,289 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	47	The Art of AI: Exploring MidJourney, DALL·E, and Stable Diffusion for Digital Creativity	
+The Art of AI: Exploring MidJourney, DALL·E, and Stable Diffusion for Digital Creativity
+Art & Design	On live	$11.99	40,235 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	46	Mastering AI-Assisted Writing	
+Mastering AI-Assisted Writing
+Writing & Creativity	On live	$11.99	42,476 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	45	Healing After a Toxic Relationship	
+Healing After a Toxic Relationship
+Relationships	On live	$12.99	44,564 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	44	Mastering Remote Work: Strategies for Building a Successful Career in the Work-from-Anywhere Era	
+Mastering Remote Work: Strategies for Building a Successful Career in the Work-from-Anywhere Era
+Career Guides	On live	$12.99	42,493 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	43	Sustainable DIY Projects: Crafting with Upcycled and Eco-Friendly Materials	
+Sustainable DIY Projects: Crafting with Upcycled and Eco-Friendly Materials
+DIY / Crafts	On live	$12.99	45,706 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	42	Quick and Easy Air Fryer Recipes: Delicious Meals in Under 30 Minutes	
+Quick and Easy Air Fryer Recipes: Delicious Meals in Under 30 Minutes
+Cookbooks	On live	$12.99	39,843 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	41	The Philosophy of Artificial Intelligence: Ethics, Consciousness, and the Future of Humanity	
+The Philosophy of Artificial Intelligence: Ethics, Consciousness, and the Future of Humanity
+Philosophy	On live	$14.99	53,108 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	40	The Forgotten Innovators: Unsung Heroes Who Shaped World History	
+The Forgotten Innovators: Unsung Heroes Who Shaped World History
+History	On live	$12.99	44,417 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	39	The Hidden Lives of Tech Titans	
+The Hidden Lives of Tech Titans
+Biographies & Memoirs	On live	$12.99	42,395 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	38	Mastering Micro-Habits Small Changes That Transform Your Life	
+Mastering Micro-Habits Small Changes That Transform Your Life
+Self-Help / Personal Development	On live	$12.99	43,771 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	37	Microsteps Momentum: Small Daily Actions That Compound Into Big Goals	
+Microsteps Momentum: Small Daily Actions That Compound Into Big Goals
+Productivity	On live	$12.99	46,179 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	36	Reality Weaving Protocol: A Practical Guide to Attraction-Based Creation	
+Reality Weaving Protocol: A Practical Guide to Attraction-Based Creation
+Spirituality	On live	$11.99	43,322 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	35	The Science of Overthinking	
+The Science of Overthinking
+Psychology	On live	$14.99	49,366 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	34	NeuroNights Blueprint: Evidence-Based Habits for Deep, Restorative Sleep	
+NeuroNights Blueprint: Evidence-Based Habits for Deep, Restorative Sleep
+Health & Wellness	On live	$12.99	46,590 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	32	Mastering the Art of Emotional Resilience	
+Mastering the Art of Emotional Resilience
+Self-Help / Personal Development	On live	$13.99	49,345 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	31	Lamp-Lit Thresholds and the Patient Listener	
+Lamp-Lit Thresholds and the Patient Listener
+Horror	On live	$13.99	61,011 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	30	Locked	
+Locked
+Mystery / Thriller	On live	$14.99	54,215 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	29	Women Warriors of Ancient Civilizations	
+Women Warriors of Ancient Civilizations
+Historical Fiction	On live	$13.99	51,576 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	28	Forbidden Chemistry	
+Forbidden Chemistry
+Romance	On live	$14.99	71,305 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	27	The Rise of Neural Empires	
+The Rise of Neural Empires
+Science Fiction	On live	$14.99	67,965 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	26	The Forgotten Realms	
+The Forgotten Realms
+Fantasy	On live	$14.99	76,655 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	20	Cache of the Unseen: Found-Footage Nightmares from the Deep Web	
+Cache of the Unseen: Found-Footage Nightmares from the Deep Web
+Horror	On live	$13.99	59,395 words	
+Published
+Renamed ✓
+
+
+Review
+Read
+Rewrite
+Unpublish
+	15	AI Love Affair	
+AI Love Affair
+Romance	On live	$13.99	58,319 words	
+Published
+
+
+Review
+Read
+Rewrite
+Unpublish
+	13	Traveling the Multiverse	
+Traveling the Multiverse
+Science Fiction	On live	$14.99	65,991 words	
+Published
+
+
+Review
