@@ -108,6 +108,34 @@ const EBOOKS_META: GenreMeta = {
     "Explore 600+ full-length ebooks across romance, thriller, fantasy, sci-fi, self-help, mystery, horror, and more. Subscribe to the Reading Pass for unlimited reading on EbookGamez.",
 };
 
+/** Meta for static landing pages. */
+const STATIC_PAGE_META: Record<string, GenreMeta & { path: string }> = {
+  "/": {
+    path: "/",
+    title: "EbookGamez — Ebooks, Games & More",
+    description:
+      "EbookGamez is your home for 600+ ebooks, word games, and activity guides. Subscribe to the Reading Pass for unlimited access to our full library.",
+  },
+  "/games": {
+    path: "/games",
+    title: "Word Games & Puzzles — EbookGamez",
+    description:
+      "Play free word games and puzzles on EbookGamez. Challenge yourself with trivia, crosswords, and brain-teasers — fun for all ages.",
+  },
+  "/guides": {
+    path: "/guides",
+    title: "Reading Guides & Resources — EbookGamez",
+    description:
+      "Explore reading guides, book summaries, and curated lists on EbookGamez. Find your next great read with help from our expert guides.",
+  },
+  "/subscription": {
+    path: "/subscription",
+    title: "Reading Pass Subscription — EbookGamez",
+    description:
+      "Unlock unlimited reading with the EbookGamez Reading Pass. Access 600+ full-length ebooks for one low monthly or annual price. Start reading today.",
+  },
+};
+
 /**
  * Resolve the page path to a canonical URL string and optional page meta,
  * or return null for paths we don't handle.
@@ -119,6 +147,12 @@ function resolvePageMeta(
   urlPath: string,
 ): { canonical: string; meta: GenreMeta | null } | null {
   const cleanPath = urlPath.split("?")[0].split("#")[0].replace(/\/$/, "") || "/";
+
+  // Static landing pages: /, /games, /guides, /subscription
+  if (cleanPath in STATIC_PAGE_META) {
+    const staticMeta = STATIC_PAGE_META[cleanPath];
+    return { canonical: `${BASE_URL}${staticMeta.path}`, meta: staticMeta };
+  }
 
   if (cleanPath === "/ebooks") {
     return { canonical: `${BASE_URL}/ebooks`, meta: EBOOKS_META };
@@ -235,7 +269,19 @@ export function injectOpenGraph(html: string, urlPath: string): string {
 
   const { canonical, meta } = page;
 
+  const titleAttr = escapeAttr(meta.title);
+  const descAttr = escapeAttr(meta.description);
+
   let result = html;
+
+  // <title>
+  result = result.replace(/<title>[^<]*<\/title>/, `<title>${titleAttr}</title>`);
+
+  // <meta name="description">
+  result = result.replace(
+    /<meta name="description" content="[^"]*"\s*\/>/,
+    `<meta name="description" content="${descAttr}" />`,
+  );
 
   // og:url
   result = result.replace(
@@ -246,25 +292,25 @@ export function injectOpenGraph(html: string, urlPath: string): string {
   // og:title
   result = result.replace(
     /<meta property="og:title" content="[^"]*"\s*\/>/,
-    `<meta property="og:title" content="${meta.title}" />`,
+    `<meta property="og:title" content="${titleAttr}" />`,
   );
 
   // og:description
   result = result.replace(
     /<meta property="og:description" content="[^"]*"\s*\/>/,
-    `<meta property="og:description" content="${meta.description}" />`,
+    `<meta property="og:description" content="${descAttr}" />`,
   );
 
   // twitter:title
   result = result.replace(
     /<meta name="twitter:title" content="[^"]*"\s*\/>/,
-    `<meta name="twitter:title" content="${meta.title}" />`,
+    `<meta name="twitter:title" content="${titleAttr}" />`,
   );
 
   // twitter:description
   result = result.replace(
     /<meta name="twitter:description" content="[^"]*"\s*\/>/,
-    `<meta name="twitter:description" content="${meta.description}" />`,
+    `<meta name="twitter:description" content="${descAttr}" />`,
   );
 
   return result;
