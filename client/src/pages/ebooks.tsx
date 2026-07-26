@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { BookOpen, CheckCircle2, Star, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Footer } from "@/components/layout/footer";
+import { trackEbooksCtaClick, trackScrollDepth, resetScrollDepthTracking } from "@/lib/analytics";
 
 interface ApiBook {
   id: number;
@@ -75,6 +76,27 @@ export default function EbooksLanding() {
     };
   }, []);
 
+  useEffect(() => {
+    resetScrollDepthTracking();
+    const MILESTONES: Array<25 | 50 | 75 | 100> = [25, 50, 75, 100];
+
+    function onScroll() {
+      const scrollTop = window.scrollY;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (docHeight <= 0) return;
+      const pct = Math.round((scrollTop / docHeight) * 100);
+      for (const milestone of MILESTONES) {
+        if (pct >= milestone) trackScrollDepth(milestone);
+      }
+    }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      resetScrollDepthTracking();
+    };
+  }, []);
+
   const { data, isLoading } = useQuery<{ books: ApiBook[] }>({
     queryKey: ["ebooks-landing-covers"],
     queryFn: async () => {
@@ -98,7 +120,11 @@ export default function EbooksLanding() {
             </span>
           </Link>
           <Link href="/catalog">
-            <Button size="sm" className="bg-primary text-black hover:bg-primary/90 font-serif font-semibold">
+            <Button
+              size="sm"
+              className="bg-primary text-black hover:bg-primary/90 font-serif font-semibold"
+              onClick={() => trackEbooksCtaClick({ label: "Browse Library", destination: "/catalog", location: "header" })}
+            >
               Browse Library
             </Button>
           </Link>
@@ -130,6 +156,7 @@ export default function EbooksLanding() {
             <Button
               size="lg"
               className="bg-primary text-black hover:bg-primary/90 font-serif font-bold text-base px-8 py-6 rounded-lg shadow-lg shadow-primary/20 group"
+              onClick={() => trackEbooksCtaClick({ label: "Browse the Library", destination: "/catalog", location: "hero" })}
             >
               Browse the Library
               <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
@@ -157,6 +184,7 @@ export default function EbooksLanding() {
               variant="outline"
               size="lg"
               className="border-primary/40 text-primary hover:bg-primary/10 font-serif px-8"
+              onClick={() => trackEbooksCtaClick({ label: "See All 600+ Books", destination: "/catalog", location: "cover_grid" })}
             >
               See All 600+ Books <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
@@ -210,6 +238,7 @@ export default function EbooksLanding() {
               <Button
                 size="lg"
                 className="bg-primary text-black hover:bg-primary/90 font-serif font-bold px-8"
+                onClick={() => trackEbooksCtaClick({ label: "Get the Reading Pass", destination: "/subscription", location: "reading_pass_upsell" })}
               >
                 Get the Reading Pass
               </Button>
@@ -219,6 +248,7 @@ export default function EbooksLanding() {
                 size="lg"
                 variant="outline"
                 className="border-white/20 text-white hover:bg-white/5 font-serif"
+                onClick={() => trackEbooksCtaClick({ label: "Buy Individual Books", destination: "/catalog", location: "reading_pass_upsell" })}
               >
                 Buy Individual Books
               </Button>

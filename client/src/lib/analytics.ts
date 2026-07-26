@@ -306,6 +306,36 @@ export function trackBillingIntervalSwitch(data: {
 
 const firedSubscriptionChanges = new Set<string>();
 
+export function trackEbooksCtaClick(data: {
+  label: string;
+  destination: string;
+  location: string;
+}) {
+  push({
+    event: "ebooks_cta_click",
+    cta_label: data.label,
+    cta_destination: data.destination,
+    cta_location: data.location,
+    page_path: "/ebooks",
+  });
+}
+
+const firedScrollDepths = new Set<number>();
+
+export function trackScrollDepth(percent: 25 | 50 | 75 | 100) {
+  if (firedScrollDepths.has(percent)) return;
+  firedScrollDepths.add(percent);
+  push({
+    event: "scroll_depth",
+    scroll_percent: percent,
+    page_path: "/ebooks",
+  });
+}
+
+export function resetScrollDepthTracking() {
+  firedScrollDepths.clear();
+}
+
 export function trackSubscriptionChange(data: {
   previousPlan: string;
   previousTier: string;
