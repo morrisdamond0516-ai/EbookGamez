@@ -6,6 +6,14 @@
  * without waiting for React to hydrate and run its useEffect.
  */
 
+/** Book data needed for Open Graph injection. */
+export interface BookOGData {
+  id: number;
+  title: string;
+  description: string | null;
+  coverUrl: string;
+}
+
 const BASE_URL = "https://ebookgamez.com";
 
 /** All valid genre slugs that have dedicated landing pages. */
@@ -127,8 +135,8 @@ function resolvePageMeta(
     }
   }
 
-  // Individual book pages — /book/:id and /catalog/:id both canonicalise to /book/:id
-  const bookMatch = cleanPath.match(/^\/(?:book|catalog)\/(\d+)(?:\/.*)?$/);
+  // Individual book pages — /book/:id, /books/:id, and /catalog/:id all canonicalise to /book/:id
+  const bookMatch = cleanPath.match(/^\/(?:books?|catalog)\/(\d+)(?:\/.*)?$/);
   if (bookMatch) {
     const bookId = bookMatch[1];
     return { canonical: `${BASE_URL}/book/${bookId}`, meta: null };
@@ -156,6 +164,56 @@ export function injectCanonical(html: string, urlPath: string): string {
     /<link rel="canonical" href="[^"]*"\s*\/>/,
     `<link rel="canonical" href="${page.canonical}" />`,
   );
+}
+
+/**
+ * Extract the numeric book ID from a book-detail URL, or return null if the
+ * path is not a book page.  Handles /book/:id, /books/:id, /catalog/:id.
+ */
+export function extractBookId(urlPath: string): number | null {
+  const cleanPath = urlPath.split("?")[0].split("#")[0].replace(/\/$/, "") || "/";
+  const m = cleanPath.match(/^\/(?:books?|catalog)\/(\d+)(?:\/.*)?$/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Escape characters that would break an HTML attribute value. */
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Inject book-specific Open Graph / Twitter Card tags into `html`.
+ * Called after fetching the book record from the database.
+ */
+export function injectBookOpenGraph(html: string, book: BookOGData): string {
+  const canonical = `${BASE_URL}/book/${book.id}`;
+  const title = escapeAttr(`${book.title} — EbookGamez`);
+
+  // Build a description: use the book's own description, truncated to ~160 chars.
+  const rawDesc = (book.description ?? "").trim();
+  const desc = escapeAttr(
+    rawDesc.length > 160 ? rawDesc.slice(0, 157).trimEnd() + "…" : rawDesc || `Read "${book.title}" on EbookGamez.`,
+  );
+
+  // Resolve cover image to an absolute URL.
+  const cover = book.coverUrl.startsWith("http")
+    ? book.coverUrl
+    : `${BASE_URL}${book.coverUrl.startsWith("/") ? "" : "/"}${book.coverUrl}`;
+  const coverAttr = escapeAttr(cover);
+
+  let result = html;
+
+  result = result.replace(/<meta property="og:url" content="[^"]*"\s*\/>/, `<meta property="og:url" content="${canonical}" />`);
+  result = result.replace(/<meta property="og:title" content="[^"]*"\s*\/>/, `<meta property="og:title" content="${title}" />`);
+  result = result.replace(/<meta property="og:description" content="[^"]*"\s*\/>/, `<meta property="og:description" content="${desc}" />`);
+  result = result.replace(/<meta property="og:image" content="[^"]*"\s*\/>/, `<meta property="og:image" content="${coverAttr}" />`);
+  result = result.replace(/<meta name="twitter:title" content="[^"]*"\s*\/>/, `<meta name="twitter:title" content="${title}" />`);
+  result = result.replace(/<meta name="twitter:description" content="[^"]*"\s*\/>/, `<meta name="twitter:description" content="${desc}" />`);
+  result = result.replace(/<meta name="twitter:image" content="[^"]*"\s*\/>/, `<meta name="twitter:image" content="${coverAttr}" />`);
+
+  return result;
 }
 
 /**

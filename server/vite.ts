@@ -5,7 +5,10 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
-import { injectCanonical, injectOpenGraph } from "./seoUtils";
+import { injectCanonical, injectOpenGraph, extractBookId, injectBookOpenGraph } from "./seoUtils";
+import { db } from "./storage";
+import { books } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 const viteLogger = createLogger();
 
@@ -51,7 +54,26 @@ export async function setupVite(server: Server, app: Express) {
       );
       const rawPage = await vite.transformIndexHtml(url, template);
       const withCanonical = injectCanonical(rawPage, req.originalUrl);
-      const page = injectOpenGraph(withCanonical, req.originalUrl);
+      let page = injectOpenGraph(withCanonical, req.originalUrl);
+
+      // For individual book pages, fetch book data and inject book-specific OG tags.
+      const bookId = extractBookId(req.originalUrl);
+      if (bookId !== null) {
+        try {
+          const [book] = await db.select({
+            id: books.id,
+            title: books.title,
+            description: books.description,
+            coverUrl: books.coverUrl,
+          }).from(books).where(eq(books.id, bookId)).limit(1);
+          if (book) {
+            page = injectBookOpenGraph(page, book);
+          }
+        } catch {
+          // Non-fatal: fall back to generic tags.
+        }
+      }
+
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
