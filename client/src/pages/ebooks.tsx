@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link, useSearch } from "wouter";
+import { Link, useSearch, useParams, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { BookOpen, CheckCircle2, Star, ArrowRight, Loader2 } from "lucide-react";
@@ -61,12 +61,51 @@ function CoverGrid({ books }: { books: ApiBook[] }) {
   );
 }
 
+// Map URL slug → display genre name
+const SLUG_TO_GENRE: Record<string, string> = {
+  "romance": "Romance",
+  "thriller": "Thriller",
+  "fantasy": "Fantasy",
+  "sci-fi": "Sci-Fi",
+  "self-help": "Self-Help",
+  "mystery": "Mystery",
+  "horror": "Horror",
+  "biography": "Biography",
+  "business": "Business",
+  "classic-literature": "Classic Literature",
+  "adventure": "Adventure",
+  "history": "History",
+};
+
+function genreToSlug(genre: string): string {
+  return genre.toLowerCase().replace(/\s+/g, "-");
+}
+
 export default function EbooksLanding() {
+  const { genre: genreSlug } = useParams<{ genre?: string }>();
   const searchString = useSearch();
-  const params = new URLSearchParams(searchString);
-  const genreParam = params.get("genre") ?? "";
-  // Normalise: match against known genres (case-insensitive), fall back to empty
-  const activeGenre = GENRES.find(g => g.toLowerCase() === genreParam.toLowerCase()) ?? genreParam.trim();
+  const [, navigate] = useLocation();
+
+  // Client-side redirect: /ebooks?genre=Romance → /ebooks/romance (for old links)
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const legacyGenre = params.get("genre");
+    if (legacyGenre && !genreSlug) {
+      const slug = genreToSlug(legacyGenre);
+      if (SLUG_TO_GENRE[slug]) {
+        navigate(`/ebooks/${slug}`, { replace: true });
+      }
+    }
+  }, [searchString, genreSlug, navigate]);
+
+  // Determine active genre from path param (preferred) or query string fallback
+  const activeGenre = genreSlug
+    ? (SLUG_TO_GENRE[genreSlug.toLowerCase()] ?? "")
+    : (() => {
+        const params = new URLSearchParams(searchString);
+        const qg = params.get("genre") ?? "";
+        return GENRES.find(g => g.toLowerCase() === qg.toLowerCase()) ?? qg.trim();
+      })();
 
   useEffect(() => {
     const title = activeGenre

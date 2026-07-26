@@ -536,6 +536,33 @@ Allow: /
 `);
   });
 
+  // 301 redirect: /ebooks?genre=Romance  →  /ebooks/romance
+  const GENRE_SLUGS: Record<string, string> = {
+    "romance": "Romance",
+    "thriller": "Thriller",
+    "fantasy": "Fantasy",
+    "sci-fi": "Sci-Fi",
+    "self-help": "Self-Help",
+    "mystery": "Mystery",
+    "horror": "Horror",
+    "biography": "Biography",
+    "business": "Business",
+    "classic-literature": "Classic Literature",
+    "adventure": "Adventure",
+    "history": "History",
+  };
+  app.get("/ebooks", (req, res, next) => {
+    const genre = req.query.genre as string | undefined;
+    if (genre) {
+      const slug = genre.toLowerCase().replace(/\s+/g, "-");
+      // Only redirect if it maps to a known genre
+      if (GENRE_SLUGS[slug]) {
+        return res.redirect(301, `/ebooks/${slug}`);
+      }
+    }
+    next();
+  });
+
   app.get("/sitemap.xml", async (req, res) => {
     try {
       const allBooks = await storage.getAllBooks({ includeHidden: false });
@@ -560,7 +587,8 @@ Allow: /
         "Business", "Classic Literature", "Adventure", "History",
       ];
       for (const genre of genres) {
-        xml += `\n  <url><loc>${baseUrl}/ebooks?genre=${encodeURIComponent(genre)}</loc><changefreq>weekly</changefreq><priority>0.85</priority><lastmod>${now}</lastmod></url>`;
+        const slug = genre.toLowerCase().replace(/\s+/g, "-");
+        xml += `\n  <url><loc>${baseUrl}/ebooks/${slug}</loc><changefreq>weekly</changefreq><priority>0.85</priority><lastmod>${now}</lastmod></url>`;
       }
 
       const blogIds = [

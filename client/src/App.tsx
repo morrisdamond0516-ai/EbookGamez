@@ -112,6 +112,7 @@ function Router() {
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/my-account" component={MyAccount} />
         <Route path="/ad-preview" component={AdPreview} />
+        <Route path="/ebooks/:genre" component={EbooksLanding} />
         <Route path="/ebooks" component={EbooksLanding} />
         <Route component={NotFound} />
       </Switch>
