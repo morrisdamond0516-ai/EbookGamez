@@ -20,7 +20,7 @@ PORT = "5000"
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["npm", "run", "build"]
+build = ["sh", "-c", "npm run typecheck && npm run build"]
 run = ["node", "dist/index.cjs"]
 healthCheckPath = "/healthz"
 
@@ -73,7 +73,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npx tsc --noEmit"
+args = "npm run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true
