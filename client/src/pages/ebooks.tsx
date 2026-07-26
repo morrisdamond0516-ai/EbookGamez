@@ -6,6 +6,7 @@ import { BookOpen, CheckCircle2, Star, ArrowRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Footer } from "@/components/layout/footer";
 import { trackEbooksCtaClick, trackEbooksGenreClick, trackScrollDepth, resetScrollDepthTracking } from "@/lib/analytics";
+import { GENRES, SLUG_TO_GENRE, genreToSlug, genreChipHref } from "@/lib/ebookGenres";
 
 interface ApiBook {
   id: number;
@@ -24,12 +25,6 @@ const BENEFITS = [
   "New titles added every week",
   "Individual purchases or unlimited Reading Pass",
   "DRM-free — yours to keep forever",
-];
-
-const GENRES = [
-  "Romance", "Thriller", "Fantasy", "Sci-Fi",
-  "Self-Help", "Mystery", "Horror", "Biography",
-  "Business", "Classic Literature", "Adventure", "History",
 ];
 
 function CoverGrid({ books }: { books: ApiBook[] }) {
@@ -61,25 +56,6 @@ function CoverGrid({ books }: { books: ApiBook[] }) {
   );
 }
 
-// Map URL slug → display genre name
-const SLUG_TO_GENRE: Record<string, string> = {
-  "romance": "Romance",
-  "thriller": "Thriller",
-  "fantasy": "Fantasy",
-  "sci-fi": "Sci-Fi",
-  "self-help": "Self-Help",
-  "mystery": "Mystery",
-  "horror": "Horror",
-  "biography": "Biography",
-  "business": "Business",
-  "classic-literature": "Classic Literature",
-  "adventure": "Adventure",
-  "history": "History",
-};
-
-function genreToSlug(genre: string): string {
-  return genre.toLowerCase().replace(/\s+/g, "-");
-}
 
 export default function EbooksLanding() {
   const { genre: genreSlug } = useParams<{ genre?: string }>();
@@ -266,10 +242,10 @@ export default function EbooksLanding() {
         <h2 className="text-xl font-display text-white/80 mb-5">Every genre covered</h2>
         <div className="flex flex-wrap justify-center gap-2">
           {GENRES.map(g => (
-            <Link key={g} href={`/ebooks/${genreToSlug(g)}`}>
+            <Link key={g} href={genreChipHref(g)}>
               <span
                 className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-sm text-muted-foreground hover:text-white hover:border-primary/40 hover:bg-primary/5 transition-colors cursor-pointer font-serif"
-                onClick={() => trackEbooksGenreClick({ genre: g, destination: `/ebooks/${genreToSlug(g)}` })}
+                onClick={() => trackEbooksGenreClick({ genre: g, destination: genreChipHref(g) })}
               >
                 {g}
               </span>
