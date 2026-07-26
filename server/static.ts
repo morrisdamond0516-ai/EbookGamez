@@ -2,7 +2,7 @@ import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { injectCanonical } from "./seoUtils";
+import { injectCanonical, injectOpenGraph } from "./seoUtils";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,7 +20,8 @@ export function serveStatic(app: Express) {
   const indexPath = path.resolve(distPath, "index.html");
   app.use("*", (req, res) => {
     const raw = fs.readFileSync(indexPath, "utf-8");
-    const html = injectCanonical(raw, req.originalUrl);
+    const withCanonical = injectCanonical(raw, req.originalUrl);
+    const html = injectOpenGraph(withCanonical, req.originalUrl);
     res.status(200).set({ "Content-Type": "text/html" }).end(html);
   });
 }
