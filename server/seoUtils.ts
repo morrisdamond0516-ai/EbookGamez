@@ -205,6 +205,12 @@ export function injectBookOpenGraph(html: string, book: BookOGData): string {
 
   let result = html;
 
+  // Update the <title> tag.
+  result = result.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`);
+
+  // Update the plain <meta name="description"> tag.
+  result = result.replace(/<meta name="description" content="[^"]*"\s*\/>/, `<meta name="description" content="${desc}" />`);
+
   result = result.replace(/<meta property="og:url" content="[^"]*"\s*\/>/, `<meta property="og:url" content="${canonical}" />`);
   result = result.replace(/<meta property="og:title" content="[^"]*"\s*\/>/, `<meta property="og:title" content="${title}" />`);
   result = result.replace(/<meta property="og:description" content="[^"]*"\s*\/>/, `<meta property="og:description" content="${desc}" />`);
