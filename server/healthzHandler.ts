@@ -24,7 +24,12 @@ export function createHealthzHandler(timeoutMs = HEALTHZ_CHECK_TIMEOUT_MS): Requ
   return async (_req, res) => {
     const checks: { db: boolean; stripe: boolean } = { db: false, stripe: false };
 
-    // DB check: borrow a client from the shared pool — no new connection overhead
+    // DB check: borrow a client from the shared pool — no new connection overhead.
+    // withTimeout wraps the entire pool.query() call, which internally acquires a
+    // connection first.  If the pool is exhausted (all connections busy), pool.query
+    // will queue and never settle until a connection becomes available.  The timeout
+    // fires before that budget is reached, so a saturated pool is handled the same
+    // way as a hung query — the check times out and reports db: false.
     try {
       const { pool: dbPool } = await import('./storage');
       await withTimeout(dbPool.query('SELECT 1'), 'DB', timeoutMs);

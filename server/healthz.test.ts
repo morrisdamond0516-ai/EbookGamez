@@ -137,6 +137,22 @@ describe("GET /healthz — health check behaviour", () => {
 
   // ---- timeout -----------------------------------------------------------
 
+  it("returns HTTP 503 with db: false when the pool is exhausted (pool.query stalls indefinitely)", async () => {
+    // Simulate a fully-exhausted connection pool: pool.query queues the request
+    // and never resolves because no connections become available.  withTimeout
+    // must fire and mark the DB check as failed before the handler returns.
+    vi.mocked(pool.query).mockImplementation(() => new Promise(() => {}));
+
+    const start = Date.now();
+    const res = await request(buildApp(100 /* ms */)).get("/healthz");
+    const elapsed = Date.now() - start;
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ status: "degraded", db: false });
+    // Must resolve within well under the test budget despite the stalled pool.
+    expect(elapsed).toBeLessThan(5000);
+  }, 10_000);
+
   it("completes within 500 ms and returns degraded when the DB query hangs (timeout set to 100 ms)", async () => {
     // pool.query returns a promise that never settles — simulates a hung DB.
     vi.mocked(pool.query).mockImplementation(() => new Promise(() => {}));
