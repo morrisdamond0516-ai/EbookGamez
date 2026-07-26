@@ -323,13 +323,24 @@ export function trackEbooksCtaClick(data: {
   destination: string;
   location: string;
 }) {
-  push({
-    event: "ebooks_cta_click",
+  const payload = {
     cta_label: data.label,
     cta_destination: data.destination,
     cta_location: data.location,
     page_path: "/ebooks",
-  });
+  };
+
+  push({ event: "ebooks_cta_click", ...payload });
+
+  // Fire dedicated events for the two highest-intent labels so they can be
+  // registered as individual GA4 conversions without a parameter filter.
+  // GA4 Admin marks whole event names as conversions; a separate event name is
+  // the only reliable way to isolate a specific label as a distinct goal.
+  if (data.label === "Browse the Library") {
+    push({ event: "ebooks_cta_browse_library", ...payload });
+  } else if (data.label === "Get the Reading Pass") {
+    push({ event: "ebooks_cta_reading_pass", ...payload });
+  }
 }
 
 const firedScrollDepths = new Set<number>();
