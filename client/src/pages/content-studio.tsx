@@ -381,6 +381,10 @@ function ContentStudioMain() {
     linked: number; stubsCreated: number;
     pulled: number; skipped: number; total: number;
     message: string;
+    verification?: {
+      checked: number; suspicious: number;
+      items: { draftId: number; title: string; wordCount: number; titleInContent: boolean }[];
+    };
   } | null>(null);
   const [autoSyncProgress, setAutoSyncProgress] = useState<{
     pushed: number;
@@ -2974,6 +2978,7 @@ function ContentStudioMain() {
                       skipped: pullData.skipped ?? 0,
                       total: pullData.total ?? 0,
                       message: pullData.message,
+                      verification: pullData.verification,
                     });
                     toast({ title: "Full sync complete", description: pullData.message });
                     queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
@@ -2993,7 +2998,7 @@ function ContentStudioMain() {
             </div>
           </div>
           {fullSyncResult && (
-            <div className="text-xs text-amber-200/80 bg-amber-950/40 rounded px-3 py-2 space-y-0.5">
+            <div className="text-xs text-amber-200/80 bg-amber-950/40 rounded px-3 py-2 space-y-1">
               {(fullSyncResult.linked > 0 || fullSyncResult.stubsCreated > 0) && (
                 <p>🔗 Linked {fullSyncResult.linked} draft(s) by title; {fullSyncResult.stubsCreated} stub(s) created.</p>
               )}
@@ -3005,6 +3010,26 @@ function ContentStudioMain() {
               )}
               {fullSyncResult.linked === 0 && fullSyncResult.stubsCreated === 0 && fullSyncResult.pulled === 0 && (
                 <p className="text-amber-200/50">Nothing to sync — all drafts are already linked and have content.</p>
+              )}
+              {fullSyncResult.verification && (
+                <div className={`mt-1 rounded px-2 py-1.5 ${fullSyncResult.verification.suspicious === 0 ? "bg-green-900/20 border border-green-500/20 text-green-300/90" : "bg-red-900/25 border border-red-500/30 text-red-300"}`}>
+                  {fullSyncResult.verification.suspicious === 0 ? (
+                    <p>✅ Verify: {fullSyncResult.verification.checked} linked draft(s) passed title &amp; word-count checks.</p>
+                  ) : (
+                    <>
+                      <p className="font-semibold">⚠️ {fullSyncResult.verification.suspicious} of {fullSyncResult.verification.checked} draft(s) look suspicious after sync:</p>
+                      <ul className="mt-1 space-y-0.5 list-disc list-inside">
+                        {fullSyncResult.verification.items.map(v => (
+                          <li key={v.draftId} className="truncate">
+                            Draft #{v.draftId} — "{v.title}"{" "}
+                            {!v.titleInContent && <span className="text-red-200">(title not in content)</span>}
+                            {v.wordCount < 100 && <span className="text-red-200"> ({v.wordCount} words)</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           )}

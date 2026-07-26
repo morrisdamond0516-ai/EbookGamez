@@ -1300,9 +1300,125 @@ Allow: /
         ? `No matches found on live site for ${rows.length} empty draft(s).`
         : `Pulled content for ${pulled} draft(s) from live site.${skipped > 0 ? ` ${skipped} skipped (no title match).` : ""}`;
 
-      res.json({ pulled, skipped, skippedTitles: skippedTitles.slice(0, 20), total: rows.length, message });
+      // After pulling, run a quick verification pass on newly-pulled drafts so the
+      // caller can surface any suspicious title/content mismatches immediately.
+      const verificationRows = await db.execute(sql`
+        SELECT d.id AS draft_id, d.title, d.content, d.outline
+        FROM draft_ebooks d
+        JOIN books b ON b.source_draft_id = d.id
+        WHERE b.visible = true
+          AND d.content IS NOT NULL AND d.content <> ''
+        ORDER BY d.id
+      `);
+      const verItems = (verificationRows as any).rows as {
+        draft_id: number; title: string; content: string | null; outline: string | null;
+      }[];
+
+      type VerifyItem = {
+        draftId: number; title: string; wordCount: number;
+        titleInContent: boolean; suspicious: boolean;
+      };
+      const verification: VerifyItem[] = verItems.map(r => {
+        const titleLower = (r.title ?? "").toLowerCase().trim();
+        const snippet = ((r.content ?? "") + " " + (r.outline ?? "")).slice(0, 2000).toLowerCase();
+        const wordCount = (r.content ?? "").split(/\s+/).filter(Boolean).length;
+        // Title consistency: at least the first significant word of the title should appear in the
+        // first 2000 chars of content+outline. Exclude very short titles (<4 chars) to avoid noise.
+        const titleWords = titleLower.split(/\s+/).filter(w => w.length >= 4);
+        const titleInContent = titleWords.length === 0 || titleWords.some(w => snippet.includes(w));
+        const suspicious = !titleInContent || wordCount < 100;
+        return { draftId: r.draft_id, title: r.title, wordCount, titleInContent, suspicious };
+      });
+
+      const suspiciousItems = verification.filter(v => v.suspicious);
+
+      res.json({
+        pulled,
+        skipped,
+        skippedTitles: skippedTitles.slice(0, 20),
+        total: rows.length,
+        message,
+        verification: {
+          checked: verification.length,
+          suspicious: suspiciousItems.length,
+          items: suspiciousItems.slice(0, 20).map(v => ({
+            draftId: v.draftId,
+            title: v.title,
+            wordCount: v.wordCount,
+            titleInContent: v.titleInContent,
+          })),
+        },
+      });
     } catch (error: any) {
       console.error("[PullDraftContent] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/admin/books/verify-draft-content
+  // Cross-checks every draft linked to a visible book: title consistency and word-count sanity.
+  // Returns suspicious pairs so admins can spot wrong-content-in-wrong-draft issues early.
+  app.get("/api/admin/books/verify-draft-content", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
+    try {
+      const rows = await db.execute(sql`
+        SELECT b.id AS book_id, b.title AS book_title, d.id AS draft_id,
+               d.title AS draft_title, d.content, d.outline, d.status
+        FROM books b
+        JOIN draft_ebooks d ON b.source_draft_id = d.id
+        WHERE b.visible = true
+        ORDER BY b.id
+      `);
+      const verRows = (rows as any).rows as {
+        book_id: number; book_title: string; draft_id: number; draft_title: string;
+        content: string | null; outline: string | null; status: string;
+      }[];
+
+      type VerifyResult = {
+        bookId: number; draftId: number; bookTitle: string; draftTitle: string;
+        wordCount: number; hasContent: boolean; titleMatch: boolean;
+        titleInContent: boolean; suspicious: boolean; reasons: string[];
+      };
+
+      const results: VerifyResult[] = verRows.map(r => {
+        const reasons: string[] = [];
+        const bookTitleLower = (r.book_title ?? "").toLowerCase().trim();
+        const draftTitleLower = (r.draft_title ?? "").toLowerCase().trim();
+        const wordCount = (r.content ?? "").split(/\s+/).filter(Boolean).length;
+        const hasContent = wordCount > 0;
+        const titleMatch = bookTitleLower === draftTitleLower;
+        const snippet = ((r.content ?? "") + " " + (r.outline ?? "")).slice(0, 3000).toLowerCase();
+        const significantWords = bookTitleLower.split(/\s+/).filter(w => w.length >= 4);
+        const titleInContent = !hasContent || significantWords.length === 0
+          || significantWords.some(w => snippet.includes(w));
+
+        if (!titleMatch) reasons.push(`Book title "${r.book_title}" ≠ draft title "${r.draft_title}"`);
+        if (!hasContent) reasons.push("Draft has no content");
+        else if (wordCount < 100) reasons.push(`Very short content (${wordCount} words)`);
+        if (hasContent && !titleInContent) reasons.push("Title keywords not found in first 3000 chars of content");
+
+        const suspicious = !titleMatch || !hasContent || !titleInContent || wordCount < 100;
+        return {
+          bookId: r.book_id, draftId: r.draft_id,
+          bookTitle: r.book_title, draftTitle: r.draft_title,
+          wordCount, hasContent, titleMatch, titleInContent, suspicious, reasons,
+        };
+      });
+
+      const suspicious = results.filter(r => r.suspicious);
+      const ok = results.filter(r => !r.suspicious);
+
+      res.json({
+        total: results.length,
+        okCount: ok.length,
+        suspiciousCount: suspicious.length,
+        suspicious: suspicious.slice(0, 50),
+        message: suspicious.length === 0
+          ? `All ${results.length} linked draft(s) passed title and content checks.`
+          : `${suspicious.length} of ${results.length} linked draft(s) have suspicious content.`,
+      });
+    } catch (error: any) {
+      console.error("[VerifyDraftContent] Error:", error);
       res.status(500).json({ error: error.message });
     }
   });
