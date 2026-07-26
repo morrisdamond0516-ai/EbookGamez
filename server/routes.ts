@@ -1130,36 +1130,53 @@ Allow: /
 
       let stubsCreated = 0;
       for (const book of stillUnlinked) {
-        // Try to find a draft whose title contains the first meaningful word(s) of the book title
+        // Try to find a draft whose title contains the first meaningful word(s) of the book title.
+        // Guard: only link if the matched draft title actually corresponds to this book
+        // (i.e. the draft title starts with or equals the book title), so that a draft
+        // whose ID was reused for a different book is never linked to the wrong book.
         const firstWords = book.title.split(' ').slice(0, 3).join(' ');
         const fuzzyMatch = await db
-          .select({ id: draftEbooks.id })
+          .select({ id: draftEbooks.id, title: draftEbooks.title })
           .from(draftEbooks)
           .where(sql`lower(${draftEbooks.title}) LIKE ${'%' + firstWords.toLowerCase() + '%'}`)
           .limit(1);
 
         if (fuzzyMatch.length > 0) {
-          await db.update(books).set({ sourceDraftId: fuzzyMatch[0].id }).where(eq(books.id, book.id));
-          stubsCreated++;
-        } else {
-          // No existing draft — create a minimal stub so Content Studio can see it
-          const cleanDesc = (book.description || "")
-            .replace(/---WRITING_BRIEF_START---[\s\S]*?---WRITING_BRIEF_END---/g, "")
-            .replace(/---PROD_SYNC---[\s\S]*?---END_PROD_SYNC---/g, "")
-            .replace(/---TITLE_REPAIR---[\s\S]*?---END_TITLE_REPAIR---/g, "")
-            .trim();
-          const [newDraft] = await db.insert(draftEbooks).values({
-            title: book.title,
-            genre: book.genre || "General",
-            topic: book.title,
-            description: cleanDesc || null,
-            coverUrl: book.coverUrl || null,
-            status: "published",
-            publishedAt: book.createdAt ? new Date(book.createdAt) : new Date(),
-          }).returning({ id: draftEbooks.id });
-          await db.update(books).set({ sourceDraftId: newDraft.id }).where(eq(books.id, book.id));
-          stubsCreated++;
+          const matchedTitle = (fuzzyMatch[0].title ?? "").toLowerCase().trim();
+          const bookTitle = book.title.toLowerCase().trim();
+          // Only link if the draft title is close enough to the book title.
+          // Accept: exact match, draft title starts with book title, or book title starts with draft title.
+          const titlesAlign =
+            matchedTitle === bookTitle ||
+            matchedTitle.startsWith(bookTitle) ||
+            bookTitle.startsWith(matchedTitle);
+          if (!titlesAlign) {
+            // Fall through to stub creation — do not link to a mismatched draft.
+          } else {
+            await db.update(books).set({ sourceDraftId: fuzzyMatch[0].id }).where(eq(books.id, book.id));
+            stubsCreated++;
+            continue;
+          }
         }
+
+        // No matching draft (or fuzzy match was rejected due to title mismatch) —
+        // create a minimal stub so Content Studio can see this book.
+        const cleanDesc = (book.description || "")
+          .replace(/---WRITING_BRIEF_START---[\s\S]*?---WRITING_BRIEF_END---/g, "")
+          .replace(/---PROD_SYNC---[\s\S]*?---END_PROD_SYNC---/g, "")
+          .replace(/---TITLE_REPAIR---[\s\S]*?---END_TITLE_REPAIR---/g, "")
+          .trim();
+        const [newDraft] = await db.insert(draftEbooks).values({
+          title: book.title,
+          genre: book.genre || "General",
+          topic: book.title,
+          description: cleanDesc || null,
+          coverUrl: book.coverUrl || null,
+          status: "published",
+          publishedAt: book.createdAt ? new Date(book.createdAt) : new Date(),
+        }).returning({ id: draftEbooks.id });
+        await db.update(books).set({ sourceDraftId: newDraft.id }).where(eq(books.id, book.id));
+        stubsCreated++;
       }
 
       const total = exactLinked + stubsCreated;
@@ -1299,9 +1316,11 @@ Allow: /
       if (!Array.isArray(drafts) || drafts.length === 0) {
         return res.status(400).json({ error: "drafts array required" });
       }
-      let inserted = 0, updated = 0;
+      let inserted = 0, updated = 0, titleMismatches = 0;
+      const mismatchedTitles: Array<{ id: number; localTitle: string; incomingTitle: string }> = [];
       for (const d of drafts) {
-        const existing = await db.select({ id: draftEbooks.id }).from(draftEbooks).where(eq(draftEbooks.id, d.id));
+        const existing = await db.select({ id: draftEbooks.id, title: draftEbooks.title })
+          .from(draftEbooks).where(eq(draftEbooks.id, d.id));
         const payload: any = {
           title: d.title,
           genre: d.genre,
@@ -1320,6 +1339,20 @@ Allow: /
           publishedAt: d.published_at ? new Date(d.published_at) : null,
         };
         if (existing.length > 0) {
+          // Guard: skip content/outline write if the local draft has a different title,
+          // which means the ID was reused for a different book and the incoming data
+          // would corrupt the local draft.
+          const localTitle = (existing[0].title ?? "").toLowerCase().trim();
+          const incomingTitle = (d.title ?? "").toLowerCase().trim();
+          if (localTitle && incomingTitle && localTitle !== incomingTitle) {
+            titleMismatches++;
+            mismatchedTitles.push({ id: d.id, localTitle: existing[0].title, incomingTitle: d.title });
+            console.warn(
+              `[SyncFromDev] Skipping draft ${d.id}: local title "${existing[0].title}" ` +
+              `does not match incoming title "${d.title}" — content not overwritten.`
+            );
+            continue;
+          }
           await db.update(draftEbooks).set(payload).where(eq(draftEbooks.id, d.id));
           updated++;
         } else {
@@ -1327,7 +1360,17 @@ Allow: /
           inserted++;
         }
       }
-      res.json({ inserted, updated, total: drafts.length });
+      res.json({
+        inserted,
+        updated,
+        titleMismatches,
+        mismatchedTitles: mismatchedTitles.slice(0, 20),
+        total: drafts.length,
+        ...(titleMismatches > 0 ? {
+          warning: `${titleMismatches} draft(s) skipped — incoming title did not match local title. ` +
+            `These were not updated to prevent content corruption.`
+        } : {}),
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
