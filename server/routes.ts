@@ -1304,18 +1304,62 @@ Allow: /
             createdAt: b.createdAt ? new Date(b.createdAt) : new Date(),
           }).onConflictDoNothing();
 
-          // Auto-create a stub draft so Content Studio is immediately aware
+          // Auto-create a stub draft using production's exact draft ID so IDs stay in sync.
+          // Always check by title first to prevent duplicate draft records.
           try {
-            const [newDraft] = await db.insert(draftEbooks).values({
+            const prodDraftId: number | null =
+              typeof b.sourceDraftId === "number" ? b.sourceDraftId :
+              typeof b.source_draft_id === "number" ? b.source_draft_id : null;
+
+            let draftId: number;
+            const stubValues = {
               title: b.title,
               genre: b.genre || "General",
               topic: b.title,
               description: cleanDesc || null,
               coverUrl: b.coverUrl || null,
-              status: "published",
+              status: "published" as const,
               publishedAt: b.createdAt ? new Date(b.createdAt) : new Date(),
-            }).returning({ id: draftEbooks.id });
-            await db.update(books).set({ sourceDraftId: newDraft.id }).where(eq(books.id, b.id));
+            };
+
+            // Step 0: check if a draft with this exact title already exists locally.
+            // If so, reuse it — never create a duplicate for the same book title.
+            const byTitle = await db.select({ id: draftEbooks.id })
+              .from(draftEbooks)
+              .where(sql`lower(trim(${draftEbooks.title})) = lower(trim(${b.title}))`)
+              .limit(1);
+
+            if (byTitle.length > 0) {
+              draftId = byTitle[0].id;
+            } else if (prodDraftId) {
+              const existing = await db.select({ id: draftEbooks.id, title: draftEbooks.title })
+                .from(draftEbooks).where(eq(draftEbooks.id, prodDraftId)).limit(1);
+
+              if (existing.length > 0 && (existing[0].title ?? "").toLowerCase().trim() === b.title.toLowerCase().trim()) {
+                // Correct draft already at this ID — just link
+                draftId = prodDraftId;
+              } else if (existing.length > 0) {
+                // ID taken by different draft — auto-generate to avoid corruption
+                const [nd] = await db.insert(draftEbooks).values(stubValues).returning({ id: draftEbooks.id });
+                draftId = nd.id;
+                console.warn(`[ImportFromLive] Book ${bookId}: prod draft ID ${prodDraftId} taken by "${existing[0].title}" — used auto-ID ${draftId}`);
+              } else {
+                // ID is free — insert with explicit production ID
+                await db.execute(sql`
+                  INSERT INTO draft_ebooks (id, title, genre, topic, description, cover_url, status, published_at)
+                  VALUES (${prodDraftId}, ${b.title}, ${b.genre || "General"}, ${b.title},
+                          ${cleanDesc || null}, ${b.coverUrl || null}, 'published',
+                          ${b.createdAt ? new Date(b.createdAt) : new Date()})
+                `);
+                draftId = prodDraftId;
+              }
+            } else {
+              // No production draft ID and no title match — auto-generate
+              const [nd] = await db.insert(draftEbooks).values(stubValues).returning({ id: draftEbooks.id });
+              draftId = nd.id;
+            }
+
+            await db.update(books).set({ sourceDraftId: draftId }).where(eq(books.id, b.id));
           } catch (draftErr) {
             console.warn(`[ImportFromLive] Could not create draft stub for book ${bookId}:`, draftErr);
           }
@@ -1498,6 +1542,246 @@ Allow: /
       });
     } catch (error: any) {
       console.error("[PullDraftContent] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/admin/books/sync-draft-ids-from-live
+  // Reconciles local draft IDs to match production's IDs for the same books (matched by title).
+  // Uses a two-pass UPDATE to avoid PK conflicts. Safe to run repeatedly — skips already-correct IDs.
+  // Run this after pulling new books from production so Cursor ↔ Replit IDs stay in sync.
+  app.post("/api/admin/books/sync-draft-ids-from-live", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
+    const { liveUrl: rawLiveUrl } = req.body as { liveUrl?: string };
+    const liveUrl = (rawLiveUrl || "https://EbookGamez.replit.app").replace(/\/$/, "");
+    try {
+      // 1. Authenticate with production
+      const adminPassword = process.env.ADMIN_PASSWORD;
+      if (!adminPassword) return res.status(500).json({ error: "ADMIN_PASSWORD not set" });
+      const loginRes = await fetch(`${liveUrl}/api/admin/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      if (!loginRes.ok) return res.status(502).json({ error: `Cannot authenticate with live site (${loginRes.status})` });
+      const { token: liveToken } = await loginRes.json() as any;
+      if (!liveToken) return res.status(502).json({ error: "Live site returned no token" });
+
+      // 2. Fetch all production drafts (id + title)
+      const liveDraftsRes = await fetch(`${liveUrl}/api/content-studio/drafts?status=all&limit=2000`, {
+        headers: { "x-admin-token": liveToken },
+      });
+      if (!liveDraftsRes.ok) return res.status(502).json({ error: `Failed to fetch live drafts (${liveDraftsRes.status})` });
+      const liveDraftsData = await liveDraftsRes.json() as any;
+      const liveDrafts: any[] = Array.isArray(liveDraftsData) ? liveDraftsData : (liveDraftsData.drafts ?? []);
+
+      // Build title (lowercase) → production draft ID
+      const liveIdByTitle = new Map<string, number>();
+      for (const d of liveDrafts) {
+        const key = (d.title ?? "").toLowerCase().trim();
+        if (key) liveIdByTitle.set(key, d.id);
+      }
+
+      // 3. Get all local drafts
+      const localDrafts = await db.select({ id: draftEbooks.id, title: draftEbooks.title }).from(draftEbooks);
+
+      // 4. Find drafts that need their ID changed (title matches live, but local ID differs)
+      type Rename = { localId: number; targetId: number; title: string };
+      const toRename: Rename[] = [];
+      const localIdSet = new Set(localDrafts.map(d => d.id));
+
+      for (const local of localDrafts) {
+        const key = (local.title ?? "").toLowerCase().trim();
+        const liveId = liveIdByTitle.get(key);
+        if (liveId && liveId !== local.id) {
+          toRename.push({ localId: local.id, targetId: liveId, title: local.title ?? "" });
+        }
+      }
+
+      if (toRename.length === 0) {
+        return res.json({ renamed: 0, message: "All draft IDs already match production — nothing to do." });
+      }
+
+      // 5. Pass 1 — move all source IDs to a safe temp range (+ 10,000,000) to free them up
+      const TEMP_OFFSET = 10_000_000;
+      for (const { localId } of toRename) {
+        await db.execute(sql`UPDATE draft_ebooks SET id = ${localId + TEMP_OFFSET} WHERE id = ${localId}`);
+        await db.execute(sql`UPDATE books SET source_draft_id = ${localId + TEMP_OFFSET} WHERE source_draft_id = ${localId}`);
+      }
+
+      // 6. Pass 2 — move each from temp to target ID
+      //    If the target is still occupied by a local draft NOT in our rename list, bump it out first.
+      let renamed = 0;
+      const conflicts: string[] = [];
+      const targetSet = new Set(toRename.map(r => r.targetId));
+
+      for (const { localId, targetId, title } of toRename) {
+        const tempId = localId + TEMP_OFFSET;
+
+        // Check if target slot is still occupied (by a draft not in our rename list)
+        const occupant = await db.select({ id: draftEbooks.id, title: draftEbooks.title })
+          .from(draftEbooks).where(eq(draftEbooks.id, targetId)).limit(1);
+
+        if (occupant.length > 0) {
+          // This occupant was NOT part of our rename set — give it a new auto-ID
+          const bumpId = occupant[0].id + TEMP_OFFSET + 1_000_000; // distinct from our temp range
+          await db.execute(sql`UPDATE draft_ebooks SET id = ${bumpId} WHERE id = ${targetId}`);
+          await db.execute(sql`UPDATE books SET source_draft_id = ${bumpId} WHERE source_draft_id = ${targetId}`);
+          conflicts.push(`${targetId} ("${occupant[0].title}") bumped to ${bumpId}`);
+        }
+
+        // Move from temp to target
+        await db.execute(sql`UPDATE draft_ebooks SET id = ${targetId} WHERE id = ${tempId}`);
+        await db.execute(sql`UPDATE books SET source_draft_id = ${targetId} WHERE source_draft_id = ${tempId}`);
+        renamed++;
+      }
+
+      // 7. Reset the sequence so future auto-generated IDs don't collide
+      await db.execute(sql`SELECT setval('draft_ebooks_id_seq', (SELECT COALESCE(MAX(id), 1) FROM draft_ebooks), true)`);
+
+      res.json({
+        renamed,
+        conflicts: conflicts.length,
+        conflictDetails: conflicts.slice(0, 20),
+        message: `Renamed ${renamed} draft ID(s) to match production.${conflicts.length ? ` ${conflicts.length} conflicting draft(s) relocated.` : ""}`,
+      });
+    } catch (error: any) {
+      console.error("[SyncDraftIdsFromLive] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/admin/books/dedup-drafts
+  // Finds draft_ebooks records that share the same title and merges them:
+  // keeps the one already linked to a book (or the one with more content),
+  // re-points any other books to the winner, then deletes the losers.
+  // Safe to run repeatedly. Call this after any bulk import or ID sync.
+  app.post("/api/admin/books/dedup-drafts", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
+    try {
+      // Find all groups of drafts sharing a title
+      const dupeGroups = await db.execute(sql`
+        SELECT lower(trim(title)) AS title_lc, array_agg(id ORDER BY id) AS ids
+        FROM draft_ebooks
+        GROUP BY lower(trim(title))
+        HAVING COUNT(*) > 1
+      `);
+      const groups = (dupeGroups as any).rows as { title_lc: string; ids: number[] }[];
+
+      let merged = 0;
+      let deleted = 0;
+      const details: string[] = [];
+
+      for (const group of groups) {
+        const ids = group.ids as number[];
+        // Gather info for each draft in the group
+        const drafts = await db.execute(sql`
+          SELECT d.id,
+            length(coalesce(d.content,'')) AS content_len,
+            (SELECT b.id FROM books b WHERE b.source_draft_id = d.id LIMIT 1) AS book_id
+          FROM draft_ebooks d WHERE d.id = ANY(${ids}::int[])
+          ORDER BY (SELECT b.id FROM books b WHERE b.source_draft_id = d.id LIMIT 1) NULLS LAST,
+                   length(coalesce(d.content,'')) DESC, d.id ASC
+        `);
+        const rows = (drafts as any).rows as { id: number; content_len: number; book_id: number | null }[];
+        if (rows.length < 2) continue;
+
+        // Winner: first in sorted order (linked to book > most content > lowest ID)
+        const winner = rows[0];
+        const losers = rows.slice(1);
+
+        for (const loser of losers) {
+          // Re-point any books that use the loser draft to the winner
+          await db.execute(sql`
+            UPDATE books SET source_draft_id = ${winner.id} WHERE source_draft_id = ${loser.id}
+          `);
+          // Delete the loser draft
+          await db.execute(sql`DELETE FROM draft_ebooks WHERE id = ${loser.id}`);
+          deleted++;
+          details.push(`Merged draft ${loser.id} → ${winner.id} ("${group.title_lc.slice(0, 50)}")`);
+        }
+        merged++;
+      }
+
+      // Reset sequence
+      await db.execute(sql`SELECT setval('draft_ebooks_id_seq', (SELECT COALESCE(MAX(id), 1) FROM draft_ebooks), true)`);
+
+      res.json({
+        groupsFixed: merged,
+        draftsDeleted: deleted,
+        details: details.slice(0, 50),
+        message: merged === 0
+          ? "No duplicate draft titles found — Content Studio is clean."
+          : `Fixed ${merged} duplicate title group(s), deleted ${deleted} redundant draft(s).`,
+      });
+    } catch (error: any) {
+      console.error("[DedupDrafts] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/admin/books/pull-health-check
+  // Returns a structured health report covering duplicates, mismatches, missing drafts,
+  // and orphaned published drafts. Run this after any pull/sync to confirm clean state.
+  app.get("/api/admin/books/pull-health-check", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
+    try {
+      const [dupRows, mismatchRows, noDraftRows, orphanRows] = await Promise.all([
+        // 1. Duplicate draft titles
+        db.execute(sql`
+          SELECT lower(trim(title)) AS title, COUNT(*)::int AS count, array_agg(id ORDER BY id) AS ids
+          FROM draft_ebooks GROUP BY 1 HAVING COUNT(*) > 1 ORDER BY 2 DESC LIMIT 20
+        `),
+        // 2. Visible books linked to a draft with a different title
+        db.execute(sql`
+          SELECT b.id AS book_id, b.title AS book_title, d.id AS draft_id, d.title AS draft_title
+          FROM books b JOIN draft_ebooks d ON b.source_draft_id = d.id
+          WHERE b.visible = true AND lower(trim(b.title)) != lower(trim(d.title))
+          ORDER BY b.id LIMIT 30
+        `),
+        // 3. Visible books with no linked draft (or broken link)
+        db.execute(sql`
+          SELECT b.id, b.title FROM books b
+          WHERE b.visible = true
+            AND (b.source_draft_id IS NULL OR NOT EXISTS (
+              SELECT 1 FROM draft_ebooks d WHERE d.id = b.source_draft_id
+            ))
+          ORDER BY b.id LIMIT 30
+        `),
+        // 4. Published drafts with no book pointing to them
+        db.execute(sql`
+          SELECT d.id, d.title FROM draft_ebooks d
+          WHERE d.status = 'published'
+            AND NOT EXISTS (SELECT 1 FROM books b WHERE b.source_draft_id = d.id)
+          ORDER BY d.id LIMIT 30
+        `),
+      ]);
+
+      const dups   = (dupRows   as any).rows as { title: string; count: number; ids: number[] }[];
+      const misses = (mismatchRows as any).rows as { book_id: number; book_title: string; draft_id: number; draft_title: string }[];
+      const noDraft = (noDraftRows as any).rows as { id: number; title: string }[];
+      const orphans = (orphanRows  as any).rows as { id: number; title: string }[];
+
+      const issues = dups.length + misses.length + noDraft.length;
+      const healthy = issues === 0;
+
+      res.json({
+        healthy,
+        issues,
+        duplicateDraftTitles: { count: dups.length, examples: dups.slice(0, 10) },
+        bookDraftMismatches:   { count: misses.length, examples: misses.slice(0, 10) },
+        visibleBooksNoDraft:   { count: noDraft.length, examples: noDraft.slice(0, 10) },
+        orphanPublishedDrafts: { count: orphans.length, examples: orphans.slice(0, 10) },
+        message: healthy
+          ? "✅ All checks passed — storefront and Content Studio are in sync."
+          : `⚠️ ${issues} issue category(ies) found: ${[
+              dups.length   ? `${dups.length} duplicate title group(s)` : "",
+              misses.length ? `${misses.length} book↔draft mismatch(es)` : "",
+              noDraft.length? `${noDraft.length} visible book(s) with no draft` : "",
+            ].filter(Boolean).join(", ")}.`,
+      });
+    } catch (error: any) {
+      console.error("[PullHealthCheck] Error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -9853,7 +10137,7 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
             and(
               eq(draftEbooks.status, "published"),
               isNotNull(draftEbooks.content),
-              sql`lower(trim(${draftEbooks.title})) = ANY(ARRAY[${sql.raw(wanted.map(t => `'${t.replace(/'/g, "''")}'`).join(","))}]::text[])`,
+              sql`lower(trim(${draftEbooks.title})) = ANY(ARRAY[${sql.raw((wanted as string[]).map(t => `'${t.replace(/'/g, "''")}'`).join(","))}]::text[])`,
             )
           )
           .limit(limit);

@@ -34,7 +34,8 @@ import {
   Wand2,
   BarChart2,
   ShieldCheck,
-  Bell
+  Bell,
+  Hash
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -377,6 +378,17 @@ function ContentStudioMain() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
   const [isFullSyncing, setIsFullSyncing] = useState(false);
+  const [isIdSyncing, setIsIdSyncing] = useState(false);
+  const [idSyncResult, setIdSyncResult] = useState<{ renamed: number; conflicts: number; message: string } | null>(null);
+  const [isDeduping, setIsDeduping] = useState(false);
+  const [isHealthChecking, setIsHealthChecking] = useState(false);
+  const [healthResult, setHealthResult] = useState<{
+    healthy: boolean; issues: number; message: string;
+    duplicateDraftTitles: { count: number; examples: { title: string; ids: number[] }[] };
+    bookDraftMismatches: { count: number; examples: { book_id: number; book_title: string; draft_id: number; draft_title: string }[] };
+    visibleBooksNoDraft: { count: number; examples: { id: number; title: string }[] };
+    orphanPublishedDrafts: { count: number; examples: { id: number; title: string }[] };
+  } | null>(null);
   const [fullSyncResult, setFullSyncResult] = useState<{
     linked: number; stubsCreated: number;
     pulled: number; skipped: number; total: number;
@@ -3004,6 +3016,39 @@ function ContentStudioMain() {
                   <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Sync Draft Records</>
                 )}
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-blue-500/40 text-blue-300 hover:bg-blue-500/10 whitespace-nowrap"
+                disabled={isIdSyncing || isFullSyncing}
+                title="Rename local draft IDs to match production's IDs for the same books (by title)"
+                onClick={async () => {
+                  setIsIdSyncing(true);
+                  setIdSyncResult(null);
+                  try {
+                    const res = await fetch("/api/admin/books/sync-draft-ids-from-live", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+                      body: JSON.stringify({ liveUrl: DEFAULT_REPLIT_APP_URL }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "ID sync failed");
+                    setIdSyncResult({ renamed: data.renamed, conflicts: data.conflicts ?? 0, message: data.message });
+                    toast({ title: "Draft IDs synced", description: data.message });
+                    queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                  } catch (e: any) {
+                    toast({ title: "ID sync failed", description: e.message, variant: "destructive" });
+                  } finally {
+                    setIsIdSyncing(false);
+                  }
+                }}
+              >
+                {isIdSyncing ? (
+                  <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Syncing IDs…</>
+                ) : (
+                  <><Hash className="h-3.5 w-3.5 mr-1.5" />Sync Draft IDs</>
+                )}
+              </Button>
             </div>
           </div>
           {fullSyncResult && (
@@ -3039,6 +3084,114 @@ function ContentStudioMain() {
                     </>
                   )}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ID Sync result */}
+          {idSyncResult && (
+            <div className="text-xs text-blue-200/80 bg-blue-950/40 rounded px-3 py-2">
+              {idSyncResult.renamed > 0
+                ? <p>🔢 Renamed {idSyncResult.renamed} draft ID(s) to match production.{idSyncResult.conflicts > 0 ? ` ${idSyncResult.conflicts} conflict(s) relocated.` : ""}</p>
+                : <p className="text-blue-200/50">All draft IDs already match production.</p>
+              }
+            </div>
+          )}
+
+          {/* Health Check + Dedup row */}
+          <div className="border-t border-amber-500/20 pt-3 flex items-center justify-between flex-wrap gap-2">
+            <p className="text-xs text-amber-200/60">Verify storefront &amp; Content Studio are in sync after a pull.</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10 whitespace-nowrap h-7 text-xs px-3"
+                disabled={isHealthChecking || isDeduping}
+                onClick={async () => {
+                  setIsHealthChecking(true);
+                  setHealthResult(null);
+                  try {
+                    const res = await fetch("/api/admin/books/pull-health-check", {
+                      headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Health check failed");
+                    setHealthResult(data);
+                  } catch (e: any) {
+                    toast({ title: "Health check failed", description: e.message, variant: "destructive" });
+                  } finally {
+                    setIsHealthChecking(false);
+                  }
+                }}
+              >
+                {isHealthChecking ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Checking…</> : <><ShieldCheck className="h-3 w-3 mr-1" />Health Check</>}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-500/40 text-red-300 hover:bg-red-500/10 whitespace-nowrap h-7 text-xs px-3"
+                disabled={isDeduping || isHealthChecking}
+                title="Remove duplicate draft records that share the same title — keeps the one linked to a book"
+                onClick={async () => {
+                  setIsDeduping(true);
+                  try {
+                    const res = await fetch("/api/admin/books/dedup-drafts", {
+                      method: "POST",
+                      headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Dedup failed");
+                    toast({ title: "Dedup complete", description: data.message });
+                    setHealthResult(null); // clear stale health result
+                    queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                  } catch (e: any) {
+                    toast({ title: "Dedup failed", description: e.message, variant: "destructive" });
+                  } finally {
+                    setIsDeduping(false);
+                  }
+                }}
+              >
+                {isDeduping ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Deduping…</> : <>Fix Duplicates</>}
+              </Button>
+            </div>
+          </div>
+
+          {/* Health check result panel */}
+          {healthResult && (
+            <div className={`text-xs rounded px-3 py-2.5 space-y-1.5 ${healthResult.healthy ? "bg-green-900/20 border border-green-500/20 text-green-300/90" : "bg-red-900/20 border border-red-500/20 text-red-200/90"}`}>
+              <p className="font-semibold">{healthResult.message}</p>
+              {healthResult.duplicateDraftTitles.count > 0 && (
+                <div>
+                  <p className="text-red-300">📋 {healthResult.duplicateDraftTitles.count} duplicate title group(s) — click "Fix Duplicates" to resolve.</p>
+                  <ul className="mt-0.5 pl-3 space-y-0.5 list-disc">
+                    {healthResult.duplicateDraftTitles.examples.slice(0,5).map((d, i) => (
+                      <li key={i} className="truncate">"{d.title.slice(0,55)}" — IDs: {d.ids.join(", ")}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {healthResult.bookDraftMismatches.count > 0 && (
+                <div>
+                  <p className="text-red-300">🔀 {healthResult.bookDraftMismatches.count} book↔draft mismatch(es) — click "Sync Draft Records" to fix.</p>
+                  <ul className="mt-0.5 pl-3 space-y-0.5 list-disc">
+                    {healthResult.bookDraftMismatches.examples.slice(0,5).map((m, i) => (
+                      <li key={i} className="truncate">Book "{m.book_title.slice(0,35)}" → draft "{m.draft_title.slice(0,35)}"</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {healthResult.visibleBooksNoDraft.count > 0 && (
+                <div>
+                  <p className="text-amber-300">📚 {healthResult.visibleBooksNoDraft.count} visible book(s) have no linked draft — click "Sync Draft Records".</p>
+                  <ul className="mt-0.5 pl-3 space-y-0.5 list-disc">
+                    {healthResult.visibleBooksNoDraft.examples.slice(0,5).map((b, i) => (
+                      <li key={i} className="truncate">Book #{b.id} "{b.title.slice(0,50)}"</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {healthResult.orphanPublishedDrafts.count > 0 && (
+                <p className="text-amber-200/60">🔍 {healthResult.orphanPublishedDrafts.count} published draft(s) have no book linked (orphans — harmless but noisy).</p>
               )}
             </div>
           )}
