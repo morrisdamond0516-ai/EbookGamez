@@ -50,6 +50,7 @@ const ResetPassword = lazy(() => import("@/pages/reset-password"));
 const MyAccount = lazy(() => import("@/pages/my-account"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const AdPreview = lazy(() => import("@/pages/ad-preview"));
+const EbooksLanding = lazy(() => import("@/pages/ebooks"));
 
 // Migration: purge any raw admin password that may have been stored in older
 // versions of the app. The current auth model stores only revocable session
@@ -111,6 +112,7 @@ function Router() {
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/my-account" component={MyAccount} />
         <Route path="/ad-preview" component={AdPreview} />
+        <Route path="/ebooks" component={EbooksLanding} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
