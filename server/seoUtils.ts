@@ -101,27 +101,37 @@ const EBOOKS_META: GenreMeta = {
 };
 
 /**
- * Resolve the page path to a canonical URL string and optional genre meta,
+ * Resolve the page path to a canonical URL string and optional page meta,
  * or return null for paths we don't handle.
+ *
+ * `meta` is null for book pages — we don't have book-specific copy available
+ * synchronously, so OG tags are left at their template defaults for those pages.
  */
 function resolvePageMeta(
   urlPath: string,
-): { canonical: string; meta: GenreMeta } | null {
+): { canonical: string; meta: GenreMeta | null } | null {
   const cleanPath = urlPath.split("?")[0].split("#")[0].replace(/\/$/, "") || "/";
 
   if (cleanPath === "/ebooks") {
     return { canonical: `${BASE_URL}/ebooks`, meta: EBOOKS_META };
   }
 
-  const m = cleanPath.match(/^\/ebooks\/([^/]+)$/);
-  if (m) {
-    const slug = m[1].toLowerCase();
+  const genreMatch = cleanPath.match(/^\/ebooks\/([^/]+)$/);
+  if (genreMatch) {
+    const slug = genreMatch[1].toLowerCase();
     if (VALID_GENRE_SLUGS.has(slug) && GENRE_META[slug]) {
       return {
         canonical: `${BASE_URL}/ebooks/${slug}`,
         meta: GENRE_META[slug],
       };
     }
+  }
+
+  // Individual book pages — /book/:id and /catalog/:id both canonicalise to /book/:id
+  const bookMatch = cleanPath.match(/^\/(?:book|catalog)\/(\d+)(?:\/.*)?$/);
+  if (bookMatch) {
+    const bookId = bookMatch[1];
+    return { canonical: `${BASE_URL}/book/${bookId}`, meta: null };
   }
 
   return null;
@@ -134,15 +144,8 @@ function resolvePageMeta(
  * Rules:
  *  - /ebooks              → https://ebookgamez.com/ebooks
  *  - /ebooks/<valid-slug> → https://ebookgamez.com/ebooks/<slug>
- *  - everything else      → leave the existing canonical unchanged
- */
-/**
- * Replace the static `<link rel="canonical">` tag in `html` with the correct
- * URL for the given request path.
- *
- * Rules:
- *  - /ebooks              → https://ebookgamez.com/ebooks
- *  - /ebooks/<valid-slug> → https://ebookgamez.com/ebooks/<slug>
+ *  - /book/:id            → https://ebookgamez.com/book/:id
+ *  - /catalog/:id         → https://ebookgamez.com/book/:id  (normalised)
  *  - everything else      → leave the existing canonical unchanged
  */
 export function injectCanonical(html: string, urlPath: string): string {
@@ -158,11 +161,13 @@ export function injectCanonical(html: string, urlPath: string): string {
 /**
  * Replace the hardcoded og:url, og:title, og:description, twitter:title, and
  * twitter:description meta tags with page-specific values for genre and /ebooks
- * paths. All other paths are left untouched.
+ * paths. Book pages have no synchronous meta copy, so their OG tags are left
+ * at template defaults. All other paths are left untouched.
  */
 export function injectOpenGraph(html: string, urlPath: string): string {
   const page = resolvePageMeta(urlPath);
-  if (!page) return html;
+  // No resolved page, or a book page without genre-level meta copy — leave tags as-is.
+  if (!page || !page.meta) return html;
 
   const { canonical, meta } = page;
 
