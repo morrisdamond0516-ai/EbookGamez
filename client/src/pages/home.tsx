@@ -222,7 +222,7 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      <section className="relative h-[80vh] flex items-center justify-center overflow-hidden">
+      <section className="relative min-h-[80vh] flex items-center justify-center overflow-hidden pt-20">
         <div className="absolute inset-0 z-0">
           <img
             src={heroBg}
@@ -243,7 +243,7 @@ export default function Home() {
             transition={{ duration: 0.8, delay: 0.2 }}
           >
             <h2 className="text-primary font-serif italic text-xl md:text-2xl mb-4 tracking-wider">Welcome to</h2>
-            <h1 className="text-6xl md:text-8xl lg:text-9xl font-display text-white mb-6 drop-shadow-2xl tracking-tighter">
+            <h1 className="text-4xl sm:text-6xl md:text-8xl lg:text-9xl font-display text-white mb-6 drop-shadow-2xl tracking-tighter">
               EBOOK<span className="text-primary">GAME</span><span className="italic text-white" style={{ fontFamily: "'Playfair Display', serif", textShadow: '0 0 12px rgba(201, 169, 113, 0.6)' }}>Z</span>
             </h1>
             <p className="text-xl md:text-2xl text-white/80 max-w-2xl mx-auto font-serif leading-relaxed mb-10">
