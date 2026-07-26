@@ -1177,6 +1177,119 @@ Allow: /
     }
   });
 
+  // POST /api/admin/books/pull-draft-content
+  // Pulls content for locally-empty drafts from the live site by matching on title.
+  // This is the "one-click" step after backfill-drafts: it hydrates stub drafts
+  // that were created when books arrived from Cursor without content.
+  app.post("/api/admin/books/pull-draft-content", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
+    const { liveUrl: rawLiveUrl } = req.body as { liveUrl?: string };
+    const liveUrl = (rawLiveUrl || "https://EbookGamez.replit.app").replace(/\/$/, "");
+
+    try {
+      // 1. Authenticate with live site using ADMIN_PASSWORD
+      const adminPassword = process.env.ADMIN_PASSWORD;
+      if (!adminPassword) {
+        return res.status(500).json({ error: "ADMIN_PASSWORD env var not set — cannot authenticate with live site." });
+      }
+
+      const loginRes = await fetch(`${liveUrl}/api/admin/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      if (!loginRes.ok) {
+        return res.status(502).json({ error: `Could not authenticate with live site (${loginRes.status}). Check ADMIN_PASSWORD and liveUrl.` });
+      }
+      const loginData = await loginRes.json() as any;
+      const liveToken: string = loginData.token;
+      if (!liveToken) {
+        return res.status(502).json({ error: "Live site returned no token — check ADMIN_PASSWORD." });
+      }
+
+      // 2. Find local drafts that are linked to a published book but have no content
+      const emptyDrafts = await db.execute(sql`
+        SELECT d.id AS draft_id, d.title
+        FROM draft_ebooks d
+        JOIN books b ON b.source_draft_id = d.id
+        WHERE b.visible = true
+          AND (d.content IS NULL OR d.content = '')
+        ORDER BY d.id
+      `);
+      const rows = (emptyDrafts as any).rows as { draft_id: number; title: string }[];
+
+      if (rows.length === 0) {
+        return res.json({ pulled: 0, skipped: 0, message: "All linked drafts already have content — nothing to pull." });
+      }
+
+      // 3. Fetch published drafts from live site
+      const liveDraftsRes = await fetch(`${liveUrl}/api/content-studio/drafts?status=published&limit=2000`, {
+        headers: { "x-admin-token": liveToken },
+      });
+      if (!liveDraftsRes.ok) {
+        return res.status(502).json({ error: `Failed to fetch live drafts (${liveDraftsRes.status}).` });
+      }
+      const liveDraftsData = await liveDraftsRes.json() as any;
+      const liveDrafts: any[] = Array.isArray(liveDraftsData) ? liveDraftsData : (liveDraftsData.drafts ?? []);
+
+      // Build a title→draft map for O(1) lookup (case-insensitive, trimmed)
+      const liveByTitle = new Map<string, any>();
+      for (const ld of liveDrafts) {
+        const key = (ld.title ?? "").toLowerCase().trim();
+        if (key) liveByTitle.set(key, ld);
+      }
+
+      let pulled = 0;
+      let skipped = 0;
+      const skippedTitles: string[] = [];
+
+      for (const row of rows) {
+        const key = (row.title ?? "").toLowerCase().trim();
+        const liveDraft = liveByTitle.get(key);
+        if (!liveDraft) {
+          skipped++;
+          skippedTitles.push(row.title);
+          continue;
+        }
+
+        // Fetch the full draft (list endpoint may omit content)
+        let fullDraft = liveDraft;
+        if (!fullDraft.content) {
+          try {
+            const detailRes = await fetch(`${liveUrl}/api/content-studio/drafts/${liveDraft.id}`, {
+              headers: { "x-admin-token": liveToken },
+            });
+            if (detailRes.ok) fullDraft = await detailRes.json();
+          } catch { /* use partial data */ }
+        }
+
+        const publishedAt = fullDraft.publishedAt ?? fullDraft.published_at ?? null;
+        await db.update(draftEbooks)
+          .set({
+            content:       fullDraft.content       ?? null,
+            outline:       fullDraft.outline        ?? null,
+            coverUrl:      fullDraft.coverUrl       ?? fullDraft.cover_url       ?? null,
+            backgroundUrl: fullDraft.backgroundUrl  ?? fullDraft.background_url  ?? null,
+            pdfUrl:        fullDraft.pdfUrl         ?? fullDraft.pdf_url         ?? null,
+            description:   fullDraft.description    ?? null,
+            status:        "published",
+            ...(publishedAt ? { publishedAt: new Date(publishedAt) } : {}),
+          })
+          .where(eq(draftEbooks.id, row.draft_id));
+        pulled++;
+      }
+
+      const message = pulled === 0
+        ? `No matches found on live site for ${rows.length} empty draft(s).`
+        : `Pulled content for ${pulled} draft(s) from live site.${skipped > 0 ? ` ${skipped} skipped (no title match).` : ""}`;
+
+      res.json({ pulled, skipped, skippedTitles: skippedTitles.slice(0, 20), total: rows.length, message });
+    } catch (error: any) {
+      console.error("[PullDraftContent] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/admin/draft-ebooks/sync-from-dev", async (req, res) => {
     if (!isAdminAuthenticated(req)) {
       return res.status(401).json({ error: "Admin authentication required" });

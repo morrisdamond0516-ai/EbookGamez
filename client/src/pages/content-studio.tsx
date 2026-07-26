@@ -376,6 +376,12 @@ function ContentStudioMain() {
   const [syncModeTouched, setSyncModeTouched] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
+  const [isFullSyncing, setIsFullSyncing] = useState(false);
+  const [fullSyncResult, setFullSyncResult] = useState<{
+    linked: number; stubsCreated: number;
+    pulled: number; skipped: number; total: number;
+    message: string;
+  } | null>(null);
   const [autoSyncProgress, setAutoSyncProgress] = useState<{
     pushed: number;
     remaining: number;
@@ -2902,35 +2908,106 @@ function ContentStudioMain() {
         </div>
 
         {/* Draft Sync Panel */}
-        <div className="border border-amber-500/30 rounded-lg bg-amber-900/10 px-4 py-3">
+        <div className="border border-amber-500/30 rounded-lg bg-amber-900/10 px-4 py-3 space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <p className="text-sm font-semibold text-amber-300">Sync Books → Content Studio</p>
               <p className="text-xs text-amber-200/60 mt-0.5">
-                Links published books that were completed externally (e.g. by Cursor) to their existing draft placeholders so Content Studio stays in sync.
+                One-click sync: links Cursor-completed books to their draft records, then pulls content for empty drafts from the live site by title match.
               </p>
             </div>
-            <Button
-              size="sm"
-              className="bg-amber-700 hover:bg-amber-600 text-white whitespace-nowrap"
-              data-testid="button-backfill-drafts"
-              onClick={async () => {
-                try {
-                  const res = await fetch("/api/admin/books/backfill-drafts", {
-                    method: "POST",
-                    headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
-                  });
-                  const data = await res.json();
-                  if (!res.ok) throw new Error(data.error || "Sync failed");
-                  toast({ title: "Sync complete", description: data.message });
-                } catch (e: any) {
-                  toast({ title: "Sync failed", description: e.message, variant: "destructive" });
-                }
-              }}
-            >
-              Sync Draft Records
-            </Button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10 whitespace-nowrap"
+                data-testid="button-backfill-drafts"
+                disabled={isFullSyncing}
+                onClick={async () => {
+                  try {
+                    const res = await fetch("/api/admin/books/backfill-drafts", {
+                      method: "POST",
+                      headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Sync failed");
+                    toast({ title: "Link step done", description: data.message });
+                    queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                  } catch (e: any) {
+                    toast({ title: "Link step failed", description: e.message, variant: "destructive" });
+                  }
+                }}
+              >
+                Link Only
+              </Button>
+              <Button
+                size="sm"
+                className="bg-amber-700 hover:bg-amber-600 text-white whitespace-nowrap"
+                data-testid="button-full-sync-drafts"
+                disabled={isFullSyncing}
+                onClick={async () => {
+                  setIsFullSyncing(true);
+                  setFullSyncResult(null);
+                  try {
+                    const adminToken = localStorage.getItem("ebgz_admin_token") || "";
+                    // Step 1: link books to drafts by title
+                    const linkRes = await fetch("/api/admin/books/backfill-drafts", {
+                      method: "POST",
+                      headers: { "x-admin-token": adminToken },
+                    });
+                    const linkData = await linkRes.json();
+                    if (!linkRes.ok) throw new Error(linkData.error || "Link step failed");
+
+                    // Step 2: pull content for empty drafts from live site
+                    const pullRes = await fetch("/api/admin/books/pull-draft-content", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+                      body: JSON.stringify({ liveUrl: DEFAULT_REPLIT_APP_URL }),
+                    });
+                    const pullData = await pullRes.json();
+                    if (!pullRes.ok) throw new Error(pullData.error || "Pull step failed");
+
+                    setFullSyncResult({
+                      linked: linkData.linked ?? 0,
+                      stubsCreated: linkData.stubsCreated ?? 0,
+                      pulled: pullData.pulled ?? 0,
+                      skipped: pullData.skipped ?? 0,
+                      total: pullData.total ?? 0,
+                      message: pullData.message,
+                    });
+                    toast({ title: "Full sync complete", description: pullData.message });
+                    queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                  } catch (e: any) {
+                    toast({ title: "Full sync failed", description: e.message, variant: "destructive" });
+                  } finally {
+                    setIsFullSyncing(false);
+                  }
+                }}
+              >
+                {isFullSyncing ? (
+                  <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Syncing…</>
+                ) : (
+                  <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Sync Draft Records</>
+                )}
+              </Button>
+            </div>
           </div>
+          {fullSyncResult && (
+            <div className="text-xs text-amber-200/80 bg-amber-950/40 rounded px-3 py-2 space-y-0.5">
+              {(fullSyncResult.linked > 0 || fullSyncResult.stubsCreated > 0) && (
+                <p>🔗 Linked {fullSyncResult.linked} draft(s) by title; {fullSyncResult.stubsCreated} stub(s) created.</p>
+              )}
+              {fullSyncResult.pulled > 0 && (
+                <p>⬇️ Pulled content for {fullSyncResult.pulled} empty draft(s) from live site.</p>
+              )}
+              {fullSyncResult.skipped > 0 && (
+                <p className="text-amber-300/60">⚠ {fullSyncResult.skipped} draft(s) had no title match on live site.</p>
+              )}
+              {fullSyncResult.linked === 0 && fullSyncResult.stubsCreated === 0 && fullSyncResult.pulled === 0 && (
+                <p className="text-amber-200/50">Nothing to sync — all drafts are already linked and have content.</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Health Monitoring Panel */}
