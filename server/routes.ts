@@ -1077,10 +1077,102 @@ Allow: /
         } else {
           await db.insert(books).values({ id: b.id, ...payload });
           inserted++;
+          // Auto-create a stub draft so Content Studio is immediately aware of this book
+          try {
+            const cleanDesc = (b.description || "")
+              .replace(/---WRITING_BRIEF_START---[\s\S]*?---WRITING_BRIEF_END---/g, "")
+              .replace(/---PROD_SYNC---[\s\S]*?---END_PROD_SYNC---/g, "")
+              .replace(/---TITLE_REPAIR---[\s\S]*?---END_TITLE_REPAIR---/g, "")
+              .trim();
+            const [newDraft] = await db.insert(draftEbooks).values({
+              title: b.title,
+              genre: b.genre || "General",
+              topic: b.title,
+              description: cleanDesc || null,
+              coverUrl: b.cover_url || null,
+              status: "published",
+              publishedAt: b.created_at ? new Date(b.created_at) : new Date(),
+            }).returning({ id: draftEbooks.id });
+            await db.update(books).set({ sourceDraftId: newDraft.id }).where(eq(books.id, b.id));
+          } catch (draftErr) {
+            console.warn(`[SyncFromDev] Could not auto-create draft stub for book ${b.id}:`, draftErr);
+          }
         }
       }
       res.json({ inserted, updated, total: bookList.length });
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/admin/books/backfill-drafts
+  // Links published books to their existing draft_ebooks records by title match.
+  // Falls back to creating a stub only when no matching draft exists at all.
+  // Safe to run multiple times (idempotent).
+  app.post("/api/admin/books/backfill-drafts", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
+    try {
+      // 1. Exact title match — link by title (case-insensitive)
+      const exactResult = await db.execute(sql`
+        UPDATE books b
+        SET source_draft_id = d.id
+        FROM draft_ebooks d
+        WHERE lower(trim(b.title)) = lower(trim(d.title))
+          AND b.source_draft_id IS NULL
+      `);
+      const exactLinked = (exactResult as any).rowCount ?? 0;
+
+      // 2. Still-unlinked books that have no draft at all — create stubs
+      const stillUnlinked = await db
+        .select({ id: books.id, title: books.title, genre: books.genre, coverUrl: books.coverUrl, description: books.description, createdAt: books.createdAt })
+        .from(books)
+        .where(sql`${books.sourceDraftId} IS NULL`);
+
+      let stubsCreated = 0;
+      for (const book of stillUnlinked) {
+        // Try to find a draft whose title contains the first meaningful word(s) of the book title
+        const firstWords = book.title.split(' ').slice(0, 3).join(' ');
+        const fuzzyMatch = await db
+          .select({ id: draftEbooks.id })
+          .from(draftEbooks)
+          .where(sql`lower(${draftEbooks.title}) LIKE ${'%' + firstWords.toLowerCase() + '%'}`)
+          .limit(1);
+
+        if (fuzzyMatch.length > 0) {
+          await db.update(books).set({ sourceDraftId: fuzzyMatch[0].id }).where(eq(books.id, book.id));
+          stubsCreated++;
+        } else {
+          // No existing draft — create a minimal stub so Content Studio can see it
+          const cleanDesc = (book.description || "")
+            .replace(/---WRITING_BRIEF_START---[\s\S]*?---WRITING_BRIEF_END---/g, "")
+            .replace(/---PROD_SYNC---[\s\S]*?---END_PROD_SYNC---/g, "")
+            .replace(/---TITLE_REPAIR---[\s\S]*?---END_TITLE_REPAIR---/g, "")
+            .trim();
+          const [newDraft] = await db.insert(draftEbooks).values({
+            title: book.title,
+            genre: book.genre || "General",
+            topic: book.title,
+            description: cleanDesc || null,
+            coverUrl: book.coverUrl || null,
+            status: "published",
+            publishedAt: book.createdAt ? new Date(book.createdAt) : new Date(),
+          }).returning({ id: draftEbooks.id });
+          await db.update(books).set({ sourceDraftId: newDraft.id }).where(eq(books.id, book.id));
+          stubsCreated++;
+        }
+      }
+
+      const total = exactLinked + stubsCreated;
+      res.json({
+        linked: exactLinked,
+        stubsCreated,
+        total,
+        message: total === 0
+          ? "All books already linked to a draft — nothing to do."
+          : `Linked ${exactLinked} by title match, created ${stubsCreated} new stub draft(s).`,
+      });
+    } catch (error: any) {
+      console.error("[BackfillDrafts] Error:", error);
       res.status(500).json({ error: error.message });
     }
   });

@@ -2901,6 +2901,38 @@ function ContentStudioMain() {
           )}
         </div>
 
+        {/* Draft Sync Panel */}
+        <div className="border border-amber-500/30 rounded-lg bg-amber-900/10 px-4 py-3">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-300">Sync Books → Content Studio</p>
+              <p className="text-xs text-amber-200/60 mt-0.5">
+                Links published books that were completed externally (e.g. by Cursor) to their existing draft placeholders so Content Studio stays in sync.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="bg-amber-700 hover:bg-amber-600 text-white whitespace-nowrap"
+              data-testid="button-backfill-drafts"
+              onClick={async () => {
+                try {
+                  const res = await fetch("/api/admin/books/backfill-drafts", {
+                    method: "POST",
+                    headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || "Sync failed");
+                  toast({ title: "Sync complete", description: data.message });
+                } catch (e: any) {
+                  toast({ title: "Sync failed", description: e.message, variant: "destructive" });
+                }
+              }}
+            >
+              Sync Draft Records
+            </Button>
+          </div>
+        </div>
+
         {/* Health Monitoring Panel */}
         <div className="border border-emerald-500/30 rounded-lg bg-emerald-900/10">
           <button
