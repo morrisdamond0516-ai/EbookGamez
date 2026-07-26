@@ -141,7 +141,7 @@ export default function EpubExportHub() {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 pt-24 pb-8">
 
         {/* Header */}
         <div className="flex items-center gap-4 mb-2">
