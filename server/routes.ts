@@ -9578,18 +9578,22 @@ Be friendly, helpful, and concise. Keep responses under 150 words unless the cus
             ),
           );
       } else if (mode === "titles" || (Array.isArray(titles) && titles.length > 0)) {
-        const wanted = [...new Set((titles || []).map((t: unknown) => String(t || "").trim()).filter((t: string) => t.length >= 2))];
+        const wanted = [...new Set((titles || []).map((t: unknown) => String(t || "").trim().toLowerCase()).filter((t: string) => t.length >= 2))].slice(0, limit);
         if (wanted.length === 0) {
           return res.status(400).json({ error: "titles required for titles pull" });
         }
-        const allPublished = await db
+        // Match titles in SQL — never load all rows into memory
+        rows = await db
           .select()
           .from(draftEbooks)
-          .where(and(eq(draftEbooks.status, "published"), isNotNull(draftEbooks.content)));
-        const lower = new Set((wanted as string[]).map((t) => t.toLowerCase()));
-        rows = allPublished
-          .filter((d) => lower.has(d.title.trim().toLowerCase()))
-          .slice(0, limit);
+          .where(
+            and(
+              eq(draftEbooks.status, "published"),
+              isNotNull(draftEbooks.content),
+              sql`lower(trim(${draftEbooks.title})) = ANY(ARRAY[${sql.raw(wanted.map(t => `'${t.replace(/'/g, "''")}'`).join(","))}]::text[])`,
+            )
+          )
+          .limit(limit);
       } else {
         // recent published with content
         rows = await db
