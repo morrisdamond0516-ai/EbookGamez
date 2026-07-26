@@ -107,6 +107,34 @@ describe("GET /healthz — health check behaviour", () => {
     expect(res.body).toMatchObject({ status: "degraded", stripe: false });
   });
 
+  // ---- Stripe timeout ----------------------------------------------------
+
+  it("returns HTTP 503 with stripe: false when stripe.balance.retrieve() hangs beyond the timeout", async () => {
+    vi.mocked(pool.query).mockResolvedValue({ rows: [{ "?column?": 1 }] } as any);
+    // balance.retrieve never settles — simulates a slow / hung Stripe API.
+    mockBalanceRetrieve.mockImplementation(() => new Promise(() => {}));
+
+    const start = Date.now();
+    // Use a very short timeout so the test finishes quickly.
+    const res = await request(buildApp(100 /* ms */)).get("/healthz");
+    const elapsed = Date.now() - start;
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ status: "degraded", stripe: false });
+    // Handler must resolve well within the test budget.
+    expect(elapsed).toBeLessThan(5000);
+  }, 10_000);
+
+  it("returns HTTP 503 with stripe: false when stripe.balance.retrieve() rejects with a network error", async () => {
+    vi.mocked(pool.query).mockResolvedValue({ rows: [{ "?column?": 1 }] } as any);
+    mockBalanceRetrieve.mockRejectedValue(new Error("socket hang up"));
+
+    const res = await request(buildApp()).get("/healthz");
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ status: "degraded", stripe: false });
+  });
+
   // ---- timeout -----------------------------------------------------------
 
   it("completes within 500 ms and returns degraded when the DB query hangs (timeout set to 100 ms)", async () => {
