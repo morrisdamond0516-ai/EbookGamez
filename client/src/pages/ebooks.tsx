@@ -266,10 +266,10 @@ export default function EbooksLanding() {
         <h2 className="text-xl font-display text-white/80 mb-5">Every genre covered</h2>
         <div className="flex flex-wrap justify-center gap-2">
           {GENRES.map(g => (
-            <Link key={g} href={`/catalog?search=${encodeURIComponent(g)}`}>
+            <Link key={g} href={`/ebooks/${genreToSlug(g)}`}>
               <span
                 className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-sm text-muted-foreground hover:text-white hover:border-primary/40 hover:bg-primary/5 transition-colors cursor-pointer font-serif"
-                onClick={() => trackEbooksGenreClick({ genre: g, destination: `/catalog?search=${encodeURIComponent(g)}` })}
+                onClick={() => trackEbooksGenreClick({ genre: g, destination: `/ebooks/${genreToSlug(g)}` })}
               >
                 {g}
               </span>
