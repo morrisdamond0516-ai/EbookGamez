@@ -386,6 +386,15 @@ function ContentStudioMain() {
       items: { draftId: number; title: string; wordCount: number; titleInContent: boolean }[];
     };
   } | null>(null);
+  const [isDetectingNew, setIsDetectingNew] = useState(false);
+  const [isImportingNew, setIsImportingNew] = useState(false);
+  const [detectNewResult, setDetectNewResult] = useState<{
+    newBooks: { id: number; title: string; genre: string | null; coverUrl: string | null }[];
+    count: number;
+    liveTotal: number;
+    localTotal: number;
+  } | null>(null);
+  const [importNewResult, setImportNewResult] = useState<{ inserted: number; message: string } | null>(null);
   const [autoSyncProgress, setAutoSyncProgress] = useState<{
     pushed: number;
     remaining: number;
@@ -3033,6 +3042,124 @@ function ContentStudioMain() {
               )}
             </div>
           )}
+
+          {/* Detect & import brand-new live books not yet in dev */}
+          <div className="border-t border-amber-500/20 pt-3 space-y-2">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <p className="text-xs text-amber-200/70">
+                Detect books that exist on the live site but haven&apos;t been imported into dev yet.
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10 whitespace-nowrap h-7 text-xs px-3"
+                  data-testid="button-detect-new-books"
+                  disabled={isDetectingNew || isImportingNew}
+                  onClick={async () => {
+                    setIsDetectingNew(true);
+                    setDetectNewResult(null);
+                    setImportNewResult(null);
+                    try {
+                      const adminToken = localStorage.getItem("ebgz_admin_token") || "";
+                      const liveUrl = encodeURIComponent(DEFAULT_REPLIT_APP_URL);
+                      const res = await fetch(`/api/admin/books/detect-new-from-live?liveUrl=${liveUrl}`, {
+                        headers: { "x-admin-token": adminToken },
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || "Detection failed");
+                      setDetectNewResult(data);
+                      if (data.count === 0) {
+                        toast({ title: "All books already imported", description: `${data.liveTotal} live books — all present locally.` });
+                      } else {
+                        toast({ title: `${data.count} new book(s) found on live site`, description: 'Click "Import Missing Books" to add them.' });
+                      }
+                    } catch (e: any) {
+                      toast({ title: "Detection failed", description: e.message, variant: "destructive" });
+                    } finally {
+                      setIsDetectingNew(false);
+                    }
+                  }}
+                >
+                  {isDetectingNew ? (
+                    <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Detecting…</>
+                  ) : (
+                    <><Search className="h-3 w-3 mr-1" />Detect New Books</>
+                  )}
+                </Button>
+                {detectNewResult && detectNewResult.count > 0 && !importNewResult && (
+                  <Button
+                    size="sm"
+                    className="bg-amber-700 hover:bg-amber-600 text-white whitespace-nowrap h-7 text-xs px-3"
+                    data-testid="button-import-new-books"
+                    disabled={isImportingNew}
+                    onClick={async () => {
+                      setIsImportingNew(true);
+                      setImportNewResult(null);
+                      try {
+                        const adminToken = localStorage.getItem("ebgz_admin_token") || "";
+                        const res = await fetch("/api/admin/books/import-from-live", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+                          body: JSON.stringify({
+                            liveUrl: DEFAULT_REPLIT_APP_URL,
+                            bookIds: detectNewResult.newBooks.map(b => b.id),
+                          }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || "Import failed");
+                        setImportNewResult({ inserted: data.inserted, message: data.message });
+                        setDetectNewResult(null);
+                        toast({ title: "Import complete", description: data.message });
+                        queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                      } catch (e: any) {
+                        toast({ title: "Import failed", description: e.message, variant: "destructive" });
+                      } finally {
+                        setIsImportingNew(false);
+                      }
+                    }}
+                  >
+                    {isImportingNew ? (
+                      <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Importing…</>
+                    ) : (
+                      <><Download className="h-3 w-3 mr-1" />Import {detectNewResult.count} Missing Book{detectNewResult.count !== 1 ? "s" : ""}</>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </div>
+            {detectNewResult && (
+              <div className="text-xs bg-amber-950/40 rounded px-3 py-2 space-y-1">
+                {detectNewResult.count === 0 ? (
+                  <p className="text-amber-200/50">✅ All {detectNewResult.liveTotal} live books are already present locally.</p>
+                ) : (
+                  <>
+                    <p className="text-amber-200/80 font-medium">
+                      🆕 {detectNewResult.count} new book{detectNewResult.count !== 1 ? "s" : ""} found on live site
+                      <span className="text-amber-200/50 font-normal ml-1">
+                        ({detectNewResult.localTotal} local / {detectNewResult.liveTotal} live)
+                      </span>
+                    </p>
+                    <ul className="mt-1 space-y-0.5 text-amber-200/70 max-h-32 overflow-y-auto">
+                      {detectNewResult.newBooks.slice(0, 20).map(b => (
+                        <li key={b.id} className="truncate">
+                          #{b.id} — {b.title}{b.genre ? <span className="text-amber-200/40 ml-1">({b.genre})</span> : null}
+                        </li>
+                      ))}
+                      {detectNewResult.count > 20 && (
+                        <li className="text-amber-200/40 italic">…and {detectNewResult.count - 20} more</li>
+                      )}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+            {importNewResult && (
+              <div className="text-xs bg-green-900/20 border border-green-500/30 text-green-300 rounded px-3 py-2">
+                ✅ {importNewResult.message}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Health Monitoring Panel */}

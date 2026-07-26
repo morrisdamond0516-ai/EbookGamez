@@ -1208,6 +1208,139 @@ Allow: /
     }
   });
 
+  // GET /api/admin/books/detect-new-from-live
+  // Fetches the live book list (public endpoint) and returns IDs that exist on live
+  // but are absent locally, along with basic metadata so the UI can preview them.
+  app.get("/api/admin/books/detect-new-from-live", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
+    const rawLiveUrl = (req.query.liveUrl as string | undefined) || "https://EbookGamez.replit.app";
+    const liveUrl = rawLiveUrl.replace(/\/$/, "");
+    try {
+      // Fetch all live books (public endpoint — no auth needed)
+      const liveBooksRes = await fetch(`${liveUrl}/api/books?limit=2000`);
+      if (!liveBooksRes.ok) {
+        return res.status(502).json({ error: `Failed to fetch live book list (${liveBooksRes.status}). Check liveUrl.` });
+      }
+      const liveData = await liveBooksRes.json() as any;
+      const liveBooks: any[] = Array.isArray(liveData) ? liveData : (liveData.books ?? []);
+
+      if (liveBooks.length === 0) {
+        return res.json({ newBooks: [], count: 0, message: "Live site returned no books." });
+      }
+
+      // Get local book IDs
+      const localRows = await db.select({ id: books.id }).from(books);
+      const localIds = new Set(localRows.map(r => r.id));
+
+      // Diff: present on live, absent locally
+      const newBooks = liveBooks
+        .filter(b => !localIds.has(b.id))
+        .map(b => ({
+          id: b.id,
+          title: b.title,
+          genre: b.genre || null,
+          author: b.author || null,
+          coverUrl: b.coverUrl || null,
+          price: b.price ?? null,
+          visible: b.visible ?? true,
+          createdAt: b.createdAt || null,
+        }));
+
+      res.json({ newBooks, count: newBooks.length, liveTotal: liveBooks.length, localTotal: localIds.size });
+    } catch (error: any) {
+      console.error("[DetectNewBooks] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/admin/books/import-from-live
+  // Given a list of book IDs that exist on live but not locally, fetches their full
+  // metadata from the live site and inserts them (plus a stub draft) into the local DB.
+  app.post("/api/admin/books/import-from-live", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
+    const { liveUrl: rawLiveUrl, bookIds } = req.body as { liveUrl?: string; bookIds: number[] };
+    if (!Array.isArray(bookIds) || bookIds.length === 0) {
+      return res.status(400).json({ error: "bookIds array required" });
+    }
+    const liveUrl = (rawLiveUrl || "https://EbookGamez.replit.app").replace(/\/$/, "");
+    try {
+      let inserted = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+
+      for (const bookId of bookIds) {
+        try {
+          // Check not already present (idempotent)
+          const existing = await db.select({ id: books.id }).from(books).where(eq(books.id, bookId)).limit(1);
+          if (existing.length > 0) { skipped++; continue; }
+
+          // Fetch full book metadata from live
+          const bookRes = await fetch(`${liveUrl}/api/books/${bookId}`);
+          if (!bookRes.ok) {
+            errors.push(`Book ${bookId}: live fetch failed (${bookRes.status})`);
+            continue;
+          }
+          const b = await bookRes.json() as any;
+
+          const cleanDesc = (b.description || "")
+            .replace(/---WRITING_BRIEF_START---[\s\S]*?---WRITING_BRIEF_END---/g, "")
+            .replace(/---PROD_SYNC---[\s\S]*?---END_PROD_SYNC---/g, "")
+            .replace(/---TITLE_REPAIR---[\s\S]*?---END_TITLE_REPAIR---/g, "")
+            .trim();
+
+          // Insert the book
+          await db.insert(books).values({
+            id: b.id,
+            title: b.title,
+            author: b.author || "EbookGamez",
+            genre: b.genre || "General",
+            category: b.category || null,
+            price: b.price ?? null,
+            rating: b.rating ?? null,
+            description: cleanDesc || null,
+            coverUrl: b.coverUrl || null,
+            visible: b.visible ?? true,
+            coverFit: "cover",
+            createdAt: b.createdAt ? new Date(b.createdAt) : new Date(),
+          }).onConflictDoNothing();
+
+          // Auto-create a stub draft so Content Studio is immediately aware
+          try {
+            const [newDraft] = await db.insert(draftEbooks).values({
+              title: b.title,
+              genre: b.genre || "General",
+              topic: b.title,
+              description: cleanDesc || null,
+              coverUrl: b.coverUrl || null,
+              status: "published",
+              publishedAt: b.createdAt ? new Date(b.createdAt) : new Date(),
+            }).returning({ id: draftEbooks.id });
+            await db.update(books).set({ sourceDraftId: newDraft.id }).where(eq(books.id, b.id));
+          } catch (draftErr) {
+            console.warn(`[ImportFromLive] Could not create draft stub for book ${bookId}:`, draftErr);
+          }
+
+          inserted++;
+        } catch (bookErr: any) {
+          errors.push(`Book ${bookId}: ${bookErr.message}`);
+        }
+      }
+
+      res.json({
+        inserted,
+        skipped,
+        total: bookIds.length,
+        errors,
+        message: inserted === 0
+          ? `Nothing imported (${skipped} already present, ${errors.length} errors).`
+          : `Imported ${inserted} new book(s) with draft stubs.${errors.length ? ` ${errors.length} error(s).` : ""}`,
+      });
+    } catch (error: any) {
+      console.error("[ImportFromLive] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // POST /api/admin/books/pull-draft-content
   // Pulls content for locally-empty drafts from the live site by matching on title.
   // This is the "one-click" step after backfill-drafts: it hydrates stub drafts
