@@ -1074,26 +1074,72 @@ Allow: /
         if (existing.length > 0) {
           await db.update(books).set(payload).where(eq(books.id, b.id));
           updated++;
+          // Verify the linked draft title still matches the book title; fix if wrong
+          try {
+            const [currentBook] = await db.select({ sourceDraftId: books.sourceDraftId })
+              .from(books).where(eq(books.id, b.id)).limit(1);
+            if (currentBook?.sourceDraftId) {
+              const [linkedDraft] = await db.select({ id: draftEbooks.id, title: draftEbooks.title })
+                .from(draftEbooks).where(eq(draftEbooks.id, currentBook.sourceDraftId)).limit(1);
+              if (linkedDraft && linkedDraft.title.toLowerCase().trim() !== b.title.toLowerCase().trim()) {
+                // Wrong draft linked — find a correct one by title
+                const [correctDraft] = await db.select({ id: draftEbooks.id })
+                  .from(draftEbooks)
+                  .where(sql`lower(trim(${draftEbooks.title})) = lower(trim(${b.title}))`)
+                  .limit(1);
+                if (correctDraft) {
+                  await db.update(books).set({ sourceDraftId: correctDraft.id }).where(eq(books.id, b.id));
+                  console.log(`[SyncFromDev] Book ${b.id} "${b.title}": re-linked from wrong draft #${linkedDraft.id} ("${linkedDraft.title}") to draft #${correctDraft.id}`);
+                } else {
+                  // No matching draft exists — create a stub with the correct title
+                  const [nd] = await db.insert(draftEbooks).values({
+                    title: b.title,
+                    genre: b.genre || "General",
+                    topic: b.title,
+                    status: "published",
+                    publishedAt: b.created_at ? new Date(b.created_at) : new Date(),
+                  }).returning({ id: draftEbooks.id });
+                  await db.update(books).set({ sourceDraftId: nd.id }).where(eq(books.id, b.id));
+                  console.log(`[SyncFromDev] Book ${b.id} "${b.title}": wrong draft #${linkedDraft.id} replaced with new stub #${nd.id}`);
+                }
+              }
+            }
+          } catch (draftCheckErr) {
+            console.warn(`[SyncFromDev] Draft title check failed for book ${b.id}:`, draftCheckErr);
+          }
         } else {
           await db.insert(books).values({ id: b.id, ...payload });
           inserted++;
-          // Auto-create a stub draft so Content Studio is immediately aware of this book
+          // Auto-create or reuse a draft stub so Content Studio is immediately aware of this book.
+          // Check by title first to avoid creating a duplicate draft for a book that already has one.
           try {
             const cleanDesc = (b.description || "")
               .replace(/---WRITING_BRIEF_START---[\s\S]*?---WRITING_BRIEF_END---/g, "")
               .replace(/---PROD_SYNC---[\s\S]*?---END_PROD_SYNC---/g, "")
               .replace(/---TITLE_REPAIR---[\s\S]*?---END_TITLE_REPAIR---/g, "")
               .trim();
-            const [newDraft] = await db.insert(draftEbooks).values({
-              title: b.title,
-              genre: b.genre || "General",
-              topic: b.title,
-              description: cleanDesc || null,
-              coverUrl: b.cover_url || null,
-              status: "published",
-              publishedAt: b.created_at ? new Date(b.created_at) : new Date(),
-            }).returning({ id: draftEbooks.id });
-            await db.update(books).set({ sourceDraftId: newDraft.id }).where(eq(books.id, b.id));
+            // Reuse an existing draft that matches the book title to avoid wrong ID collisions
+            const [existingByTitle] = await db.select({ id: draftEbooks.id })
+              .from(draftEbooks)
+              .where(sql`lower(trim(${draftEbooks.title})) = lower(trim(${b.title}))`)
+              .limit(1);
+            let draftId: number;
+            if (existingByTitle) {
+              draftId = existingByTitle.id;
+              console.log(`[SyncFromDev] Book ${b.id} "${b.title}": reusing existing draft #${draftId}`);
+            } else {
+              const [newDraft] = await db.insert(draftEbooks).values({
+                title: b.title,
+                genre: b.genre || "General",
+                topic: b.title,
+                description: cleanDesc || null,
+                coverUrl: b.cover_url || null,
+                status: "published",
+                publishedAt: b.created_at ? new Date(b.created_at) : new Date(),
+              }).returning({ id: draftEbooks.id });
+              draftId = newDraft.id;
+            }
+            await db.update(books).set({ sourceDraftId: draftId }).where(eq(books.id, b.id));
           } catch (draftErr) {
             console.warn(`[SyncFromDev] Could not auto-create draft stub for book ${b.id}:`, draftErr);
           }
@@ -1271,8 +1317,44 @@ Allow: /
       for (const bookId of bookIds) {
         try {
           // Check not already present (idempotent)
-          const existing = await db.select({ id: books.id }).from(books).where(eq(books.id, bookId)).limit(1);
-          if (existing.length > 0) { skipped++; continue; }
+          const existing = await db.select({ id: books.id, title: books.title, sourceDraftId: books.sourceDraftId })
+            .from(books).where(eq(books.id, bookId)).limit(1);
+          if (existing.length > 0) {
+            // Book already imported — but verify the linked draft title matches; fix silently if wrong
+            try {
+              const existingBook = existing[0];
+              if (existingBook.sourceDraftId) {
+                const [linkedDraft] = await db.select({ id: draftEbooks.id, title: draftEbooks.title })
+                  .from(draftEbooks).where(eq(draftEbooks.id, existingBook.sourceDraftId)).limit(1);
+                if (linkedDraft && linkedDraft.title.toLowerCase().trim() !== existingBook.title.toLowerCase().trim()) {
+                  // Wrong draft — search for the correct one by title
+                  const [correctDraft] = await db.select({ id: draftEbooks.id })
+                    .from(draftEbooks)
+                    .where(sql`lower(trim(${draftEbooks.title})) = lower(trim(${existingBook.title}))`)
+                    .limit(1);
+                  if (correctDraft) {
+                    await db.update(books).set({ sourceDraftId: correctDraft.id }).where(eq(books.id, bookId));
+                    console.log(`[ImportFromLive] Book ${bookId} "${existingBook.title}": re-linked from wrong draft #${linkedDraft.id} ("${linkedDraft.title}") to draft #${correctDraft.id}`);
+                  } else {
+                    // Create a stub with the correct title
+                    const [nd] = await db.insert(draftEbooks).values({
+                      title: existingBook.title,
+                      genre: "General",
+                      topic: existingBook.title,
+                      status: "published" as const,
+                      publishedAt: new Date(),
+                    }).returning({ id: draftEbooks.id });
+                    await db.update(books).set({ sourceDraftId: nd.id }).where(eq(books.id, bookId));
+                    console.log(`[ImportFromLive] Book ${bookId} "${existingBook.title}": wrong draft #${linkedDraft.id} replaced with new stub #${nd.id}`);
+                  }
+                }
+              }
+            } catch (draftCheckErr) {
+              console.warn(`[ImportFromLive] Draft title check failed for book ${bookId}:`, draftCheckErr);
+            }
+            skipped++;
+            continue;
+          }
 
           // Fetch full book metadata from live
           const bookRes = await fetch(`${liveUrl}/api/books/${bookId}`);
