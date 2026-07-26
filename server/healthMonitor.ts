@@ -15,6 +15,7 @@
 
 const POLL_INTERVAL_MS = 60_000; // 1 minute
 const ALERT_AFTER_CONSECUTIVE = 2;
+const ALERT_HISTORY_MAX = 50;
 
 interface HealthPayload {
   status: string;
@@ -22,10 +23,50 @@ interface HealthPayload {
   stripe: boolean;
 }
 
+export interface AlertEvent {
+  id: number;
+  /** 'test' = manually triggered, 'degraded' = health failing, 'recovery' = health restored */
+  type: 'test' | 'degraded' | 'recovery';
+  timestamp: string; // ISO 8601
+  outcome: 'sent' | 'failed';
+  message: string;
+  channel: string;
+}
+
 let consecutiveFailures = 0;
 /** true only after Slack has confirmed delivery of the degraded alert */
 let alertFired = false;
 let monitorInterval: ReturnType<typeof setInterval> | null = null;
+
+/** In-memory ring buffer of recent alert events (newest first). */
+const alertHistory: AlertEvent[] = [];
+let alertEventCounter = 0;
+
+function logAlertEvent(
+  type: AlertEvent['type'],
+  outcome: AlertEvent['outcome'],
+  message: string,
+  channel: string,
+): void {
+  alertEventCounter += 1;
+  const event: AlertEvent = {
+    id: alertEventCounter,
+    type,
+    outcome,
+    message,
+    channel,
+    timestamp: new Date().toISOString(),
+  };
+  alertHistory.unshift(event);
+  if (alertHistory.length > ALERT_HISTORY_MAX) {
+    alertHistory.length = ALERT_HISTORY_MAX;
+  }
+}
+
+/** Return a copy of the alert history (newest first). */
+export function getAlertHistory(): AlertEvent[] {
+  return alertHistory.slice();
+}
 
 /**
  * Post a message to Slack.
@@ -99,12 +140,14 @@ async function pollHealthz(): Promise<void> {
     isHealthy = false;
   }
 
+  const channel = process.env.SLACK_ALERT_CHANNEL || '#alerts';
+
   if (isHealthy) {
     if (alertFired) {
       console.log('[HealthMonitor] Health restored — sending recovery alert');
-      const sent = await sendSlackMessage(
-        `:white_check_mark: *Production health check RECOVERED* — all subsystems healthy`,
-      );
+      const recoveryText = `:white_check_mark: *Production health check RECOVERED* — all subsystems healthy`;
+      const sent = await sendSlackMessage(recoveryText);
+      logAlertEvent('recovery', sent ? 'sent' : 'failed', recoveryText, channel);
       if (sent) {
         alertFired = false;
       } else {
@@ -123,7 +166,9 @@ async function pollHealthz(): Promise<void> {
 
     if (consecutiveFailures >= ALERT_AFTER_CONSECUTIVE && !alertFired) {
       console.error('[HealthMonitor] Threshold reached — sending Slack alert');
-      const sent = await sendSlackMessage(buildAlertText(payload));
+      const alertText = buildAlertText(payload);
+      const sent = await sendSlackMessage(alertText);
+      logAlertEvent('degraded', sent ? 'sent' : 'failed', alertText, channel);
       if (sent) {
         alertFired = true;
         console.log('[HealthMonitor] Alert delivered successfully');
@@ -148,6 +193,7 @@ export async function triggerTestAlert(): Promise<{ sent: boolean; channel: stri
     `If you received this, the Slack integration is working correctly.\n` +
     `Channel: ${channel}  |  Endpoint: /healthz`;
   const sent = await sendSlackMessage(text);
+  logAlertEvent('test', sent ? 'sent' : 'failed', text, channel);
   return { sent, channel };
 }
 

@@ -27,7 +27,7 @@ import epubGenMemory from "epub-gen-memory";
 import { generateDistributionEpub } from "./epubGenerator";
 import subscriptionSessionRouter from "./subscriptionSessionRoute";
 import { registerNewsletterRoutes } from "./newsletter";
-import { triggerTestAlert } from "./healthMonitor";
+import { triggerTestAlert, getAlertHistory } from "./healthMonitor";
 const epub = (epubGenMemory as any).default || epubGenMemory;
 
 // Ensure upload directories exist
@@ -865,6 +865,14 @@ Allow: /
 
   app.get("/api/admin/verify", (req, res) => {
     return res.json({ authenticated: isAdminAuthenticated(req) });
+  });
+
+  // GET /api/admin/alert-history — return recent Slack alert events (in-memory ring buffer)
+  app.get("/api/admin/alert-history", (req, res) => {
+    if (!isAdminSyncAuthenticated(req)) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    return res.json(getAlertHistory());
   });
 
   // POST /api/admin/test-health-alert — trigger a simulated Slack alert for testing

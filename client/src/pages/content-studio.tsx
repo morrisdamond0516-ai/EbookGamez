@@ -341,6 +341,24 @@ function ContentStudioMain() {
   const [healthSectionOpen, setHealthSectionOpen] = useState(false);
   const [testAlertLoading, setTestAlertLoading] = useState(false);
   const [testAlertResult, setTestAlertResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  interface AlertEvent {
+    id: number;
+    type: 'test' | 'degraded' | 'recovery';
+    timestamp: string;
+    outcome: 'sent' | 'failed';
+    message: string;
+    channel: string;
+  }
+
+  const { data: alertHistory = [], refetch: refetchAlertHistory } = useQuery<AlertEvent[]>({
+    queryKey: ["/api/admin/alert-history"],
+    queryFn: () => fetch("/api/admin/alert-history", {
+      headers: { "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+    }).then(r => r.json()),
+    enabled: healthSectionOpen,
+    refetchInterval: healthSectionOpen ? 15000 : false,
+  });
   const [productionUrl, setProductionUrl] = useState(() => {
     const saved = localStorage.getItem("ebgz_prod_url") || "";
     if (saved && !isLocalDevUrl(saved) && !isReplitIdePreviewUrl(saved)) return saved;
@@ -2900,7 +2918,7 @@ function ContentStudioMain() {
             <ChevronDown className={`h-4 w-4 text-emerald-400 transition-transform ${healthSectionOpen ? "rotate-180" : ""}`} />
           </button>
           {healthSectionOpen && (
-            <div className="px-4 pb-4 space-y-3">
+            <div className="px-4 pb-4 space-y-4">
               <p className="text-xs text-emerald-200/70 leading-relaxed">
                 Send a test Slack alert to verify the health-monitoring notification pipeline is working. No curl required.
               </p>
@@ -2918,6 +2936,7 @@ function ContentStudioMain() {
                       if (!res.ok) throw new Error(data.error || "Request failed");
                       setTestAlertResult({ ok: true, message: data.message || "Test alert sent successfully." });
                       toast({ title: "Test alert sent", description: data.message || "Check Slack for the test notification." });
+                      refetchAlertHistory();
                     } catch (e: any) {
                       setTestAlertResult({ ok: false, message: e.message || "Failed to send test alert." });
                       toast({ title: "Test alert failed", description: e.message, variant: "destructive" });
@@ -2941,6 +2960,48 @@ function ContentStudioMain() {
                     data-testid="test-alert-result"
                   >
                     {testAlertResult.message}
+                  </div>
+                )}
+              </div>
+
+              {/* Alert History */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-emerald-300">Recent Alerts</p>
+                  <button
+                    onClick={() => refetchAlertHistory()}
+                    className="text-emerald-400 hover:text-emerald-200 transition-colors"
+                    title="Refresh alert history"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                  </button>
+                </div>
+                {alertHistory.length === 0 ? (
+                  <p className="text-xs text-emerald-200/50 italic">No alerts logged yet this session.</p>
+                ) : (
+                  <div className="rounded border border-emerald-500/20 bg-black/20 divide-y divide-emerald-500/10 max-h-48 overflow-y-auto" data-testid="alert-history-list">
+                    {alertHistory.map((event) => {
+                      const typeLabel = event.type === 'test' ? 'Test' : event.type === 'degraded' ? 'Degraded' : 'Recovery';
+                      const typeColor = event.type === 'recovery' ? 'text-emerald-400' : event.type === 'degraded' ? 'text-red-400' : 'text-sky-400';
+                      const outcomeIcon = event.outcome === 'sent'
+                        ? <CheckCircle className="h-3 w-3 text-emerald-400 shrink-0" />
+                        : <XCircle className="h-3 w-3 text-red-400 shrink-0" />;
+                      const ts = new Date(event.timestamp);
+                      const timeStr = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                      const dateStr = ts.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                      return (
+                        <div key={event.id} className="flex items-start gap-2 px-3 py-2 text-xs" data-testid="alert-history-row">
+                          {outcomeIcon}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`font-semibold ${typeColor}`}>{typeLabel}</span>
+                              <span className="text-emerald-200/50">{dateStr} {timeStr}</span>
+                              <span className="text-emerald-200/40">→ {event.channel}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
