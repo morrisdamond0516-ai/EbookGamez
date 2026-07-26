@@ -554,6 +554,15 @@ Allow: /
   <url><loc>${baseUrl}/guides</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/subscription</loc><changefreq>monthly</changefreq><priority>0.7</priority><lastmod>${now}</lastmod></url>`;
 
+      const genres = [
+        "Romance", "Thriller", "Fantasy", "Sci-Fi",
+        "Self-Help", "Mystery", "Horror", "Biography",
+        "Business", "Classic Literature", "Adventure", "History",
+      ];
+      for (const genre of genres) {
+        xml += `\n  <url><loc>${baseUrl}/ebooks?genre=${encodeURIComponent(genre)}</loc><changefreq>weekly</changefreq><priority>0.85</priority><lastmod>${now}</lastmod></url>`;
+      }
+
       const blogIds = [
         "why-ebookgamez-exists",
         "how-we-quality-check-books",
