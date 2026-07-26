@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { BookOpen, CheckCircle2, Star, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Footer } from "@/components/layout/footer";
-import { trackEbooksCtaClick, trackScrollDepth, resetScrollDepthTracking } from "@/lib/analytics";
+import { trackEbooksCtaClick, trackEbooksGenreClick, trackScrollDepth, resetScrollDepthTracking } from "@/lib/analytics";
 
 interface ApiBook {
   id: number;
@@ -228,7 +228,10 @@ export default function EbooksLanding() {
         <div className="flex flex-wrap justify-center gap-2">
           {GENRES.map(g => (
             <Link key={g} href={`/catalog?search=${encodeURIComponent(g)}`}>
-              <span className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-sm text-muted-foreground hover:text-white hover:border-primary/40 hover:bg-primary/5 transition-colors cursor-pointer font-serif">
+              <span
+                className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-sm text-muted-foreground hover:text-white hover:border-primary/40 hover:bg-primary/5 transition-colors cursor-pointer font-serif"
+                onClick={() => trackEbooksGenreClick({ genre: g, destination: `/catalog?search=${encodeURIComponent(g)}` })}
+              >
                 {g}
               </span>
             </Link>

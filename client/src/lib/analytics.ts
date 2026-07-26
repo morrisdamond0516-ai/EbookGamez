@@ -306,6 +306,18 @@ export function trackBillingIntervalSwitch(data: {
 
 const firedSubscriptionChanges = new Set<string>();
 
+export function trackEbooksGenreClick(data: {
+  genre: string;
+  destination: string;
+}) {
+  push({
+    event: "ebooks_genre_click",
+    genre_name: data.genre,
+    cta_destination: data.destination,
+    page_path: "/ebooks",
+  });
+}
+
 export function trackEbooksCtaClick(data: {
   label: string;
   destination: string;
