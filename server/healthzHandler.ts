@@ -15,12 +15,71 @@ function withTimeout<T>(promise: Promise<T>, label: string, timeoutMs: number): 
   });
 }
 
+// ---------------------------------------------------------------------------
+// Stripe client singleton
+//
+// The client promise is created once and reused across health requests.
+// This means the `withTimeout` wrapper in the health check covers the entire
+// Stripe initialisation (including the `import('stripe')` call) rather than
+// only `balance.retrieve()`.  If the module import itself stalls the timeout
+// will still fire and report stripe: false.
+//
+// Rejections are NOT cached — if initialisation fails the next request
+// retries, which lets transient errors (missing env var at startup, etc.)
+// recover without a process restart.
+// ---------------------------------------------------------------------------
+
+/** Minimal interface for the subset of the Stripe client used here. */
+export interface StripeClientLike {
+  balance: { retrieve: () => Promise<unknown> };
+}
+
+let _stripeClientPromise: Promise<StripeClientLike> | null = null;
+
+function buildStripeClientPromise(): Promise<StripeClientLike> {
+  const p = (async () => {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    if (!secretKey) throw new Error('STRIPE_SECRET_KEY not set');
+    const Stripe = (await import('stripe')).default;
+    return new Stripe(secretKey, { apiVersion: '2025-11-17.clover' as any }) as unknown as StripeClientLike;
+  })();
+  // Do not cache a rejected promise — reset so the next request retries.
+  p.catch(() => { _stripeClientPromise = null; });
+  return p;
+}
+
+/**
+ * Returns the cached Stripe client promise, creating it on first call.
+ * Exported so tests can reset the module-level cache via
+ * `resetStripeClientCache()`.
+ */
+export function getStripeClient(): Promise<StripeClientLike> {
+  if (!_stripeClientPromise) {
+    _stripeClientPromise = buildStripeClientPromise();
+  }
+  return _stripeClientPromise;
+}
+
+/** Clears the cached client — useful in tests to isolate state. */
+export function resetStripeClientCache(): void {
+  _stripeClientPromise = null;
+}
+
+// ---------------------------------------------------------------------------
+// Health-check handler
+// ---------------------------------------------------------------------------
+
 /**
  * Factory that creates the /healthz request handler.
- * `timeoutMs` defaults to HEALTHZ_CHECK_TIMEOUT_MS (3 s) and can be
- * overridden in tests to avoid slow real waits.
+ *
+ * @param timeoutMs      - per-check timeout (default HEALTHZ_CHECK_TIMEOUT_MS).
+ * @param stripeGetter   - override the Stripe client supplier for testing.
+ *                         Defaults to the module-level `getStripeClient`.
  */
-export function createHealthzHandler(timeoutMs = HEALTHZ_CHECK_TIMEOUT_MS): RequestHandler {
+export function createHealthzHandler(
+  timeoutMs = HEALTHZ_CHECK_TIMEOUT_MS,
+  stripeGetter: () => Promise<StripeClientLike> = getStripeClient,
+): RequestHandler {
   return async (_req, res) => {
     const checks: { db: boolean; stripe: boolean } = { db: false, stripe: false };
 
@@ -38,14 +97,19 @@ export function createHealthzHandler(timeoutMs = HEALTHZ_CHECK_TIMEOUT_MS): Requ
       console.error('[Healthz] DB check failed:', err.message);
     }
 
-    // Stripe check: verify the secret key is present and the client can be instantiated
+    // Stripe check: the single withTimeout covers BOTH the client
+    // initialisation (including the module import) and the balance.retrieve()
+    // call.  If either phase stalls — including an import-level hang — the
+    // timeout fires and reports stripe: false.
     try {
-      const secretKey = process.env.STRIPE_SECRET_KEY;
-      if (!secretKey) throw new Error('STRIPE_SECRET_KEY not set');
-      const Stripe = (await import('stripe')).default;
-      const stripe = new Stripe(secretKey, { apiVersion: '2025-11-17.clover' as any });
-      // A minimal read-only call to confirm the key is valid
-      await withTimeout(stripe.balance.retrieve(), 'Stripe', timeoutMs);
+      await withTimeout(
+        (async () => {
+          const stripe = await stripeGetter();
+          await stripe.balance.retrieve();
+        })(),
+        'Stripe',
+        timeoutMs,
+      );
       checks.stripe = true;
     } catch (err: any) {
       console.error('[Healthz] Stripe check failed:', err.message);

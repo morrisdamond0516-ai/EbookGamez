@@ -27,7 +27,7 @@ vi.mock("stripe", () => ({
 // Import modules AFTER mocks are declared so they receive the fakes.
 // ---------------------------------------------------------------------------
 import { pool } from "./storage";
-import { createHealthzHandler } from "./healthzHandler";
+import { createHealthzHandler, resetStripeClientCache, type StripeClientLike } from "./healthzHandler";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,12 +36,20 @@ import { createHealthzHandler } from "./healthzHandler";
 /**
  * Builds an isolated Express app with a healthz handler that uses a short
  * timeout so the timeout-fires test does not spend 3 real seconds waiting.
+ *
+ * @param timeoutMs   - handler timeout in ms (defaults to the module default).
+ * @param stripeGetter - optional override for the Stripe client supplier.
  */
-function buildApp(timeoutMs?: number) {
+function buildApp(timeoutMs?: number, stripeGetter?: () => Promise<StripeClientLike>) {
   const app = express();
-  app.get("/healthz", createHealthzHandler(timeoutMs));
+  app.get("/healthz", createHealthzHandler(timeoutMs, stripeGetter));
   return app;
 }
+
+/** A healthy Stripe client stub used in most tests. */
+const healthyStripeGetter = async (): Promise<StripeClientLike> => ({
+  balance: { retrieve: mockBalanceRetrieve },
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -55,6 +63,8 @@ describe("GET /healthz — health check behaviour", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_fake_key_for_tests";
     // Re-arm the Stripe balance mock after clearAllMocks resets it.
     mockBalanceRetrieve.mockResolvedValue({ object: "balance" });
+    // Reset the module-level Stripe client cache so each test starts clean.
+    resetStripeClientCache();
   });
 
   afterEach(() => {
@@ -63,6 +73,7 @@ describe("GET /healthz — health check behaviour", () => {
     } else {
       process.env.STRIPE_SECRET_KEY = originalStripeKey;
     }
+    resetStripeClientCache();
   });
 
   // ---- happy path --------------------------------------------------------
@@ -70,7 +81,7 @@ describe("GET /healthz — health check behaviour", () => {
   it("returns HTTP 200 with { status: 'ok', db: true, stripe: true } when everything is healthy", async () => {
     vi.mocked(pool.query).mockResolvedValue({ rows: [{ "?column?": 1 }] } as any);
 
-    const res = await request(buildApp()).get("/healthz");
+    const res = await request(buildApp(undefined, healthyStripeGetter)).get("/healthz");
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: "ok", db: true, stripe: true });
@@ -81,7 +92,7 @@ describe("GET /healthz — health check behaviour", () => {
   it("returns HTTP 503 with { status: 'degraded', db: false } when the DB rejects", async () => {
     vi.mocked(pool.query).mockRejectedValue(new Error("Connection refused"));
 
-    const res = await request(buildApp()).get("/healthz");
+    const res = await request(buildApp(undefined, healthyStripeGetter)).get("/healthz");
 
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ status: "degraded", db: false });
@@ -90,7 +101,7 @@ describe("GET /healthz — health check behaviour", () => {
   it("response body includes stripe: true even when db: false", async () => {
     vi.mocked(pool.query).mockRejectedValue(new Error("ECONNREFUSED"));
 
-    const res = await request(buildApp()).get("/healthz");
+    const res = await request(buildApp(undefined, healthyStripeGetter)).get("/healthz");
 
     expect(res.body).toMatchObject({ db: false, stripe: true });
   });
@@ -101,6 +112,7 @@ describe("GET /healthz — health check behaviour", () => {
     vi.mocked(pool.query).mockResolvedValue({ rows: [{ "?column?": 1 }] } as any);
     delete process.env.STRIPE_SECRET_KEY;
 
+    // Use the real getStripeClient so the missing-key guard is exercised.
     const res = await request(buildApp()).get("/healthz");
 
     expect(res.status).toBe(503);
@@ -116,7 +128,7 @@ describe("GET /healthz — health check behaviour", () => {
 
     const start = Date.now();
     // Use a very short timeout so the test finishes quickly.
-    const res = await request(buildApp(100 /* ms */)).get("/healthz");
+    const res = await request(buildApp(100 /* ms */, healthyStripeGetter)).get("/healthz");
     const elapsed = Date.now() - start;
 
     expect(res.status).toBe(503);
@@ -129,11 +141,30 @@ describe("GET /healthz — health check behaviour", () => {
     vi.mocked(pool.query).mockResolvedValue({ rows: [{ "?column?": 1 }] } as any);
     mockBalanceRetrieve.mockRejectedValue(new Error("socket hang up"));
 
-    const res = await request(buildApp()).get("/healthz");
+    const res = await request(buildApp(undefined, healthyStripeGetter)).get("/healthz");
 
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ status: "degraded", stripe: false });
   });
+
+  // ---- Stripe module import stall ----------------------------------------
+
+  it("returns HTTP 503 with stripe: false when the Stripe module import stalls beyond the timeout", async () => {
+    vi.mocked(pool.query).mockResolvedValue({ rows: [{ "?column?": 1 }] } as any);
+
+    // Simulate the Stripe SDK import hanging: the getter promise never settles.
+    const stalledStripeGetter = (): Promise<StripeClientLike> => new Promise(() => {});
+
+    const start = Date.now();
+    // Short timeout so the test finishes quickly.
+    const res = await request(buildApp(100 /* ms */, stalledStripeGetter)).get("/healthz");
+    const elapsed = Date.now() - start;
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ status: "degraded", stripe: false });
+    // The withTimeout wrapper must fire well within the test budget.
+    expect(elapsed).toBeLessThan(5000);
+  }, 10_000);
 
   // ---- timeout -----------------------------------------------------------
 
@@ -144,7 +175,7 @@ describe("GET /healthz — health check behaviour", () => {
     vi.mocked(pool.query).mockImplementation(() => new Promise(() => {}));
 
     const start = Date.now();
-    const res = await request(buildApp(100 /* ms */)).get("/healthz");
+    const res = await request(buildApp(100 /* ms */, healthyStripeGetter)).get("/healthz");
     const elapsed = Date.now() - start;
 
     expect(res.status).toBe(503);
@@ -158,8 +189,8 @@ describe("GET /healthz — health check behaviour", () => {
     vi.mocked(pool.query).mockImplementation(() => new Promise(() => {}));
 
     const start = Date.now();
-    // Use a very short timeout so the test finishes quickly without fake timers.
-    const res = await request(buildApp(100 /* ms */)).get("/healthz");
+    // Use a very short timeout so the test finishes without fake timers.
+    const res = await request(buildApp(100 /* ms */, healthyStripeGetter)).get("/healthz");
     const elapsed = Date.now() - start;
 
     expect(res.status).toBe(503);
