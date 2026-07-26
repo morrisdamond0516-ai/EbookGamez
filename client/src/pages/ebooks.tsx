@@ -89,17 +89,28 @@ export default function EbooksLanding() {
       : "Browse 600+ Ebooks — EbookGamez";
     document.title = title;
     const desc = document.querySelector('meta[name="description"]') as HTMLMetaElement | null;
-    const prev = desc?.content ?? "";
+    const prevDesc = desc?.content ?? "";
     if (desc) {
       desc.content = activeGenre
         ? `Browse our full collection of ${activeGenre} ebooks. Instant download, DRM-free. Buy individually or unlock everything with a Reading Pass.`
         : "Discover 600+ full-length ebooks across romance, thriller, fantasy, self-help, and more. Instant download, DRM-free. Buy individually or unlock everything with a Reading Pass.";
     }
+
+    // Update canonical so Google sees the correct URL for each genre page instead of "/"
+    const canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+    const prevCanonical = canonical?.href ?? "";
+    if (canonical) {
+      canonical.href = activeGenre && genreSlug
+        ? `https://ebookgamez.com/ebooks/${genreSlug}`
+        : "https://ebookgamez.com/ebooks";
+    }
+
     return () => {
       document.title = "EbookGamez - Ebooks, Games, Downloads & Gaming Guides";
-      if (desc) desc.content = prev;
+      if (desc) desc.content = prevDesc;
+      if (canonical) canonical.href = prevCanonical;
     };
-  }, [activeGenre]);
+  }, [activeGenre, genreSlug]);
 
   useEffect(() => {
     resetScrollDepthTracking();
