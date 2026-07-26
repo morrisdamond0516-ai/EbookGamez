@@ -1471,161 +1471,34 @@ Allow: /
   // Pulls content for locally-empty drafts from the live site by matching on title.
   // This is the "one-click" step after backfill-drafts: it hydrates stub drafts
   // that were created when books arrived from Cursor without content.
+  // Core logic lives in server/pullDraftContentHandler.ts (independently tested).
   app.post("/api/admin/books/pull-draft-content", async (req, res) => {
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Admin authentication required" });
     const { liveUrl: rawLiveUrl } = req.body as { liveUrl?: string };
-    const liveUrl = (rawLiveUrl || "https://EbookGamez.replit.app").replace(/\/$/, "");
 
-    try {
-      // 1. Authenticate with live site using ADMIN_PASSWORD
-      const adminPassword = process.env.ADMIN_PASSWORD;
-      if (!adminPassword) {
+    const { pullDraftContent } = await import("./pullDraftContentHandler");
+    const outcome = await pullDraftContent(rawLiveUrl ?? "https://EbookGamez.replit.app", {
+      db: db as any,
+      fetch: globalThis.fetch,
+      getAdminPassword: () => process.env.ADMIN_PASSWORD,
+    });
+
+    if (!outcome.ok) {
+      const { kind } = outcome.err;
+      if (kind === "missing_password")
         return res.status(500).json({ error: "ADMIN_PASSWORD env var not set — cannot authenticate with live site." });
-      }
-
-      const loginRes = await fetch(`${liveUrl}/api/admin/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: adminPassword }),
-      });
-      if (!loginRes.ok) {
-        return res.status(502).json({ error: `Could not authenticate with live site (${loginRes.status}). Check ADMIN_PASSWORD and liveUrl.` });
-      }
-      const loginData = await loginRes.json() as any;
-      const liveToken: string = loginData.token;
-      if (!liveToken) {
+      if (kind === "auth_failed")
+        return res.status(502).json({ error: `Could not authenticate with live site (${(outcome.err as any).status}). Check ADMIN_PASSWORD and liveUrl.` });
+      if (kind === "no_token")
         return res.status(502).json({ error: "Live site returned no token — check ADMIN_PASSWORD." });
-      }
-
-      // 2. Find local drafts that are linked to a published book but have no content
-      const emptyDrafts = await db.execute(sql`
-        SELECT d.id AS draft_id, d.title
-        FROM draft_ebooks d
-        JOIN books b ON b.source_draft_id = d.id
-        WHERE b.visible = true
-          AND (d.content IS NULL OR d.content = '')
-        ORDER BY d.id
-      `);
-      const rows = (emptyDrafts as any).rows as { draft_id: number; title: string }[];
-
-      if (rows.length === 0) {
-        return res.json({ pulled: 0, skipped: 0, message: "All linked drafts already have content — nothing to pull." });
-      }
-
-      // 3. Fetch published drafts from live site
-      const liveDraftsRes = await fetch(`${liveUrl}/api/content-studio/drafts?status=published&limit=2000`, {
-        headers: { "x-admin-token": liveToken },
-      });
-      if (!liveDraftsRes.ok) {
-        return res.status(502).json({ error: `Failed to fetch live drafts (${liveDraftsRes.status}).` });
-      }
-      const liveDraftsData = await liveDraftsRes.json() as any;
-      const liveDrafts: any[] = Array.isArray(liveDraftsData) ? liveDraftsData : (liveDraftsData.drafts ?? []);
-
-      // Build a title→draft map for O(1) lookup (case-insensitive, trimmed)
-      const liveByTitle = new Map<string, any>();
-      for (const ld of liveDrafts) {
-        const key = (ld.title ?? "").toLowerCase().trim();
-        if (key) liveByTitle.set(key, ld);
-      }
-
-      let pulled = 0;
-      let skipped = 0;
-      const skippedTitles: string[] = [];
-
-      for (const row of rows) {
-        const key = (row.title ?? "").toLowerCase().trim();
-        const liveDraft = liveByTitle.get(key);
-        if (!liveDraft) {
-          skipped++;
-          skippedTitles.push(row.title);
-          continue;
-        }
-
-        // Fetch the full draft (list endpoint may omit content)
-        let fullDraft = liveDraft;
-        if (!fullDraft.content) {
-          try {
-            const detailRes = await fetch(`${liveUrl}/api/content-studio/drafts/${liveDraft.id}`, {
-              headers: { "x-admin-token": liveToken },
-            });
-            if (detailRes.ok) fullDraft = await detailRes.json();
-          } catch { /* use partial data */ }
-        }
-
-        const publishedAt = fullDraft.publishedAt ?? fullDraft.published_at ?? null;
-        await db.update(draftEbooks)
-          .set({
-            content:       fullDraft.content       ?? null,
-            outline:       fullDraft.outline        ?? null,
-            coverUrl:      fullDraft.coverUrl       ?? fullDraft.cover_url       ?? null,
-            backgroundUrl: fullDraft.backgroundUrl  ?? fullDraft.background_url  ?? null,
-            pdfUrl:        fullDraft.pdfUrl         ?? fullDraft.pdf_url         ?? null,
-            description:   fullDraft.description    ?? null,
-            status:        "published",
-            ...(publishedAt ? { publishedAt: new Date(publishedAt) } : {}),
-          })
-          .where(eq(draftEbooks.id, row.draft_id));
-        pulled++;
-      }
-
-      const message = pulled === 0
-        ? `No matches found on live site for ${rows.length} empty draft(s).`
-        : `Pulled content for ${pulled} draft(s) from live site.${skipped > 0 ? ` ${skipped} skipped (no title match).` : ""}`;
-
-      // After pulling, run a quick verification pass on newly-pulled drafts so the
-      // caller can surface any suspicious title/content mismatches immediately.
-      const verificationRows = await db.execute(sql`
-        SELECT d.id AS draft_id, d.title, d.content, d.outline
-        FROM draft_ebooks d
-        JOIN books b ON b.source_draft_id = d.id
-        WHERE b.visible = true
-          AND d.content IS NOT NULL AND d.content <> ''
-        ORDER BY d.id
-      `);
-      const verItems = (verificationRows as any).rows as {
-        draft_id: number; title: string; content: string | null; outline: string | null;
-      }[];
-
-      type VerifyItem = {
-        draftId: number; title: string; wordCount: number;
-        titleInContent: boolean; suspicious: boolean;
-      };
-      const verification: VerifyItem[] = verItems.map(r => {
-        const titleLower = (r.title ?? "").toLowerCase().trim();
-        const snippet = ((r.content ?? "") + " " + (r.outline ?? "")).slice(0, 2000).toLowerCase();
-        const wordCount = (r.content ?? "").split(/\s+/).filter(Boolean).length;
-        // Title consistency: at least the first significant word of the title should appear in the
-        // first 2000 chars of content+outline. Exclude very short titles (<4 chars) to avoid noise.
-        const titleWords = titleLower.split(/\s+/).filter(w => w.length >= 4);
-        const titleInContent = titleWords.length === 0 || titleWords.some(w => snippet.includes(w));
-        const suspicious = !titleInContent || wordCount < 100;
-        return { draftId: r.draft_id, title: r.title, wordCount, titleInContent, suspicious };
-      });
-
-      const suspiciousItems = verification.filter(v => v.suspicious);
-
-      res.json({
-        pulled,
-        skipped,
-        skippedTitles: skippedTitles.slice(0, 20),
-        total: rows.length,
-        message,
-        verification: {
-          checked: verification.length,
-          suspicious: suspiciousItems.length,
-          items: suspiciousItems.slice(0, 20).map(v => ({
-            draftId: v.draftId,
-            title: v.title,
-            wordCount: v.wordCount,
-            titleInContent: v.titleInContent,
-          })),
-        },
-      });
-    } catch (error: any) {
-      console.error("[PullDraftContent] Error:", error);
-      res.status(500).json({ error: error.message });
+      if (kind === "live_drafts_failed")
+        return res.status(502).json({ error: `Failed to fetch live drafts (${(outcome.err as any).status}).` });
+      const unexpectedErr = (outcome.err as any).error;
+      console.error("[PullDraftContent] Unexpected error:", unexpectedErr);
+      return res.status(500).json({ error: (unexpectedErr as any)?.message ?? "Unexpected error" });
     }
+
+    return res.json(outcome.result);
   });
 
   // POST /api/admin/books/sync-draft-ids-from-live
