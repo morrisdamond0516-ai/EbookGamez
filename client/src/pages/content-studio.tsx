@@ -380,6 +380,8 @@ function ContentStudioMain() {
   const [isFullSyncing, setIsFullSyncing] = useState(false);
   const [isIdSyncing, setIsIdSyncing] = useState(false);
   const [idSyncResult, setIdSyncResult] = useState<{ renamed: number; conflicts: number; message: string } | null>(null);
+  const [isPullingContent, setIsPullingContent] = useState(false);
+  const [pullContentResult, setPullContentResult] = useState<{ pulled: number; skipped: number; message: string } | null>(null);
   const [isDeduping, setIsDeduping] = useState(false);
   const [isHealthChecking, setIsHealthChecking] = useState(false);
   const [healthResult, setHealthResult] = useState<{
@@ -3049,8 +3051,53 @@ function ContentStudioMain() {
                   <><Hash className="h-3.5 w-3.5 mr-1.5" />Sync Draft IDs</>
                 )}
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-green-500/40 text-green-300 hover:bg-green-500/10 whitespace-nowrap"
+                disabled={isPullingContent || isFullSyncing}
+                title="Pull content for empty drafts from the live site by title match — fills blank draft content without touching already-populated records"
+                onClick={async () => {
+                  setIsPullingContent(true);
+                  setPullContentResult(null);
+                  try {
+                    const res = await fetch("/api/admin/books/pull-draft-content", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
+                      body: JSON.stringify({ liveUrl: DEFAULT_REPLIT_APP_URL }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Pull content failed");
+                    setPullContentResult({ pulled: data.pulled ?? 0, skipped: data.skipped ?? 0, message: data.message });
+                    toast({ title: "Pull Content complete", description: data.message });
+                    queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                  } catch (e: any) {
+                    toast({ title: "Pull Content failed", description: e.message, variant: "destructive" });
+                  } finally {
+                    setIsPullingContent(false);
+                  }
+                }}
+              >
+                {isPullingContent ? (
+                  <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Pulling…</>
+                ) : (
+                  <><FileDown className="h-3.5 w-3.5 mr-1.5" />Pull Content</>
+                )}
+              </Button>
             </div>
           </div>
+          {pullContentResult && (
+            <div className="text-xs text-green-200/80 bg-green-950/40 rounded px-3 py-2 space-y-1 border border-green-500/20">
+              {pullContentResult.pulled > 0 ? (
+                <p>⬇️ Pulled content for {pullContentResult.pulled} empty draft(s) from live site.</p>
+              ) : (
+                <p>✅ No empty drafts found — all drafts already have content.</p>
+              )}
+              {pullContentResult.skipped > 0 && (
+                <p className="text-green-300/60">⚠ {pullContentResult.skipped} draft(s) had no title match on live site.</p>
+              )}
+            </div>
+          )}
           {fullSyncResult && (
             <div className="text-xs text-amber-200/80 bg-amber-950/40 rounded px-3 py-2 space-y-1">
               {(fullSyncResult.linked > 0 || fullSyncResult.stubsCreated > 0) && (
