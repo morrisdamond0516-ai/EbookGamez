@@ -337,9 +337,14 @@ export default function Home() {
               transition={{ duration: 0.9, delay: 0.55 }}
               className="mt-10 flex justify-center"
             >
-              <Link
-                href="/learnforge"
+              <a
+                href={PARTNER_URLS.learnforge}
+                target="_blank"
+                rel="noopener noreferrer"
                 data-testid="link-learnforge"
+                onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)}
+                onFocus={() => warmPartnerSite(PARTNER_URLS.learnforge)}
+                onTouchStart={() => warmPartnerSite(PARTNER_URLS.learnforge)}
                 className="group relative inline-flex flex-col items-center justify-center gap-1 px-16 py-6 font-display tracking-wide transition-all duration-300 hover:scale-[1.025]"
                 style={{
                   borderRadius: '75px 75px 55px 55px / 55px 55px 75px 75px',
@@ -383,7 +388,7 @@ export default function Home() {
                   style={{ color: 'rgba(201,169,113,0.5)' }}>
                   Forge Skills · Ace Exams · Advance Your Career
                 </span>
-              </Link>
+              </a>
             </motion.div>
           </motion.div>
         </div>
@@ -497,7 +502,7 @@ export default function Home() {
           ))}
 
           {/* LearnForge — full-width featured card */}
-          <Link href="/learnforge" data-testid="card-section-learnforge" className="sm:col-span-2 block">
+          <a href={PARTNER_URLS.learnforge} target="_blank" rel="noopener noreferrer" data-testid="card-section-learnforge" className="sm:col-span-2 block" onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)} onTouchStart={() => warmPartnerSite(PARTNER_URLS.learnforge)}>
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -558,7 +563,7 @@ export default function Home() {
               </div>
             </div>
           </motion.div>
-          </Link>
+          </a>
         </div>
       </section>
 
