@@ -236,18 +236,10 @@ export async function createSubscriptionCheckout(planId: number, customerEmail: 
     hasUsedTrial = pastSubs.length > 0;
   }
 
-  // Resolve owner test coupon (100% off first payment only)
-  const OWNER_CODE_EXPIRY = new Date("2026-06-19T23:59:59Z");
-  let ownerCouponId: string | null = null;
-  if (promoCode && promoCode.toUpperCase().trim() === "EBGZOWNER" && new Date() <= OWNER_CODE_EXPIRY) {
-    const COUPON_ID = "EBGZOWNER_100PCT_ONCE";
-    try {
-      await stripe.coupons.retrieve(COUPON_ID);
-      ownerCouponId = COUPON_ID;
-    } catch {
-      const coupon = await stripe.coupons.create({ id: COUPON_ID, percent_off: 100, duration: "once", name: "Owner Test — 100% off first payment" });
-      ownerCouponId = coupon.id;
-    }
+  // EBGZOWNER expired — no longer accepted on subscription checkout
+  const ownerCouponId: string | null = null;
+  if (promoCode && promoCode.toUpperCase().trim() === "EBGZOWNER") {
+    throw new Error("This promo code has expired");
   }
 
   const sessionParams: any = {

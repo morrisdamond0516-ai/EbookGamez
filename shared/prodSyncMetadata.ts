@@ -93,10 +93,12 @@ export function isTitleRepairAwaitingProdPush(draft: {
 /**
  * Decide whether a published draft still needs Push to Production.
  *
- * Important: missing ---PROD_SYNC--- does NOT mean the book is offline.
- * Older publishes never wrote a stamp. If the book is already in the local
- * storefront catalog, treat it as done (`on_storefront`) unless a title repair
- * is awaiting push or a stamp exists and the fingerprint drifted.
+ * Source of truth is the ---PROD_SYNC--- stamp written only after a successful
+ * push to live (ebookgamez.com / EbookGamez.replit.app).
+ *
+ * Local storefront catalog (`inCatalog`) is NOT the same as live production.
+ * A book can be published locally and still need a push. Legacy books that were
+ * already live were backfilled with stamps via script/backfill-prod-sync-stamps.ts.
  */
 export function assessProdSyncStatus(
   draft: {
@@ -109,7 +111,7 @@ export function assessProdSyncStatus(
   },
   options?: {
     currentFingerprint?: string;
-    /** True when a catalog/storefront row already exists for this draft. */
+    /** @deprecated Kept for call-site compatibility; no longer suppresses need-push. */
     inCatalog?: boolean;
   },
 ): ProdSyncStatus {
@@ -124,7 +126,6 @@ export function assessProdSyncStatus(
   const current =
     options?.currentFingerprint ?? computeDraftProdFingerprint(draft);
   const stored = parseProdSyncFromDescription(draft.description);
-  const inCatalog = options?.inCatalog === true;
 
   if (isTitleRepairAwaitingProdPush(draft)) {
     return {
@@ -136,16 +137,7 @@ export function assessProdSyncStatus(
   }
 
   if (!stored) {
-    // Already on the storefront catalog = work is done (legacy, no stamp).
-    if (inCatalog) {
-      return {
-        needsProdPush: false,
-        reason: "on_storefront",
-        lastSyncedAt: null,
-        fingerprint: current,
-      };
-    }
-    // Published locally but not in catalog → actually needs a push/publish.
+    // No successful push stamp → must push to live (even if local catalog exists).
     return {
       needsProdPush: true,
       reason: "never_pushed",

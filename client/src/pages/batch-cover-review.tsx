@@ -17,6 +17,7 @@ import { LOST_COVER_REGEN_IDS } from "@shared/coverConstants";
 import { getEffectClass, getColorVariables } from "@/lib/typography-effects";
 import { analyzeForTypography, enhanceTypographyOptions, getComplexityBreakdown, type VisualIntelligenceResult } from "@/lib/visual-intelligence";
 import { titlePerfectionEngine, type PerfectTitleDesign } from "@/lib/title-perfection-engine";
+import { ensureCoverPreviewFontsLoaded } from "@/lib/coverPreviewFonts";
 import "@/styles/visual-title-enhancement.css";
 
 interface DraftEbook {
@@ -383,6 +384,7 @@ export default function BatchCoverReview() {
   const { toast } = useToast();
 
   useEffect(() => {
+    ensureCoverPreviewFontsLoaded();
     async function verifyAndRefreshSession() {
       const token = localStorage.getItem("ebgz_admin_token") || "";
       await fetch("/api/admin/verify", {

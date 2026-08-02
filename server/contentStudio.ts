@@ -71,6 +71,11 @@ import {
   INSTRUCTIONAL_ADOPTION_PILLARS,
 } from "@shared/educationalBookQuality";
 import { scanUnderfilledReaderPages } from "@shared/readerPageSplit";
+import {
+  applyDeterministicGateRepairs,
+  bridgeLonelyInstructionalIslands,
+  spreadIllegalAdjacentIllustrations,
+} from "@shared/pipelineGateRepair";
 
 export { BatchOperationGuardError, assessDraftCompleteness, preflightActivityLineRepair } from "./batchOperationGuards";
 export {
@@ -5540,11 +5545,39 @@ export async function generateContentForDraft(draftId: number): Promise<string> 
       }
     }
 
-    const isComplete = structurallyComplete && dialoguePass;
-    const newStatus = isComplete ? "ready" : "draft";
+    let isComplete = structurallyComplete && dialoguePass;
+    let newStatus: "ready" | "draft" = isComplete ? "ready" : "draft";
     if (qualityIssues.length > 0) {
-      console.log(`[Content Gen] QUALITY ISSUES for "${title}": ${qualityIssues.join('; ')} — keeping as draft`);
+      console.log(`[Content Gen] QUALITY ISSUES for "${title}": ${qualityIssues.join('; ')}`);
     }
+
+    // Pipeline already wrote prose (+ dialogue/illustrations when applicable).
+    // Do not leave books stuck in draft — auto-repair layout/missing figures once.
+    if (!isComplete && wordCount >= effectiveMinWords && contentChapterMatches.length >= 2) {
+      const onlyFixableIssues =
+        qualityIssues.length > 0 &&
+        qualityIssues.every(
+          (i) =>
+            /illustration|outline specifies|back-to-back|lonely instructional|empty instructional|underfilled|page looks empty|duplicate empty/i.test(
+              i,
+            ),
+        );
+      const dialogueOkOrNotRun = dialoguePass || !structurallyComplete;
+      if (dialogueOkOrNotRun && (onlyFixableIssues || hasIllustrationIssues)) {
+        await db.update(draftEbooks).set({ content, status: "draft" }).where(eq(draftEbooks.id, draftId));
+        const repair = await autoRepairAndPromoteAfterPipeline(draftId);
+        if (repair.pass && repair.promoted) {
+          isComplete = true;
+          newStatus = "ready";
+          const [fixed] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+          content = fixed?.content || content;
+          wordCount = content.split(/\s+/).length;
+        }
+      } else if (qualityIssues.length > 0) {
+        console.log(`[Content Gen] "${title}" — keeping as draft (issues need rewrite, not auto-repair)`);
+      }
+    }
+
     console.log(`[Content Gen] "${title}" finished: ${wordCount} words (genre min: ${effectiveMinWords}), complete: ${isComplete}, status: ${newStatus}`);
     
     await db.update(draftEbooks).set({ content, status: newStatus }).where(eq(draftEbooks.id, draftId));
@@ -5642,15 +5675,25 @@ Format: Start with "## Chapter ${nextChapterNum}: [Chapter Title]" then write th
       throw new Error("Generated chapter was too short after 3 attempts");
     }
 
-    const updatedContent = existingContent.trimEnd() + "\n\n---\n\n" + chapterContent.trim();
+    let updatedContent = existingContent.trimEnd() + "\n\n---\n\n" + chapterContent.trim();
     const totalWords = updatedContent.split(/\s+/).length;
 
     console.log(`[Append Chapter] Chapter ${nextChapterNum} generated: ${chapterWords} words. Total: ${totalWords} words.`);
 
-    const freeGate = passesFreeIllustrationAndOutlineGate(updatedContent, genre, outline);
-    const newStatus = freeGate.pass ? "ready" : "draft";
+    let freeGate = passesFreeIllustrationAndOutlineGate(updatedContent, genre, outline);
+    let newStatus: "ready" | "draft" = freeGate.pass ? "ready" : "draft";
     if (!freeGate.pass) {
-      console.log(`[Append Chapter] "${title}" — free illustration/outline gate failed: ${freeGate.issues.join("; ")} — keeping draft`);
+      console.log(`[Append Chapter] "${title}" — free illustration/outline gate failed: ${freeGate.issues.join("; ")} — auto-repairing`);
+      await db.update(draftEbooks).set({ content: updatedContent, status: "draft" }).where(eq(draftEbooks.id, draftId));
+      const repair = await autoRepairAndPromoteAfterPipeline(draftId);
+      if (repair.pass && repair.promoted) {
+        newStatus = "ready";
+        const [fixed] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+        updatedContent = fixed?.content || updatedContent;
+        freeGate = { pass: true, issues: [] };
+      } else {
+        console.log(`[Append Chapter] "${title}" — still draft after auto-repair`);
+      }
     }
 
     await db.update(draftEbooks).set({ content: updatedContent, status: newStatus }).where(eq(draftEbooks.id, draftId));
@@ -6255,6 +6298,142 @@ export function passesFreeIllustrationAndOutlineGate(
   return { pass: true, issues };
 }
 
+/**
+ * After dialogue + illustrations have already run, a failed gate must not leave the
+ * book stuck in `draft`. Repair layout / missing final-chapter figures once, re-gate,
+ * and promote to `ready` when it passes.
+ */
+export async function autoRepairAndPromoteAfterPipeline(draftId: number): Promise<{
+  pass: boolean;
+  promoted: boolean;
+  issues: string[];
+  repairs: string[];
+}> {
+  const [draft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  if (!draft?.content || draft.content.trim().length < 500) {
+    return { pass: false, promoted: false, issues: ["no content"], repairs: [] };
+  }
+  if (draft.status === "published") {
+    return { pass: true, promoted: false, issues: [], repairs: [] };
+  }
+
+  const title = draft.title || draft.topic || "Untitled";
+  const genre = draft.genre || "General";
+  const educational = isEducationalDraft({ genre, description: draft.description });
+  const repairs: string[] = [];
+
+  console.log(`[AutoRepair] "${title}" (ID ${draftId}) — gate failed after pipeline; auto-repairing…`);
+
+  const applied = applyDeterministicGateRepairs(draft.content, draft.outline, { educational });
+  let content = applied.content;
+  repairs.push(...applied.repairs);
+
+  if (applied.repairs.length > 0) {
+    await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+    console.log(`[AutoRepair] "${title}" — ${applied.repairs.join("; ")}`);
+  }
+
+  // Visual books: if markers are still missing for empty chapters, inject then generate.
+  if (isVisualEnhancedGenre(genre) && draftHasPublishableCover(draft)) {
+    const pendingBefore = countUnprocessedIllustrationMarkers(content);
+    if (pendingBefore === 0) {
+      const freeGate = passesFreeIllustrationAndOutlineGate(content, genre, draft.outline);
+      const needsIllus = freeGate.issues.some(
+        (i) =>
+          /0 resolved illustration/i.test(i) ||
+          /outline specifies .+ illustration/i.test(i) ||
+          /need at least \d+ for/i.test(i),
+      );
+      if (needsIllus) {
+        content = await injectIllustrationMarkers(
+          content,
+          genre,
+          title,
+          parseCharacterBibleFromDescription(draft.description),
+          draftId,
+          draft.outline,
+        );
+        const pendingAfterInject = countUnprocessedIllustrationMarkers(content);
+        if (pendingAfterInject > pendingBefore) {
+          repairs.push(`injected ${pendingAfterInject - pendingBefore} illustration marker(s)`);
+          await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+        }
+      }
+    }
+
+    const pending = countUnprocessedIllustrationMarkers(content);
+    if (pending > 0) {
+      console.log(`[AutoRepair] "${title}" — generating ${pending} pending illustration(s)…`);
+      // generateIllustrations aborts when both progress flags are idle ("Stopped by user").
+      // Standalone auto-repair must mark illustrations as running for the duration.
+      const prevIllusRunning = illustrationProgress.running;
+      const prevIllus = { ...illustrationProgress };
+      illustrationProgress = {
+        running: true,
+        bookId: draftId,
+        bookTitle: title,
+        totalBooks: 1,
+        completedBooks: 0,
+        currentImage: 0,
+        totalImages: pending,
+        lastGeneratedFile: prevIllus.lastGeneratedFile || "",
+      };
+      try {
+        content = await generateIllustrations(
+          content,
+          genre,
+          title,
+          draftId,
+          parseCharacterBibleFromDescription(draft.description),
+        );
+        repairs.push(`generated ${pending} illustration(s)`);
+        await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+      } catch (err: any) {
+        console.error(`[AutoRepair] "${title}" illustration generation failed:`, err?.message || err);
+        repairs.push(`illustration generation failed: ${err?.message || err}`);
+      } finally {
+        if (!prevIllusRunning) {
+          illustrationProgress = { ...prevIllus, running: false, bookId: null, bookTitle: "", currentImage: 0, totalImages: 0 };
+        } else {
+          illustrationProgress.running = true;
+        }
+      }
+    }
+  }
+
+  // Layout can shift after new figures — re-bridge / re-spread once.
+  if (educational) {
+    const bridge2 = bridgeLonelyInstructionalIslands(content);
+    const spread2 = spreadIllegalAdjacentIllustrations(bridge2.content, draft.outline);
+    if (bridge2.bridged > 0 || spread2.moved > 0) {
+      content = spread2.content;
+      await db.update(draftEbooks).set({ content }).where(eq(draftEbooks.id, draftId));
+      if (bridge2.bridged > 0) repairs.push(`post-illus bridged ${bridge2.bridged}`);
+      if (spread2.moved > 0) repairs.push(`post-illus spread ${spread2.moved}`);
+    }
+  }
+
+  const [fresh] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+  const gate = await runPublishPipelineGate(fresh!, { strict: true });
+  if (!gate.pass) {
+    console.log(
+      `[AutoRepair] "${title}" — still FAIL after repair: ${gate.issues.join("; ")} — keeping draft`,
+    );
+    await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
+    return { pass: false, promoted: false, issues: gate.issues, repairs };
+  }
+
+  const pdfUrl = await createPdfFromContent(fresh!.title || title, fresh!.content || content);
+  await db
+    .update(draftEbooks)
+    .set({ status: "ready", ...(pdfUrl ? { pdfUrl } : {}) })
+    .where(eq(draftEbooks.id, draftId));
+  console.log(
+    `[AutoRepair] "${title}" — PASS after repair (${repairs.length ? repairs.join("; ") : "no text changes"}) → ready`,
+  );
+  return { pass: true, promoted: true, issues: [], repairs };
+}
+
 export async function scanContentCompleteness(draftIds?: number[]): Promise<Array<{
   id: number;
   title: string;
@@ -6533,19 +6712,80 @@ Return ONLY valid JSON:
   }
 }
 
-export async function bulkPublishReady(options?: { subscriberExclusive?: boolean }): Promise<{
+export async function bulkPublishReady(options?: {
+  subscriberExclusive?: boolean;
+  /** When set, only these drafts are considered (gate → ready → publish). */
+  draftIds?: number[];
+}): Promise<{
   published: number;
   failed: number;
   skipped: number;
   details: Array<{ id: number; title: string; action: string; issues?: string[] }>;
 }> {
-  const readyDrafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "ready"));
-  console.log(`[Bulk Publish] Found ${readyDrafts.length} "ready" ebooks — running full quality sweep before publishing...`);
-
+  let readyDrafts;
   const details: Array<{ id: number; title: string; action: string; issues?: string[] }> = [];
   let published = 0;
   let failed = 0;
   let skipped = 0;
+
+  if (options?.draftIds && options.draftIds.length > 0) {
+    const ids = [...new Set(options.draftIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+    const selected = await db.select().from(draftEbooks).where(inArray(draftEbooks.id, ids));
+    console.log(
+      `[Bulk Publish] Selected ${selected.length} draft(s) — running quality gate, then publishing passers…`,
+    );
+    const promoted: typeof selected = [];
+    for (const draft of selected) {
+      const title = draft.title || draft.topic || "Untitled";
+      if (draft.status === "published") {
+        details.push({
+          id: draft.id,
+          title,
+          action: "skipped_already_published",
+          issues: ["Already published — use Push to Production if live is behind"],
+        });
+        skipped++;
+        continue;
+      }
+      if (draft.status === "generating") {
+        details.push({
+          id: draft.id,
+          title,
+          action: "skipped_generating",
+          issues: ["Still generating — wait until writing finishes"],
+        });
+        skipped++;
+        continue;
+      }
+      // Always re-run the strict gate before publish — including drafts already marked ready.
+      let gate = await runPublishPipelineGate(draft, { strict: true });
+      if (!gate.pass) {
+        console.log(`[Bulk Publish] GATE FAIL #${draft.id} "${title}": ${gate.issues.join("; ")} — auto-repairing`);
+        const repair = await autoRepairAndPromoteAfterPipeline(draft.id);
+        if (!repair.pass) {
+          details.push({
+            id: draft.id,
+            title,
+            action: "failed_quality_gate",
+            issues: repair.issues.length ? repair.issues : gate.issues,
+          });
+          failed++;
+          continue;
+        }
+        gate = { pass: true, issues: [] };
+      }
+      const [promotedDraft] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draft.id));
+      if (promotedDraft?.status !== "ready" && promotedDraft?.status !== "published") {
+        await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
+      }
+      console.log(`[Bulk Publish] Gate PASS #${draft.id} "${title}" — queued to publish`);
+      promoted.push({ ...(promotedDraft || draft), status: "ready" });
+    }
+    readyDrafts = promoted;
+  } else {
+    readyDrafts = await db.select().from(draftEbooks).where(eq(draftEbooks.status, "ready"));
+    console.log(`[Bulk Publish] Found ${readyDrafts.length} "ready" ebooks — running full quality sweep before publishing...`);
+  }
 
   const LIGHTWEIGHT_GENRE_KEYWORDS = [
     "coloring book", "quote book", "journal",
@@ -6736,12 +6976,17 @@ export async function bulkPublishReady(options?: { subscriberExclusive?: boolean
       continue;
     }
 
-    const dialogueResult = await checkDialogueQuality(content, title, genre, draft.outline || undefined);
+    const educational = isEducationalDraft({ genre, description: draft.description });
+    const qualityResult = educational
+      ? await checkInstructionalMaterialsQuality(content, title, genre, draft.outline || undefined)
+      : await checkDialogueQuality(content, title, genre, draft.outline || undefined);
 
-    if (!dialogueResult.pass) {
-      console.log(`[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — DIALOGUE: ${dialogueResult.summary} — keeping as ready`);
+    if (!qualityResult.pass) {
+      console.log(
+        `[Bulk Publish] FAILED "${title}" (ID ${draft.id}) — ${educational ? "INSTRUCTIONAL" : "DIALOGUE"}: ${qualityResult.summary} — keeping as ready`,
+      );
 
-      details.push({ id: draft.id, title, action: "failed_dialogue", issues: dialogueResult.issues });
+      details.push({ id: draft.id, title, action: educational ? "failed_instructional" : "failed_dialogue", issues: qualityResult.issues });
       failed++;
     } else {
       try {
@@ -7440,8 +7685,12 @@ export async function generateMissingContent(): Promise<void> {
               const dialogueResult = await checkDialogueQuality(recheckContent, recheckTitle, recheckGenre, recheckOutline);
               const freeGate = passesFreeIllustrationAndOutlineGate(recheckContent, recheckGenre, recheckOutline);
               if (!freeGate.pass) {
-                console.log(`[Bulk Content] RECHECK "${draft.title}" FAILED free illustration/outline gate: ${freeGate.issues.join("; ")} — keeping draft`);
+                console.log(`[Bulk Content] RECHECK "${draft.title}" FAILED free illustration/outline gate: ${freeGate.issues.join("; ")} — auto-repairing`);
                 await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
+                const repair = await autoRepairAndPromoteAfterPipeline(draft.id);
+                if (!repair.pass) {
+                  console.log(`[Bulk Content] RECHECK "${draft.title}" still draft after auto-repair`);
+                }
                 activeGenerationCount--;
                 console.log(`[Generation Guard] Recheck complete. Active: ${activeGenerationCount}`);
               } else if (dialogueResult.pass) {
@@ -7482,7 +7731,11 @@ export async function generateMissingContent(): Promise<void> {
               const dialogueResult = await checkDialogueQuality(repContent, repTitle, repGenre, repOutline);
               const freeGate = passesFreeIllustrationAndOutlineGate(repContent, repGenre, repOutline);
               if (!freeGate.pass) {
-                console.log(`[Bulk Content] REPAIR "${draft.title}" FAILED free illustration/outline gate: ${freeGate.issues.join("; ")} — keeping draft`);
+                console.log(`[Bulk Content] REPAIR "${draft.title}" FAILED free illustration/outline gate: ${freeGate.issues.join("; ")} — auto-repairing`);
+                const repair = await autoRepairAndPromoteAfterPipeline(draft.id);
+                if (!repair.pass) {
+                  console.log(`[Bulk Content] REPAIR "${draft.title}" still draft after auto-repair`);
+                }
               } else if (dialogueResult.pass) {
                 console.log(`[Bulk Content] REPAIR "${draft.title}" PASSED quality gate — marking ready. ${dialogueResult.summary}`);
                 await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
@@ -9016,8 +9269,9 @@ Return the COMPLETE fixed chapter starting with the heading "${ch.heading}". Kee
             if (freeGate.pass) {
               await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
             } else {
-              console.log(`[Intro Repair] "${draft.title}" — free gate failed: ${freeGate.issues.join("; ")} — keeping draft`);
+              console.log(`[Intro Repair] "${draft.title}" — free gate failed: ${freeGate.issues.join("; ")} — auto-repairing`);
               await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
+              await autoRepairAndPromoteAfterPipeline(draft.id);
             }
           }
         } else if (work.action === "chapter-repair") {
@@ -9145,8 +9399,9 @@ Return the COMPLETE rewritten chapter starting with the heading "${ch.heading}".
             if (freeGate.pass) {
               await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
             } else {
-              console.log(`[Chapter Repair] "${draft.title}" — free gate failed: ${freeGate.issues.join("; ")} — keeping draft`);
+              console.log(`[Chapter Repair] "${draft.title}" — free gate failed: ${freeGate.issues.join("; ")} — auto-repairing`);
               await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draft.id));
+              await autoRepairAndPromoteAfterPipeline(draft.id);
             }
           }
         } else if (work.action === "continue-content") {
@@ -9176,7 +9431,8 @@ Return the COMPLETE rewritten chapter starting with the heading "${ch.heading}".
             if (freeGate.pass) {
               await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draft.id));
             } else {
-              console.log(`[Targeted Rewrite] "${draft.title}" — free gate failed: ${freeGate.issues.join("; ")} — keeping draft`);
+              console.log(`[Targeted Rewrite] "${draft.title}" — free gate failed: ${freeGate.issues.join("; ")} — auto-repairing`);
+              await autoRepairAndPromoteAfterPipeline(draft.id);
             }
           }
         } else if (work.action === "illustrations-only") {

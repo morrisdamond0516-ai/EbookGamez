@@ -328,6 +328,13 @@ export const promoUsages = pgTable("promo_usages", {
   customerEmail: text("customer_email").notNull(),
   stripeSessionId: text("stripe_session_id"),
   orderTotal: text("order_total"),
+  /** Client IP when a free/test promo was redeemed (e.g. GOOGLETEST). */
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  bookTitles: text("book_titles"),
+  /** True when IP was not on FREE_PROMO_ALLOWED_IPS. */
+  unknownSource: boolean("unknown_source").default(false),
+  alertSent: boolean("alert_sent").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

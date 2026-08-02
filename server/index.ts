@@ -237,6 +237,25 @@ app.post(
 
 app.use(compression());
 
+// Block sensitive paths before SPA/static catch-all (scanners flag SPA HTML as ".env leak").
+const BLOCKED_SENSITIVE_PATH =
+  /^\/(\.env(?:\..*)?|\.git(?:\/.*)?|\.htaccess|\.DS_Store|composer\.(json|lock)|package-lock\.json|yarn\.lock|\.npmrc|\.dockerignore)$/i;
+app.use((req, res, next) => {
+  if (BLOCKED_SENSITIVE_PATH.test(req.path)) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(403).type("text/plain").send("Forbidden");
+  }
+  next();
+});
+
+// Baseline security headers on every response (HTML + API).
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
+
 app.use(
   express.json({
     limit: '50mb',

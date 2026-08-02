@@ -13,8 +13,10 @@ export function Footer() {
               A digital sanctuary for lovers of timeless stories and cinematic masterpieces.
             </p>
             <img
-              src="/ebookgamez-logo.png"
+              src="/opengraph.jpg"
               alt="EbookGamez"
+              width={64}
+              height={64}
               className="mt-4 h-16 w-16 rounded-xl object-cover object-top opacity-75 hover:opacity-100 transition-opacity"
             />
           </div>
@@ -51,7 +53,10 @@ export function Footer() {
             &copy; {new Date().getFullYear()} EbookGamez. All rights reserved.
           </p>
           <p className="text-xs text-white/20 font-body mt-1">
-            P.O. Box 1181, Las Vegas, NV 89125 &bull; ebookgames@yahoo.com
+            P.O. Box 1181, Las Vegas, NV 89125 &bull;{" "}
+            <a href="mailto:ebookgames@yahoo.com" className="text-primary/70 hover:text-primary underline-offset-2 hover:underline">
+              ebookgames@yahoo.com
+            </a>
           </p>
           <p className="text-xs text-white/20 font-body mt-1">
             All ebooks are digital products delivered electronically. Payments processed securely by Stripe.

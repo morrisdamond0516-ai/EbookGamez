@@ -208,39 +208,85 @@ export function Navbar() {
                     <Menu className="h-5 w-5" aria-hidden="true" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="right" className="bg-background border-l border-white/10">
-                  <div className="flex flex-col space-y-6 mt-10">
-                    <div className="relative">
-                      <Input 
-                        placeholder="Search library..." 
-                        className="w-full bg-black/20 border-white/10 focus:border-primary/50 text-sm pl-4 pr-10 font-serif"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-                        data-testid="input-mobile-search"
-                      />
-                      <button onClick={handleSearch} className="absolute right-3 top-2.5" aria-label="Search">
-                        <Search className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" aria-hidden="true" />
-                      </button>
+                <SheetContent
+                  side="right"
+                  className="w-[min(100%,20rem)] bg-background border-l border-white/10 px-0"
+                >
+                  <div className="flex h-full flex-col">
+                    <div className="border-b border-white/10 px-6 pb-5 pt-2 text-center">
+                      <p className="font-display text-lg tracking-widest text-primary">
+                        EBOOKGAME<span className="italic text-white" style={{ fontFamily: "'Playfair Display', serif" }}>Z</span>
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">Menu</p>
                     </div>
-                    <Link href="/" className="text-xl font-serif text-foreground hover:text-primary">Home</Link>
-                    <Link href="/catalog" className="text-xl font-serif text-foreground hover:text-primary">Catalog</Link>
-                    <Link href="/games" className="text-xl font-serif text-foreground hover:text-primary">Games</Link>
-                    <Link href="/downloads" className="text-xl font-serif text-foreground hover:text-primary">Downloads</Link>
-                    <Link href="/guides" className="text-xl font-serif text-foreground hover:text-primary">Guides</Link>
-                    <Link href="/blog" className="text-xl font-serif text-foreground hover:text-primary">Blog</Link>
-                    <Link href="/subscription" className="text-xl font-serif text-emerald-400 hover:text-emerald-300">Reading Pass</Link>
-                    <Link href="/about" className="text-xl font-serif text-foreground hover:text-primary">About</Link>
-                    <Link href={isCustomerLoggedIn ? "/my-account" : "/login"} className="text-xl font-serif text-foreground hover:text-primary" data-testid="link-mobile-account">
-                      {isCustomerLoggedIn ? "My Account" : "Sign In"}
-                    </Link>
-                    {showAdmin && (
-                      <>
-                        <Link href="/admin" className="text-xl font-serif text-primary hover:text-primary/80">Admin Dashboard</Link>
-                        <Link href="/content-studio" className="text-xl font-serif text-primary hover:text-primary/80">AI Content Studio</Link>
-                        <button onClick={handleLogout} className="text-left text-xl font-serif text-red-400 hover:text-red-300">Logout</button>
-                      </>
-                    )}
+
+                    <div className="px-6 pt-5">
+                      <div className="relative">
+                        <Input
+                          placeholder="Search the library"
+                          className="w-full bg-black/20 border-white/10 focus:border-primary/50 text-sm pl-4 pr-10 font-serif text-center placeholder:text-center"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+                          data-testid="input-mobile-search"
+                        />
+                        <button onClick={handleSearch} className="absolute right-3 top-2.5" aria-label="Search">
+                          <Search className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <nav className="mt-4 flex flex-1 flex-col overflow-y-auto px-2" aria-label="Mobile">
+                      {[
+                        { href: "/", label: "Home" },
+                        { href: "/catalog", label: "Catalog" },
+                        { href: "/games", label: "Games" },
+                        { href: "/downloads", label: "Downloads" },
+                        { href: "/guides", label: "Guides" },
+                        { href: "/blog", label: "Blog" },
+                        { href: "/subscription", label: "Reading Pass", highlight: true },
+                        { href: "/about", label: "About" },
+                        { href: "/contact", label: "Contact" },
+                        {
+                          href: isCustomerLoggedIn ? "/my-account" : "/login",
+                          label: isCustomerLoggedIn ? "My Account" : "Sign In",
+                          testId: "link-mobile-account",
+                        },
+                      ].map((item) => (
+                        <Link
+                          key={item.href + item.label}
+                          href={item.href}
+                          data-testid={item.testId}
+                          className={`border-b border-white/5 px-4 py-3.5 text-center text-lg font-serif transition-colors ${
+                            item.highlight
+                              ? "text-emerald-400 hover:text-emerald-300"
+                              : "text-foreground/90 hover:text-primary"
+                          }`}
+                        >
+                          {item.label}
+                        </Link>
+                      ))}
+                      {showAdmin && (
+                        <>
+                          <Link href="/admin" className="border-b border-white/5 px-4 py-3.5 text-center text-base font-serif text-primary hover:text-primary/80">
+                            Admin
+                          </Link>
+                          <Link href="/content-studio" className="border-b border-white/5 px-4 py-3.5 text-center text-base font-serif text-primary hover:text-primary/80">
+                            AI Studio
+                          </Link>
+                          <button
+                            onClick={handleLogout}
+                            className="border-b border-white/5 px-4 py-3.5 text-center text-base font-serif text-red-400 hover:text-red-300"
+                          >
+                            Logout
+                          </button>
+                        </>
+                      )}
+                    </nav>
+
+                    <p className="border-t border-white/10 px-6 py-4 text-center text-[11px] leading-relaxed text-muted-foreground">
+                      600+ ebooks · Free games · Reading Pass
+                    </p>
                   </div>
                 </SheetContent>
               </Sheet>

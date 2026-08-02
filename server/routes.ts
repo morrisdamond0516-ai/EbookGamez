@@ -5,6 +5,7 @@ import { storage, db } from "./storage";
 import { insertBookSchema, type InsertOrderItem, draftEbooks, generationJobs, books, bookReviews, readingAccess, pageViews, promoUsages, authorSubmissions, insertAuthorSubmissionSchema, affiliateApplications, insertAffiliateApplicationSchema, customers, orders, orderItems, subscriptions, activeCheckouts, bookRequests, insertBookRequestSchema } from "@shared/schema";
 import bcrypt from "bcryptjs";
 import { sendPasswordResetEmail, sendWelcomeEmail, sendPurchaseThankYouEmail, sendSubscriptionOTPEmail, sendPlanChangeEmail } from "./emailService";
+import { recordFreePromoUseAndAlert } from "./freePromoSecurity";
 import { generateOTP, verifyOTP, requireSubscriptionAuth, subscriptionRateLimit, otpRateLimit, sensitiveActionRateLimit, validateSession } from "./subscriptionAuth";
 import { z } from "zod";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
@@ -2954,18 +2955,16 @@ Allow: /
       if (!code) {
         return res.status(400).json({ valid: false, reason: "Code is required" });
       }
-      const OWNER_CODE_EXPIRY = new Date("2026-06-19T23:59:59Z");
-      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "EBGZOWNER": 1.0, "GOOGLETEST": 1.0 };
-      // Codes that are unlimited-use (no per-email tracking)
-      const UNLIMITED_CODES = new Set(["EBGZOWNER", "GOOGLETEST"]);
+      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "GOOGLETEST": 1.0 };
+      // Unlimited-use test codes (no per-email tracking). EBGZOWNER removed — expired.
+      const UNLIMITED_CODES = new Set(["GOOGLETEST"]);
       const upperCode = code.toUpperCase().trim();
+      if (upperCode === "EBGZOWNER") {
+        return res.json({ valid: false, reason: "This code has expired" });
+      }
       if (!VALID_PROMOS[upperCode]) {
         return res.json({ valid: false, reason: "Invalid promo code" });
       }
-      if (upperCode === "EBGZOWNER" && new Date() > OWNER_CODE_EXPIRY) {
-        return res.json({ valid: false, reason: "This code has expired" });
-      }
-      // GOOGLETEST: always valid, no expiry
       if (!UNLIMITED_CODES.has(upperCode)) {
         const existing = await db.select().from(promoUsages)
           .where(sql`${promoUsages.customerEmail} = ${email.toLowerCase().trim()} AND ${promoUsages.promoCode} = ${upperCode}`)
@@ -3125,12 +3124,10 @@ Allow: /
         return res.status(400).json({ error: "Cart items are required" });
       }
 
-      const OWNER_CODE_EXPIRY = new Date("2026-06-19T23:59:59Z");
-      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "EBGZOWNER": 1.0, "GOOGLETEST": 1.0 };
+      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "GOOGLETEST": 1.0 };
       const upperPromo = (promoCode || '').toUpperCase().trim();
-      const isOwnerCode = upperPromo === 'EBGZOWNER' && new Date() <= OWNER_CODE_EXPIRY;
       const isGoogleTestCode = upperPromo === 'GOOGLETEST';
-      const promoDiscount = upperPromo && VALID_PROMOS[upperPromo] && (upperPromo !== 'EBGZOWNER' || isOwnerCode) ? VALID_PROMOS[upperPromo] : 0;
+      const promoDiscount = upperPromo && VALID_PROMOS[upperPromo] ? VALID_PROMOS[upperPromo] : 0;
 
       const bookIds = items.map((item: any) => parseInt(item.id || item.bookId));
       const validPurchaseTypes = ['download', 'read_online', 'bundle'] as const;
@@ -3149,9 +3146,9 @@ Allow: /
         return res.status(404).json({ error: "No valid books found" });
       }
 
-      // EBGZOWNER / GOOGLETEST: 100% off test codes — bypass Stripe, create order directly
-      // Always uses owner@ebookgamez.com so the success page works when logged in as that account.
-      if ((isOwnerCode || isGoogleTestCode) && promoDiscount === 1.0) {
+      // GOOGLETEST: 100% off — bypass Stripe, create order for owner account only.
+      // Logs IP/UA and emails owner when IP is not on FREE_PROMO_ALLOWED_IPS.
+      if (isGoogleTestCode && promoDiscount === 1.0) {
         const ownerEmail = 'owner@ebookgamez.com';
         const fakeSessionId = `cs_owner_free_${Date.now()}`;
         const order = await storage.createOrder({
@@ -3168,8 +3165,9 @@ Allow: /
           title: book.title,
           purchaseType,
         })));
-        // Grant reading access for 30 days (matches code expiry)
-        const readExpiresAt = new Date(OWNER_CODE_EXPIRY);
+        // Grant reading access for 1 year (owner test only)
+        const readExpiresAt = new Date();
+        readExpiresAt.setFullYear(readExpiresAt.getFullYear() + 1);
         for (const { book, purchaseType } of validItems) {
           if (purchaseType === 'read_online' || purchaseType === 'bundle') {
             await db.insert(readingAccess).values({
@@ -3180,6 +3178,13 @@ Allow: /
             });
           }
         }
+        void recordFreePromoUseAndAlert({
+          req,
+          promoCode: upperPromo,
+          orderId: order.id,
+          sessionId: fakeSessionId,
+          bookTitles: validItems.map(({ book }) => book.title || `Book #${book.id}`),
+        });
         return res.json({ url: `/checkout/success?session_id=${fakeSessionId}` });
       }
 
@@ -5019,13 +5024,21 @@ Respond in JSON format only:
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const subscriberExclusive = req.body?.subscriberExclusive === true;
-      const result = await contentStudio.bulkPublishReady({ subscriberExclusive });
+      const draftIds = Array.isArray(req.body?.draftIds)
+        ? req.body.draftIds.map((id: unknown) => Number(id)).filter((n: number) => Number.isInteger(n) && n > 0)
+        : undefined;
+      const result = await contentStudio.bulkPublishReady({
+        subscriberExclusive,
+        draftIds: draftIds?.length ? draftIds : undefined,
+      });
       res.json({
         publishedCount: result.published,
         failedCount: result.failed,
         skippedCount: result.skipped,
         details: result.details,
-        message: `Published ${result.published} ebooks. ${result.failed} failed quality gate and were demoted to draft.`,
+        message: draftIds?.length
+          ? `Selected ${draftIds.length}: published ${result.published}. ${result.failed} failed quality gate. ${result.skipped} skipped.`
+          : `Published ${result.published} ebooks. ${result.failed} failed quality gate and were demoted to draft.`,
       });
     } catch (error) {
       console.error("Error in publish-all:", error);

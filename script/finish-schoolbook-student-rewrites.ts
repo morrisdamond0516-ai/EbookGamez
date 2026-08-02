@@ -95,16 +95,24 @@ async function finishOne(draftId: number): Promise<"published" | "failed" | "ski
 
   const gate = await runPublishPipelineGate(fresh, { strict: true });
   if (!gate.pass) {
-    log(`#${draftId} STRICT GATE FAIL: ${gate.issues.join("; ")}`);
-    if (fresh.status === "ready") {
-      await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
+    log(`#${draftId} STRICT GATE FAIL — auto-repairing: ${gate.issues.join("; ")}`);
+    const { autoRepairAndPromoteAfterPipeline } = await import("../server/contentStudio");
+    const repair = await autoRepairAndPromoteAfterPipeline(draftId);
+    if (!repair.pass) {
+      log(`#${draftId} still FAIL after auto-repair: ${repair.issues.join("; ")}`);
+      [fresh] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
+      if (fresh?.status === "ready") {
+        await db.update(draftEbooks).set({ status: "draft" }).where(eq(draftEbooks.id, draftId));
+      }
+      return "failed";
     }
-    return "failed";
+    log(`#${draftId} auto-repair PASS (${repair.repairs.join("; ") || "no text changes"})`);
+    [fresh] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
   }
 
-  if (fresh.status !== "ready" && fresh.status !== "published") {
+  if (fresh!.status !== "ready" && fresh!.status !== "published") {
     await db.update(draftEbooks).set({ status: "ready" }).where(eq(draftEbooks.id, draftId));
-    const pdfUrl = await createPdfFromContent(fresh.title || "", fresh.content || "");
+    const pdfUrl = await createPdfFromContent(fresh!.title || "", fresh!.content || "");
     if (pdfUrl) {
       await db.update(draftEbooks).set({ pdfUrl }).where(eq(draftEbooks.id, draftId));
     }

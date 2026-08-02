@@ -47,6 +47,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { ensureCoverPreviewFontsLoaded } from "@/lib/coverPreviewFonts";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -285,6 +286,10 @@ export default function ContentStudio() {
 }
 
 function ContentStudioMain() {
+  useEffect(() => {
+    ensureCoverPreviewFontsLoaded();
+  }, []);
+
   const [studioSearchQuery, setStudioSearchQuery] = useState("");
   const [publishedExpanded, setPublishedExpanded] = useState(false);
   const [publishedProdFilter, setPublishedProdFilter] = useState<"all" | "need_push" | "synced" | "renamed">("all");
@@ -716,7 +721,7 @@ function ContentStudioMain() {
     };
   }, [drafts, selectedIds]);
 
-  // Prefer the rename queue when it has work; otherwise fall back to all-pending.
+  // Prefer the rename queue when it has work; otherwise all pending (never pushed / local changes).
   // Only depends on counts (primitives) — never setState from a fresh array ref each render.
   useEffect(() => {
     if (syncModeTouched || draftsLoading) return;
@@ -743,6 +748,28 @@ function ContentStudioMain() {
       return new Set(ids);
     });
   }, [syncMode, titleRepairIdsKey]);
+
+  // Auto-select never-pushed / pending rows when that queue is active (same one-shot pattern as title repairs).
+  const pendingPushIdsKey = useMemo(
+    () =>
+      pushToProdCounts.pendingDrafts
+        .slice(0, PUSH_TO_PROD_MAX)
+        .map((d) => d.id)
+        .sort((a, b) => a - b)
+        .join(","),
+    [pushToProdCounts.pendingDrafts],
+  );
+  const pendingSelectDoneRef = useRef("");
+  useEffect(() => {
+    if (syncMode !== "pending" || !pendingPushIdsKey) return;
+    if (pendingSelectDoneRef.current === pendingPushIdsKey) return;
+    pendingSelectDoneRef.current = pendingPushIdsKey;
+    const ids = pendingPushIdsKey.split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    setSelectedIds((prev) => {
+      if (prev.size === ids.length && ids.every((id) => prev.has(id))) return prev;
+      return new Set(ids);
+    });
+  }, [syncMode, pendingPushIdsKey]);
 
   const pushCountForMode = useMemo(() => {
     if (syncMode === "selected") return pushToProdCounts.selected;
@@ -1267,27 +1294,31 @@ function ContentStudioMain() {
   const [showPublishDetails, setShowPublishDetails] = useState(false);
 
   const publishAllMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (draftIds?: number[]) => {
       const response = await fetch("/api/content-studio/publish-all", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-token": localStorage.getItem("ebgz_admin_token") || "" },
-        body: JSON.stringify({ subscriberExclusive: autoExclusive }),
+        body: JSON.stringify({
+          subscriberExclusive: autoExclusive,
+          draftIds: draftIds?.length ? draftIds : undefined,
+        }),
       });
-      if (!response.ok) throw new Error("Failed to publish all");
+      if (!response.ok) throw new Error("Failed to publish");
       return response.json();
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/books"] });
       const failMsg = data.failedCount > 0 ? ` ${data.failedCount} failed quality gate.` : "";
-      toast({ title: "Publish Complete", description: `${data.publishedCount} published.${failMsg}` });
+      const skipMsg = data.skippedCount > 0 ? ` ${data.skippedCount} skipped.` : "";
+      toast({ title: "Publish Complete", description: `${data.publishedCount} published.${failMsg}${skipMsg}` });
       if (data.details && data.details.length > 0) {
         setPublishDetails(data.details);
         if (data.failedCount > 0) setShowPublishDetails(true);
       }
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to publish all drafts", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to publish drafts", variant: "destructive" });
     },
   });
 
@@ -1753,8 +1784,74 @@ function ContentStudioMain() {
     }
   };
 
+  /** Visible Live column — mirrors the internal ---PROD_SYNC--- stamp. */
+  const getProdLiveSyncBadge = (draft: DraftEbook) => {
+    if (draft.needsProdPush) {
+      if (draft.prodSyncReason === "title_repair") {
+        return (
+          <Badge
+            className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px] whitespace-nowrap"
+            title="Title was renamed — Push to Production still required"
+            data-testid={`badge-live-sync-${draft.id}`}
+          >
+            <Upload className="h-3 w-3 mr-1" />
+            Push rename
+          </Badge>
+        );
+      }
+      if (draft.prodSyncReason === "local_changes") {
+        return (
+          <Badge
+            className="bg-sky-500/20 text-sky-300 border-sky-500/40 text-[10px] whitespace-nowrap"
+            title={
+              draft.lastProdSyncedAt
+                ? `Changed since last live push (${draft.lastProdSyncedAt})`
+                : "Local changes since last live push"
+            }
+            data-testid={`badge-live-sync-${draft.id}`}
+          >
+            <RefreshCw className="h-3 w-3 mr-1" />
+            Push update
+          </Badge>
+        );
+      }
+      return (
+        <Badge
+          className="bg-blue-500/20 text-blue-300 border-blue-500/40 text-[10px] whitespace-nowrap"
+          title="Published locally — not yet pushed to ebookgamez.com / live"
+          data-testid={`badge-live-sync-${draft.id}`}
+        >
+          <Upload className="h-3 w-3 mr-1" />
+          Need push
+        </Badge>
+      );
+    }
+    return (
+      <Badge
+        className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] whitespace-nowrap"
+        title={
+          draft.lastProdSyncedAt
+            ? `Last verified push to live: ${draft.lastProdSyncedAt}`
+            : "Fingerprint matches last successful push to live"
+        }
+        data-testid={`badge-live-sync-${draft.id}`}
+      >
+        <CheckCircle className="h-3 w-3 mr-1" />
+        On live
+      </Badge>
+    );
+  };
+
   const activeJobs = jobs.filter(j => j.status === "processing" || j.status === "queued");
   const readyDrafts = drafts.filter(d => d.status === "ready");
+  const selectedForPublish = useMemo(() => {
+    return Array.from(selectedIds).filter((id) => {
+      const d = drafts.find((x) => x.id === id);
+      if (!d) return false;
+      if (d.status === "published" || d.status === "generating") return false;
+      return (d.contentWordCount || 0) > 50 || d.content === "has_content";
+    });
+  }, [selectedIds, drafts]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -2649,6 +2746,12 @@ function ContentStudioMain() {
                       setSyncMode(next);
                       if (next === "title_repairs") {
                         setSelectedIds(new Set(pushToProdCounts.titleRepairDrafts.map(d => d.id)));
+                      } else if (next === "pending") {
+                        setSelectedIds(
+                          new Set(
+                            pushToProdCounts.pendingDrafts.slice(0, PUSH_TO_PROD_MAX).map((d) => d.id),
+                          ),
+                        );
                       }
                     }}
                     className="w-full h-8 rounded-md border border-white/20 bg-background text-sm px-2"
@@ -2658,7 +2761,11 @@ function ContentStudioMain() {
                       Title renames awaiting push ({pushToProdCounts.titleRepairs})
                     </option>
                     <option value="pending">
-                      All that need push ({pushToProdCounts.pending})
+                      All that need push ({pushToProdCounts.pending}
+                      {pushToProdCounts.neverPushed > 0 || pushToProdCounts.localChanges > 0
+                        ? ` · ${pushToProdCounts.neverPushed} new, ${pushToProdCounts.localChanges} changed`
+                        : ""}
+                      )
                     </option>
                     <option value="selected">Selected only ({pushToProdCounts.selected})</option>
                   </select>
@@ -3503,9 +3610,25 @@ function ContentStudioMain() {
                         30-day exclusive
                       </label>
                       <Button
-                        onClick={() => publishAllMutation.mutate()}
-                        disabled={publishAllMutation.isPending || readyDrafts.length === 0}
+                        onClick={() => {
+                          if (selectedForPublish.length > 0) {
+                            publishAllMutation.mutate(selectedForPublish);
+                          } else {
+                            publishAllMutation.mutate(undefined);
+                          }
+                        }}
+                        disabled={
+                          publishAllMutation.isPending ||
+                          (selectedIds.size > 0
+                            ? selectedForPublish.length === 0
+                            : readyDrafts.length === 0)
+                        }
                         className="bg-green-600 hover:bg-green-700"
+                        title={
+                          selectedIds.size > 0
+                            ? "Runs quality gate on your selection, promotes passers to Ready, then publishes them"
+                            : "Publishes all drafts already marked Ready (ignores selection)"
+                        }
                         data-testid="button-publish-all"
                       >
                         {publishAllMutation.isPending ? (
@@ -3513,7 +3636,9 @@ function ContentStudioMain() {
                         ) : (
                           <Upload className="h-4 w-4 mr-2" />
                         )}
-                        Sweep & Publish ({readyDrafts.length})
+                        {selectedForPublish.length > 0
+                          ? `Sweep & Publish Selected (${selectedForPublish.length})`
+                          : `Sweep & Publish Ready (${readyDrafts.length})`}
                       </Button>
                       <Button
                         onClick={() => auditPublishedMutation.mutate()}
@@ -4384,7 +4509,7 @@ function ContentStudioMain() {
                             </button>
                           ))}
                           <span className="text-[10px] text-white/40 self-center">
-                            Only real unfinished push work appears in “Need push”. Books already on the storefront show as Done.
+                            Live column = production sync. “Need push” means not yet on ebookgamez.com; “On live” means a successful push was recorded.
                           </span>
                         </div>
                         <Table>
@@ -4402,6 +4527,7 @@ function ContentStudioMain() {
                               <TableHead className="text-primary font-display">Cover</TableHead>
                               <TableHead className="text-primary font-display">Title</TableHead>
                               <TableHead className="text-primary font-display">Genre</TableHead>
+                              <TableHead className="text-primary font-display" title="Live production sync (ebookgamez.com)">Live</TableHead>
                               <TableHead className="text-primary font-display">Price</TableHead>
                               <TableHead className="text-primary font-display">Content</TableHead>
                               <TableHead className="text-primary font-display">Status</TableHead>
@@ -4444,6 +4570,9 @@ function ContentStudioMain() {
                                 <TableCell>
                                   <Badge variant="outline" className="border-white/20">{draft.genre}</Badge>
                                 </TableCell>
+                                <TableCell>
+                                  {getProdLiveSyncBadge(draft)}
+                                </TableCell>
                                 <TableCell className="font-mono">${draft.suggestedPrice || "—"}</TableCell>
                                 <TableCell>
                                   {(draft.contentWordCount || 0) > 0 ? (
@@ -4461,41 +4590,6 @@ function ContentStudioMain() {
                                 <TableCell>
                                   <div className="flex items-center gap-1 flex-wrap">
                                     {getStatusBadge(draft.status)}
-                                    {draft.needsProdPush ? (
-                                      <Badge
-                                        className={
-                                          draft.prodSyncReason === "title_repair"
-                                            ? "bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px]"
-                                            : "bg-blue-500/20 text-blue-300 border-blue-500/30 text-[10px]"
-                                        }
-                                        title={
-                                          draft.prodSyncReason === "title_repair"
-                                            ? "Title renamed — still needs Push to Production"
-                                            : draft.prodSyncReason === "local_changes"
-                                              ? "Changed since last verified push"
-                                              : "Published here but not on the storefront catalog yet"
-                                        }
-                                      >
-                                        {draft.prodSyncReason === "title_repair"
-                                          ? "To do: push rename"
-                                          : draft.prodSyncReason === "local_changes"
-                                            ? "To do: push changes"
-                                            : "To do: push to live"}
-                                      </Badge>
-                                    ) : (
-                                      <Badge
-                                        className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[10px]"
-                                        title={
-                                          draft.prodSyncReason === "on_storefront"
-                                            ? "Already on the storefront catalog (no further push needed)"
-                                            : draft.lastProdSyncedAt
-                                              ? `Last verified push: ${draft.lastProdSyncedAt}`
-                                              : "Done — on live / fingerprint matches"
-                                        }
-                                      >
-                                        {draft.prodSyncReason === "on_storefront" ? "Done: on live" : "Done: synced"}
-                                      </Badge>
-                                    )}
                                     {draft.hasTitleRepair && !draft.needsProdPush && (
                                       <Badge
                                         className="bg-violet-500/15 text-violet-200 border-violet-500/30 text-[10px]"
