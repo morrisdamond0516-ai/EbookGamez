@@ -42,7 +42,7 @@ export default function LinksShrinkLanding() {
             {[
               { icon: Link2, title: "Smart Short Links", desc: "Turn long, ugly URLs into clean branded links. Share them anywhere — social media, emails, bios, QR codes." },
               { icon: BarChart2, title: "Click Analytics", desc: "See exactly who clicked, where they came from, and when. Real data to back every marketing decision." },
-              { icon: Zap, title: "Video Ad Generator", desc: "Create compelling video ads from text prompts or existing content — no studio, no filming, no editing skills needed." },
+              { icon: Zap, title: "Video Ad Generator", desc: "Create compelling video ads right inside LinksShrink — from a text prompt or existing content, no studio, no filming, no editing skills required." },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="bg-black/30 border border-white/10 rounded-xl p-6 text-center hover:border-blue-400/30 transition-colors">
                 <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center mx-auto mb-4">
@@ -66,7 +66,7 @@ export default function LinksShrinkLanding() {
             {[
               "Create short links in seconds — no technical knowledge needed",
               "Track every click with detailed analytics dashboards",
-              "Generate professional video ads without expensive software",
+              "Generate professional video ads inside LinksShrink — no expensive software needed",
               "Use branded links that build trust and boost click-through rates",
               "Perfect for authors, bloggers, e-commerce sellers, and content creators",
             ].map((point) => (
