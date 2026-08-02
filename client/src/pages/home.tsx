@@ -82,6 +82,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => warmAllPartnersIdle(), []);
+  // LearnForge runs on Replit and cold-starts in ~15s — wake it immediately
+  // on homepage mount so it's ready by the time the user clicks.
+  useEffect(() => { warmPartnerSite(PARTNER_URLS.learnforge); }, []);
 
   const handlePopupAction = (destination: string) => {
     setPopup("none");
