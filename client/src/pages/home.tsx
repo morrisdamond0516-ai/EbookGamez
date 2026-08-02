@@ -324,7 +324,7 @@ export default function Home() {
                 <span className="w-px self-stretch bg-gradient-to-b from-transparent via-primary/55 to-transparent" aria-hidden="true" />
                 <span className="flex flex-col items-start leading-tight text-left">
                   <span className="text-[13px] font-display font-bold tracking-wide text-[#f5e8c8] group-hover:text-primary transition-colors">Make Video Ads</span>
-                  <span className="text-[9px] font-sans font-semibold tracking-wider uppercase text-white/50">from $5 / video</span>
+                  <span className="text-[9px] font-sans font-semibold tracking-wider uppercase text-white/50">at LinksShrink · from $5</span>
                 </span>
               </a>
             </div>
