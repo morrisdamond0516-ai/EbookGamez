@@ -13,6 +13,7 @@ import { trackAddToCart } from "@/lib/analytics";
 import { NewsletterSignup } from "@/components/newsletter-signup";
 import { BLOG_POSTS } from "@/data/blog-data";
 import { HOME_FAQS, homeFaqJsonLd } from "@/data/home-faqs";
+import { PARTNER_URLS, warmAllPartnersIdle, warmPartnerSite } from "@/lib/partnerWarmup";
 const heroBg = "/hero.webp";
 
 interface Book {
@@ -79,6 +80,8 @@ export default function Home() {
       document.getElementById(id)?.remove();
     };
   }, []);
+
+  useEffect(() => warmAllPartnersIdle(), []);
 
   const handlePopupAction = (destination: string) => {
     setPopup("none");
@@ -303,10 +306,13 @@ export default function Home() {
                 </span>
               </Link>
               <a
-                href="https://linksshrink.com"
+                href={PARTNER_URLS.linksshrink}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="button-video-ads"
+                onMouseEnter={() => warmPartnerSite(PARTNER_URLS.linksshrink)}
+                onFocus={() => warmPartnerSite(PARTNER_URLS.linksshrink)}
+                onTouchStart={() => warmPartnerSite(PARTNER_URLS.linksshrink)}
                 className="group relative inline-flex items-center gap-2.5 pl-2.5 pr-3.5 py-2 transition-all duration-300 hover:-translate-y-0.5"
                 style={{
                   clipPath: 'polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px)',
@@ -331,10 +337,13 @@ export default function Home() {
               className="mt-10 flex justify-center"
             >
               <a
-                href="https://knowledge-builder.replit.app/"
+                href={PARTNER_URLS.learnforge}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="link-learnforge"
+                onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)}
+                onFocus={() => warmPartnerSite(PARTNER_URLS.learnforge)}
+                onTouchStart={() => warmPartnerSite(PARTNER_URLS.learnforge)}
                 className="group relative inline-flex flex-col items-center justify-center gap-1 px-16 py-6 font-display tracking-wide transition-all duration-300 hover:scale-[1.025]"
                 style={{
                   borderRadius: '75px 75px 55px 55px / 55px 55px 75px 75px',
@@ -493,10 +502,13 @@ export default function Home() {
 
           {/* LearnForge — full-width featured card */}
           <motion.a
-            href="https://knowledge-builder.replit.app/"
+            href={PARTNER_URLS.learnforge}
             target="_blank"
             rel="noopener noreferrer"
             data-testid="card-section-learnforge"
+            onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)}
+            onFocus={() => warmPartnerSite(PARTNER_URLS.learnforge)}
+            onTouchStart={() => warmPartnerSite(PARTNER_URLS.learnforge)}
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4, duration: 0.5 }}
