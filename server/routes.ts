@@ -564,6 +564,25 @@ Allow: /
     next();
   });
 
+  // ── Book lookup by URL slug (title-derived) ──
+  app.get("/api/books/by-slug/:slug", async (req, res) => {
+    try {
+      const slug = req.params.slug as string;
+      // Convert slug back to a searchable pattern: hyphens → spaces, then ILIKE
+      const pattern = "%" + slug.replace(/-/g, " ") + "%";
+      const result = await db
+        .select()
+        .from(books)
+        .where(sql`LOWER(${books.title}) LIKE LOWER(${pattern}) AND ${books.visible} = true`)
+        .limit(1);
+      if (!result.length) return res.status(404).json({ error: "Not found" });
+      return res.json(result[0]);
+    } catch (err) {
+      console.error("[by-slug] error:", err);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
   app.get("/sitemap.xml", async (req, res) => {
     try {
       const allBooks = await storage.getAllBooks({ includeHidden: false });
@@ -580,7 +599,24 @@ Allow: /
   <url><loc>${baseUrl}/games</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/downloads</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/guides</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
-  <url><loc>${baseUrl}/subscription</loc><changefreq>monthly</changefreq><priority>0.7</priority><lastmod>${now}</lastmod></url>`;
+  <url><loc>${baseUrl}/subscription</loc><changefreq>monthly</changefreq><priority>0.7</priority><lastmod>${now}</lastmod></url>
+  <url><loc>${baseUrl}/learnforge</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${now}</lastmod></url>
+  <url><loc>${baseUrl}/linksshrink</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${now}</lastmod></url>`
+
+      // Top commercial ebook landing pages
+      const topEbookSlugs = [
+        "atomic-habits", "the-power-of-now", "think-and-grow-rich",
+        "the-4-hour-workweek", "rich-dad-poor-dad", "how-to-win-friends-and-influence-people",
+        "the-subtle-art-of-not-giving-a-fck", "sapiens", "deep-work",
+        "the-alchemist", "mans-search-for-meaning", "the-lean-startup",
+        "zero-to-one", "the-art-of-war", "meditations",
+        "a-brief-history-of-time", "the-great-gatsby", "pride-and-prejudice",
+        "to-kill-a-mockingbird", "1984", "brave-new-world",
+        "the-catcher-in-the-rye", "animal-farm", "the-odyssey", "hamlet",
+      ];
+      for (const s of topEbookSlugs) {
+        xml += `\n  <url><loc>${baseUrl}/ebooks/b/${s}</loc><changefreq>monthly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>`;
+      }
 
       const genres = [
         "Romance", "Thriller", "Fantasy", "Sci-Fi",

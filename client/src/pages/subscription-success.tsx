@@ -129,6 +129,15 @@ export default function SubscriptionSuccess() {
         value,
         billingInterval: billing,
       });
+      // Google Ads conversion — subscription purchase
+      if (typeof (window as any).gtag === "function") {
+        (window as any).gtag("event", "conversion", {
+          send_to: "AW-18030874893/BJi5CM6H1o0cEI2i5ZVD",
+          value,
+          currency: "USD",
+          transaction_id: sessionId,
+        });
+      }
     } else {
       trackSubscriptionPurchase({
         sessionId,
@@ -139,6 +148,13 @@ export default function SubscriptionSuccess() {
         value: 0,
         billingInterval: billing,
       });
+      // Google Ads conversion — plan unknown, fire without value
+      if (typeof (window as any).gtag === "function") {
+        (window as any).gtag("event", "conversion", {
+          send_to: "AW-18030874893/BJi5CM6H1o0cEI2i5ZVD",
+          transaction_id: sessionId,
+        });
+      }
     }
   }, [sessionId, plansFetched, plans, tierParam, billing]);
 
