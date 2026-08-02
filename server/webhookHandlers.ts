@@ -1,6 +1,9 @@
 import { getStripeSync } from './stripeClient';
 import * as subscriptionService from './subscriptionService';
 import { createOrderFromStripeSession } from './checkoutHandler';
+import { db } from './storage';
+import { promoUsages } from '@shared/schema';
+import { sql } from 'drizzle-orm';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -29,6 +32,23 @@ export class WebhookHandlers {
           const session = event.data.object;
           await createOrderFromStripeSession(session.id, session);
           console.log('Processed checkout.session.completed webhook');
+          break;
+        }
+        case 'checkout.session.expired':
+        case 'checkout.session.async_payment_failed': {
+          // Release any pending promo lock so the buyer can retry with the same code
+          const expiredSession = event.data.object;
+          if (expiredSession.id) {
+            const deleted = await db
+              .delete(promoUsages)
+              .where(
+                sql`${promoUsages.stripeSessionId} = ${expiredSession.id} AND ${promoUsages.status} = 'pending'`
+              )
+              .returning();
+            if (deleted.length > 0) {
+              console.log(`[PromoLock] Released pending lock for session ${expiredSession.id} (${deleted.map((r: any) => r.promoCode).join(', ')})`);
+            }
+          }
           break;
         }
         case 'customer.subscription.created':

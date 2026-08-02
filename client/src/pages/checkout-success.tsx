@@ -62,30 +62,97 @@ export default function CheckoutSuccess() {
 
   useEffect(() => {
     // Read purchase snapshot saved right before the checkout redirect
+    let snapshot: PurchaseSnapshot | null = null;
     try {
       const raw = localStorage.getItem("ebgz_purchase_snapshot");
       if (raw) {
-        setPurchaseSnapshot(JSON.parse(raw));
+        snapshot = JSON.parse(raw);
+        setPurchaseSnapshot(snapshot);
         localStorage.removeItem("ebgz_purchase_snapshot");
       }
     } catch {}
 
-    try {
-      const rawCart = localStorage.getItem("cart");
-      if (rawCart && !customerToken && sessionId) {
-        const cart: Array<{ id: number; title: string; price: number; purchaseType?: string; genre?: string }> = JSON.parse(rawCart);
-        if (Array.isArray(cart) && cart.length > 0) {
-          const dedupKey = `ebgz_guest_conv_tracked_${sessionId}`;
-          if (!localStorage.getItem(dedupKey)) {
-            localStorage.setItem(dedupKey, "1");
-            const total = cart.reduce((sum, item) => sum + (item.price || 0), 0);
-            trackGuestPurchase({ sessionId, items: cart, value: total });
-          }
-        }
-      }
-    } catch {}
+    // Clear the cart now (before the async guest-conversion path so it is always cleared)
     localStorage.setItem("cart", JSON.stringify([]));
     window.dispatchEvent(new Event("cartUpdated"));
+
+    // Fire Google Ads conversion for guest buyers (no customer account).
+    // Value is sourced from the Stripe session via the public session-summary endpoint so
+    // it is accurate even if the buyer refreshed the page (no localStorage reliance).
+    if (!customerToken && sessionId) {
+      const dedupKey = `ebgz_guest_conv_tracked_${sessionId}`;
+      if (!localStorage.getItem(dedupKey)) {
+        localStorage.setItem(dedupKey, "1");
+
+        const fireGuestConversion = async () => {
+          let value: number | null = null;
+          let currency = "USD";
+
+          // Primary source: Stripe session-summary endpoint (no auth required)
+          try {
+            const resp = await fetch(`/api/checkout/session-summary/${sessionId}`);
+            if (resp.ok) {
+              const data = await resp.json();
+              value = typeof data.value === "number" ? data.value : null;
+              currency = data.currency || "USD";
+            }
+          } catch {}
+
+          // Fallback: use the purchase snapshot saved before the Stripe redirect
+          if (value == null && snapshot) {
+            value = snapshot.total;
+            currency = snapshot.currency || "USD";
+          }
+
+          // Second fallback: sum the cart that was still in localStorage on arrival
+          if (value == null) {
+            try {
+              const rawCart = localStorage.getItem("cart");
+              if (rawCart) {
+                const cart: Array<{ price: number }> = JSON.parse(rawCart);
+                if (Array.isArray(cart) && cart.length > 0) {
+                  value = cart.reduce((sum, item) => sum + (item.price || 0), 0);
+                }
+              }
+            } catch {}
+          }
+
+          if (value == null) {
+            // Structured warning: all three value sources failed. Log to console and fire
+            // a GA4 custom event so the team can monitor the failure rate in Analytics.
+            const failureDetail = {
+              sessionId,
+              hadSnapshot: snapshot !== null,
+              reason: "all_value_sources_empty",
+            };
+            console.warn("[GuestConversion] Could not determine conversion value — no value fired.", failureDetail);
+            if (typeof (window as any).gtag === "function") {
+              (window as any).gtag("event", "guest_conversion_value_missing", {
+                session_id: sessionId,
+                had_snapshot: snapshot !== null,
+              });
+            }
+            return;
+          }
+
+          // GA4 ecommerce purchase event
+          const items = snapshot?.items ?? [];
+          trackGuestPurchase({ sessionId, items, value });
+
+          // Google Ads manual conversion tag — Purchase (1)
+          if (typeof (window as any).gtag === "function") {
+            (window as any).gtag("event", "conversion", {
+              send_to: "AW-18030874893/BJi5CM6H1o0cEI2i5ZVD",
+              value,
+              currency,
+              transaction_id: `guest_${sessionId}`,
+            });
+          }
+        };
+
+        fireGuestConversion();
+      }
+    }
   }, []);
 
   // Only attempt to fetch order details if the user is already logged in.

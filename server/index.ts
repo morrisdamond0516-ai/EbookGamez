@@ -237,25 +237,6 @@ app.post(
 
 app.use(compression());
 
-// Block sensitive paths before SPA/static catch-all (scanners flag SPA HTML as ".env leak").
-const BLOCKED_SENSITIVE_PATH =
-  /^\/(\.env(?:\..*)?|\.git(?:\/.*)?|\.htaccess|\.DS_Store|composer\.(json|lock)|package-lock\.json|yarn\.lock|\.npmrc|\.dockerignore)$/i;
-app.use((req, res, next) => {
-  if (BLOCKED_SENSITIVE_PATH.test(req.path)) {
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(403).type("text/plain").send("Forbidden");
-  }
-  next();
-});
-
-// Baseline security headers on every response (HTML + API).
-app.use((_req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  next();
-});
-
 app.use(
   express.json({
     limit: '50mb',
@@ -266,6 +247,20 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// ── Security: block sensitive dot-files / dot-dirs before any route or static handler ──
+app.use((req, _res, next) => {
+  // Set security headers on every response
+  _res.setHeader("X-Content-Type-Options", "nosniff");
+  _res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  _res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+
+  // Block .env, .git, .htaccess, etc.  These should never be publicly reachable.
+  if (/^\/\./.test(req.path)) {
+    return _res.status(403).end();
+  }
+  next();
+});
 
 app.get('/img/:width/*', async (req, res) => {
   try {
@@ -1013,8 +1008,83 @@ async function migrateColoringPageFiles() {
   }
 }
 
+/** Apply promo_usages schema changes and clean up orphaned locks.
+ *
+ * Runs idempotent SQL so it is safe to call on every startup.
+ * Steps:
+ *  1. Adds `status` column if missing (default 'confirmed' for existing rows).
+ *  2. Removes duplicate (customer_email, promo_code) rows that would block index creation,
+ *     keeping the most authoritative row (confirmed > pending, then most recent).
+ *     This handles databases that accumulated duplicates before the lock was added.
+ *  3. Creates the unique index on (customer_email, promo_code) — this is the
+ *     atomic DB-level lock that prevents concurrent promo replay.
+ *  4. Verifies the index actually exists; throws if missing so startup fails visibly
+ *     rather than silently serving requests without atomic replay protection.
+ *  5. Deletes orphaned 'pending' rows whose stripe_session_id is NULL and
+ *     which are older than 2 hours — crash-recovery cleanup for the window between
+ *     INSERT(pending, null) and UPDATE(sessionId).
+ */
+async function applyPromoSchemaChanges(): Promise<void> {
+  const { db: pgDb } = await import('./storage');
+
+  // Step 1: add status column (idempotent)
+  await pgDb.execute(
+    `ALTER TABLE promo_usages ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'confirmed'`
+  );
+
+  // Step 2: remove duplicate (customer_email, promo_code) rows before creating the unique index.
+  // Keep the single "best" row per pair: prefer confirmed status, then most recent created_at.
+  // This handles production databases that accumulated duplicates before replay protection existed.
+  const { rowCount: dedupCount } = (await pgDb.execute(
+    `DELETE FROM promo_usages
+     WHERE id NOT IN (
+       SELECT DISTINCT ON (customer_email, promo_code) id
+       FROM promo_usages
+       ORDER BY customer_email, promo_code,
+         CASE WHEN status = 'confirmed' THEN 0 ELSE 1 END ASC,
+         created_at DESC NULLS LAST
+     )`
+  )) as any;
+  if (dedupCount && dedupCount > 0) {
+    console.log(`[PromoMigration] Removed ${dedupCount} duplicate promo_usages row(s) before index creation`);
+  }
+
+  // Step 3: create the unique index (idempotent — IF NOT EXISTS).
+  // Now that duplicates are gone this will always succeed.
+  await pgDb.execute(
+    `CREATE UNIQUE INDEX IF NOT EXISTS promo_usages_email_code_unique ON promo_usages (customer_email, promo_code)`
+  );
+
+  // Step 4: verify the index actually exists — fail fast if it was somehow not created.
+  // This makes a missing-index scenario visible at startup rather than silently serving
+  // requests without atomic replay protection.
+  const result = await pgDb.execute(
+    `SELECT 1 FROM pg_indexes WHERE indexname = 'promo_usages_email_code_unique'`
+  ) as any;
+  const rows = result?.rows ?? result;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error(
+      '[PromoMigration] FATAL: promo_usages_email_code_unique index does not exist after migration. ' +
+      'Startup aborted to prevent unprotected promo replay.'
+    );
+  }
+
+  // Step 5: crash-safe cleanup — remove orphaned pending locks where session ID was never bound
+  const { rowCount } = (await pgDb.execute(
+    `DELETE FROM promo_usages WHERE status = 'pending' AND stripe_session_id IS NULL AND created_at < NOW() - INTERVAL '2 hours'`
+  )) as any;
+  if (rowCount && rowCount > 0) {
+    console.log(`[PromoMigration] Cleaned up ${rowCount} orphaned pending promo lock(s)`);
+  }
+
+  console.log('[PromoMigration] promo_usages schema up to date — unique index verified');
+}
+
 (async () => {
   await seedProductionData();
+  // Apply promo_usages schema changes (status column + unique index + orphaned lock cleanup).
+  // Runs before registerRoutes so the unique index exists before any checkout requests.
+  await applyPromoSchemaChanges();
   // Run cover-path migration in background — does not block server startup.
   // Guarded against overlapping runs via _fixLocalCoverPathsRunning.
   setTimeout(() => fixLocalCoverPaths().catch(e => console.error("[Startup] Unhandled fixLocalCoverPaths error:", e.message)), 5000);

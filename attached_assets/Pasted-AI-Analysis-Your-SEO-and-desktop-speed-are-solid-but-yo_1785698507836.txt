@@ -1,0 +1,542 @@
+AI Analysis
+
+Your SEO and desktop speed are solid, but your site is hemorrhaging conversions (20/100) because visitors don't know what to do next—you have no clear calls-to-action telling them to contact you, sign up, or book a call. You're also leaking sensitive files (.env, .git/HEAD) that expose credentials and API keys, and your mobile experience is dragging at 62/100, which kills both user experience and AI indexing. Fix the security breach immediately, add prominent CTAs to every page, and you'll recover serious lost revenue.
+
+Top priorities
+
+1
+Block access to .env and .git/HEAD in your .htaccess or Nginx config right now, then rotate all database passwords and API keys that may have been exposed.
+
+2
+Add a prominent, specific call-to-action above the fold on every page (homepage, product pages, footer)—use 'Contact Us', 'Book a Call', or 'Get a Quote' depending on your business model, and make it a contrasting button.
+
+3
+Add 2–3 customer testimonials or case study snippets to your homepage and key landing pages to reduce buyer hesitation and signal trustworthiness to both humans and AI crawlers.
+
+Action Plan
+20
+Mobile Speed
+62
+Desktop Speed
+91
+SEO Health
+100
+Homepage
+79
+AI Agents
+60
+Conversion
+20
+Security
+50
+Accessibility
+86
+Site Crawl
+100
+
+20
+Action Plan
+
+issues
+
+
+62
+Mobile Speed
+
+Needs work
+
+
+91
+Desktop Speed
+
+Good
+
+
+100
+SEO Health
+
+Good
+
+
+79
+Homepage
+
+Needs work
+
+
+60
+AI Agents
+
+Needs work
+
+
+20
+Conversion
+
+Poor
+
+
+50
+Security
+
+Poor
+
+
+86
+Accessibility
+
+Needs work
+
+
+100
+Site Crawl
+
+Good
+
+Score History
+3 audits
+Mobile
+62
+Desktop
+91
+SEO
+100
+Homepage
+79
+AI
+60
+Conversion
+20
+Security
+50
+Aug 2
+Aug 2
+Real users · Core Web Vitals issues
+LCP
+6.8 s
+FCP
+3.8 s
+CLS
+6.00
+INP
+346 ms
+TTFB
+2.1 s
+Full breakdown →
+Speed impact
+
+How much is a 62-point mobile score costing you?
+Your site loads in ~4–5s on mobile — above Google's 3s threshold. At this speed, ~15% of revenue leaks through slow-page abandonment.
+
+Monthly revenue
+$
+10000
+$1,500/mo
+
+estimated lost to slow-page abandonment
+
+↑ $1,500/mo
+
+potential recovery if speed score hits 90+
+
+Estimate based on Google/Deloitte research on mobile page speed and ecommerce conversion rates. For reference only.
+
+Fix my site speed →
+Action Plan
+Every issue ranked by impact — fix these in order
+
+Custom site
+Your action plan
+
+20 things to fix on ebookgamez.com
+Click the number on any item to mark it done. Work through them in order.
+
+6
+
+Fix
+first
+
+14
+
+Fix
+next
+
+Page Speed
+Website Trust
+AI Agents
+Conversion
+Security
+Fix first
+
+1
+
+Page Speed
+Fix first
+Quick fix · ~5–15 min
+Your main content loads too slowly
+
+This is the most important speed signal. It measures how long visitors wait before seeing your main image or headline. Google uses this to rank your site.
+
+What to do
+
+Compress your images before uploading them. Use TinyPNG.com — it's free and takes less than a minute. This single step can cut your load time in half.
+
+Get AI-written steps for custom
+
+2
+
+Page Speed
+Fix first
+Some tech needed · ~30–60 min
+Visitors see a blank screen for too long
+
+People start to doubt your site is working within 3 seconds. A long blank screen causes visitors to leave before your page has even appeared.
+
+What to do
+
+Make sure your web host is fast. Slow hosting is the most common cause of this. Consider switching to a faster host.
+
+Get AI-written steps for custom
+
+3
+
+Page Speed
+Fix first
+Quick fix · ~5–15 min
+Your store takes too long to become fully usable
+
+If a visitor tries to add a product to their cart before your page is fully interactive, it may not work — and they'll leave thinking your store is broken.
+
+What to do
+
+Remove slow third-party scripts. Apps and plugins are the most common cause. Audit what you have installed and remove anything you don't actively use.
+
+Get AI-written steps for custom
+
+4
+
+Conversion
+Fix first
+Quick fix · ~5–15 min
+Call-to-action
+
+No clear call-to-action detected.
+
+What to do
+
+Add a prominent CTA — "Contact Us", "Get a Quote", "Book a Call", or "Sign Up". Every page needs to tell visitors what to do next. Without one, most will leave without converting.
+
+Get AI-written steps for custom
+
+5
+
+Conversion
+Fix first
+Quick fix · ~5–15 min
+Social proof & reviews
+
+No review counts, star ratings, or testimonials detected.
+
+What to do
+
+Add testimonials, case studies, or client logos. Social proof reduces hesitation — even a short quote from a satisfied client can meaningfully increase enquiries.
+
+Get AI-written steps for custom
+
+6
+
+Security
+Fix first
+Quick fix · ~5–15 min
+Sensitive file exposure
+
+Publicly accessible sensitive files found: .env, .git/HEAD. These can expose database passwords, API keys, and source code.
+
+What to do
+
+Block access to .env and .git/HEAD immediately. Add a deny rule in your .htaccess or Nginx config. If .env was exposed, rotate all credentials (database password, API keys) that may have been visible.
+
+Get AI-written steps for custom
+Fix next
+
+7
+
+Page Speed
+Fix next
+Some tech needed · ~30–60 min
+Your page takes too long to look ready
+
+Visitors judge your site by how fast it looks complete — even before everything has fully loaded. A slow visual fill makes your site feel outdated.
+
+What to do
+
+Reduce the number of large images loading at once. Images that are lower on the page should load only when the visitor scrolls to them.
+
+Get AI-written steps for custom
+
+8
+
+Website Trust
+Fix next
+Navigation menu
+
+No <nav> element detected.
+
+What to do
+
+Wrap your main menu in a <nav> element. This helps Google understand your site structure and improves accessibility.
+
+Get AI-written steps for custom
+
+9
+
+Website Trust
+Fix next
+Call-to-action
+
+No clear call-to-action detected.
+
+What to do
+
+Add a prominent CTA button above the fold — "Shop Now", "Get a Quote", "Contact Us". Visitors who don't know what to do next will leave.
+
+Get AI-written steps for custom
+
+10
+
+Website Trust
+Fix next
+Social media links
+
+No social media links detected.
+
+What to do
+
+Add links to your active social media profiles. Place them in the footer or header. This builds trust and helps Google understand your business presence.
+
+Get AI-written steps for custom
+
+11
+
+Website Trust
+Fix next
+Footer
+
+No <footer> element found.
+
+What to do
+
+Add a <footer> with links to your Privacy Policy, Terms of Service, contact info, and social profiles. Google and users expect a footer — it signals a legitimate, complete site.
+
+Get AI-written steps for custom
+
+12
+
+AI Agents
+Fix next
+Business identity schema
+
+Business schema found but missing: logo.
+
+What to do
+
+Add logo to your Organization schema. AI assistants use these to accurately identify and attribute your business.
+
+Get AI-written steps for custom
+Shopify
+WordPress / WooCommerce
+BigCommerce
+Squarespace
+Wix
+Other
+Step-by-step
+
+1
+Copy the code below.
+
+2
+Paste it inside the <head> section of your homepage only.
+
+3
+Replace every placeholder with your real business name, URL, and logo path.
+
+Add to your homepage <head> only
+
+Copy
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Your Business Name",
+  "url": "https://yoursite.com",
+  "logo": "https://yoursite.com/logo.png",
+  "sameAs": [
+    "https://www.facebook.com/yourbusiness",
+    "https://www.instagram.com/yourbusiness"
+  ]
+}
+</script>
+
+13
+
+AI Agents
+Fix next
+FAQPage structured data
+
+No FAQPage schema found. AI assistants use FAQ markup to surface your answers directly in their responses.
+
+What to do
+
+Add FAQPage JSON-LD to pages that answer common questions. This helps ChatGPT, Perplexity, and Google AI Mode quote your content when users ask related questions.
+
+Paste as a <script> tag on any page with FAQs
+
+Copy
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is your return policy?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "We accept returns within 30 days of purchase for a full refund."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How long does shipping take?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Standard shipping takes 3–5 business days. Express is 1–2 days."
+      }
+    }
+  ]
+}
+</script>
+Get AI-written steps for custom
+
+14
+
+Conversion
+Fix next
+Quick fix · ~5–15 min
+Contact / lead form
+
+No contact or enquiry form detected.
+
+What to do
+
+Add a contact form with at minimum a name, email, and message field. Visitors who cannot easily reach you will leave — a simple form can significantly increase leads from organic and paid traffic.
+
+Get AI-written steps for custom
+
+15
+
+Conversion
+Fix next
+Quick fix · ~5–15 min
+Trust & security signals
+
+No trust or security indicators detected.
+
+What to do
+
+Add trust signals such as years in business, number of clients served, certifications, or a satisfaction guarantee. These reduce hesitation and encourage visitors to get in touch.
+
+Get AI-written steps for custom
+
+16
+
+Conversion
+Fix next
+Quick fix · ~5–15 min
+Contact / support method
+
+No phone number, email, or live chat widget detected.
+
+What to do
+
+Add a visible contact method — even just a "support@yourstore.com" in the footer. Shoppers who can't reach you with pre-sale questions are less likely to convert.
+
+Get AI-written steps for custom
+
+17
+
+Security
+Fix next
+Quick fix · ~5–15 min
+X-Content-Type-Options
+
+X-Content-Type-Options header missing.
+
+What to do
+
+Add the header: X-Content-Type-Options: nosniff. This prevents browsers from guessing a file's type, blocking a class of script injection attacks. Easy to add in Cloudflare or your server config.
+
+Add to your .htaccess (Apache / WordPress)
+
+Copy
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+</IfModule>
+Get AI-written steps for custom
+
+18
+
+Security
+Fix next
+Quick fix · ~5–15 min
+Clickjacking protection
+
+No X-Frame-Options or CSP frame-ancestors directive found. Your site could be embedded in another page to trick visitors into clicking things.
+
+What to do
+
+Add X-Frame-Options: SAMEORIGIN or include frame-ancestors 'self' in your Content-Security-Policy. Most CDNs and web hosts allow adding custom response headers.
+
+Add to your .htaccess (Apache / WordPress)
+
+Copy
+<IfModule mod_headers.c>
+  Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+Get AI-written steps for custom
+
+19
+
+Security
+Fix next
+Quick fix · ~5–15 min
+Referrer-Policy
+
+Referrer-Policy header not set.
+
+What to do
+
+Add: Referrer-Policy: strict-origin-when-cross-origin. This keeps referral analytics working while not leaking full URLs to third-party sites.
+
+Add to your .htaccess (Apache / WordPress)
+
+Copy
+<IfModule mod_headers.c>
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+Get AI-written steps for custom
+
+20
+
+Security
+Fix next
+Quick fix · ~5–15 min
+Content-Security-Policy (CSP)
+
+No Content-Security-Policy header found.
+
+What to do
+
+Adding a CSP is an advanced but powerful security measure. Start with Content-Security-Policy: default-src 'self' and whitelist trusted domains. Many store builders can have this set via Cloudflare Page Rules.
+
+Get AI-written steps for custom

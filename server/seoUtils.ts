@@ -134,6 +134,18 @@ const STATIC_PAGE_META: Record<string, GenreMeta & { path: string }> = {
     description:
       "Unlock unlimited reading with the EbookGamez Reading Pass. Access 600+ full-length ebooks for one low monthly or annual price. Start reading today.",
   },
+  "/learnforge": {
+    path: "/learnforge",
+    title: "LearnForge — AI Learning & Career Advancement Tool",
+    description:
+      "Turn any subject, document, or career goal into a full-length AI-powered practice exam. Fresh questions every time, instant explanations. Free to start — no card needed.",
+  },
+  "/linksshrink": {
+    path: "/linksshrink",
+    title: "LinksShrink — Short Links, Video Ads & Click Analytics",
+    description:
+      "Create branded short links, generate video ads from your links, and track every click with real-time analytics. Everything for smarter ad campaigns in one place.",
+  },
 };
 
 /**
@@ -312,6 +324,274 @@ export function injectOpenGraph(html: string, urlPath: string): string {
     /<meta name="twitter:description" content="[^"]*"\s*\/>/,
     `<meta name="twitter:description" content="${descAttr}" />`,
   );
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// /ebooks hub + genre page JSON-LD injection
+// ---------------------------------------------------------------------------
+
+/** WebSite JSON-LD schema injected for the /ebooks hub. */
+const EBOOKS_WEBSITE_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "EbookGamez Ebooks",
+  url: `${BASE_URL}/ebooks`,
+  description:
+    "Explore 600+ full-length ebooks across romance, thriller, fantasy, sci-fi, self-help, mystery, horror, and more. Subscribe to the Reading Pass for unlimited reading.",
+  potentialAction: {
+    "@type": "SearchAction",
+    target: `${BASE_URL}/catalog?q={search_term_string}`,
+    "query-input": "required name=search_term_string",
+  },
+  publisher: { "@type": "Organization", name: "EbookGamez", url: BASE_URL },
+};
+
+/**
+ * Inject a JSON-LD structured-data block before </head> for /ebooks hub and
+ * valid genre landing pages (/ebooks/<slug>).
+ *
+ *  - /ebooks          → WebSite schema
+ *  - /ebooks/<slug>   → CollectionPage schema (known slugs only)
+ *  - anything else    → html returned unchanged
+ */
+export function injectEbooksJsonLd(html: string, urlPath: string): string {
+  const cleanPath = urlPath.split("?")[0].split("#")[0].replace(/\/$/, "") || "/";
+
+  let jsonLd: object | null = null;
+
+  if (cleanPath === "/ebooks") {
+    jsonLd = EBOOKS_WEBSITE_JSON_LD;
+  } else {
+    const genreMatch = cleanPath.match(/^\/ebooks\/([^/]+)$/);
+    if (genreMatch) {
+      const slug = genreMatch[1].toLowerCase();
+      if (VALID_GENRE_SLUGS.has(slug) && GENRE_META[slug]) {
+        const meta = GENRE_META[slug];
+        jsonLd = {
+          "@context": "https://schema.org",
+          "@type": "CollectionPage",
+          name: meta.title,
+          url: `${BASE_URL}/ebooks/${slug}`,
+          description: meta.description,
+          isPartOf: {
+            "@type": "WebSite",
+            name: "EbookGamez",
+            url: BASE_URL,
+          },
+        };
+      }
+    }
+  }
+
+  if (!jsonLd) return html;
+  const tag = `<script type="application/ld+json">\n${JSON.stringify(jsonLd, null, 2)}\n</script>`;
+  return html.replace("</head>", `${tag}\n</head>`);
+}
+
+// ---------------------------------------------------------------------------
+// Product app JSON-LD injection (/learnforge, /linksshrink)
+// ---------------------------------------------------------------------------
+
+const PRODUCT_APP_JSON_LD: Record<string, object> = {
+  "/learnforge": {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "LearnForge",
+    url: "https://knowledge-builder.replit.app/",
+    applicationCategory: "EducationApplication",
+    operatingSystem: "Web",
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+    },
+    description:
+      "Turn any subject, document, or career goal into a full-length AI-powered practice exam. Fresh questions every time, instant answer explanations. Free to start.",
+    publisher: { "@type": "Organization", name: "EbookGamez", url: BASE_URL },
+    featureList: [
+      "AI Quiz Builder",
+      "Career Path Generator",
+      "Practice Exams",
+      "Score & Progress Tracking",
+      "Upload Any Document",
+      "Instant Answer Explanations",
+    ],
+  },
+  "/linksshrink": {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "LinksShrink",
+    url: "https://linksshrink.com",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+    },
+    description:
+      "Create branded short links, generate video ads from those links, and track every click with real-time analytics. Everything for smarter ad campaigns in one place.",
+    publisher: { "@type": "Organization", name: "EbookGamez", url: BASE_URL },
+    featureList: [
+      "Short Link Creation",
+      "Video Ad Generator",
+      "Click Analytics",
+      "Geo & Device Targeting",
+      "Campaign Management",
+      "Instant Redirects",
+    ],
+  },
+};
+
+/**
+ * For /learnforge and /linksshrink, inject a SoftwareApplication JSON-LD
+ * block before </head>. Returns html unchanged for any other path.
+ */
+export function injectProductAppJsonLd(html: string, urlPath: string): string {
+  const cleanPath = urlPath.split("?")[0].split("#")[0].replace(/\/$/, "") || "/";
+  const jsonLd = PRODUCT_APP_JSON_LD[cleanPath];
+  if (!jsonLd) return html;
+  const tag = `<script type="application/ld+json">\n${JSON.stringify(jsonLd, null, 2)}\n</script>`;
+  return html.replace("</head>", `${tag}\n</head>`);
+}
+
+// ---------------------------------------------------------------------------
+// Ebook landing page helpers (/ebooks/b/:slug)
+// ---------------------------------------------------------------------------
+
+/** Convert a book title to a URL-safe slug. */
+export function toSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/**
+ * Extract a book slug from /ebooks/b/:slug URLs, or return null for any other
+ * path.
+ */
+export function extractEbookSlug(urlPath: string): string | null {
+  const cleanPath = urlPath.split("?")[0].split("#")[0].replace(/\/$/, "");
+  const m = cleanPath.match(/^\/ebooks\/b\/([^/]+)$/);
+  return m ? m[1] : null;
+}
+
+/** Extended book data required for ebook landing page meta injection. */
+export interface EbookLandingData extends BookOGData {
+  author: string;
+  price: string;
+  rating: string;
+  genre: string;
+  reviewCount?: number;
+}
+
+/**
+ * Inject a Book + Product JSON-LD block and full per-book meta tags into
+ * `html` for /ebooks/b/:slug pages.
+ *
+ * This is the server-side equivalent of the client's useEffect meta update,
+ * so Googlebot sees everything on first crawl.
+ */
+export function injectEbookLandingMeta(html: string, book: EbookLandingData): string {
+  const slug = toSlug(book.title);
+  const canonical = `${BASE_URL}/ebooks/b/${slug}`;
+  const titleAttr = escapeAttr(`${book.title} — EbookGamez`);
+
+  const rawDesc = (book.description ?? "").trim();
+  const descAttr = escapeAttr(
+    rawDesc.length > 160 ? rawDesc.slice(0, 157).trimEnd() + "…" : rawDesc || `Read "${book.title}" on EbookGamez.`,
+  );
+
+  const cover = book.coverUrl.startsWith("http")
+    ? book.coverUrl
+    : `${BASE_URL}${book.coverUrl.startsWith("/") ? "" : "/"}${book.coverUrl}`;
+  const coverAttr = escapeAttr(cover);
+
+  const price = parseFloat(book.price || "9.99").toFixed(2);
+  const rating = parseFloat(book.rating || "4.5").toFixed(1);
+  const reviewCount = book.reviewCount ?? 0;
+  const fullDesc = rawDesc.slice(0, 500) || `Read "${book.title}" on EbookGamez.`;
+
+  const ratingBlock =
+    reviewCount > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: rating,
+            reviewCount,
+            bestRating: "5",
+            worstRating: "1",
+          },
+        }
+      : {};
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Book",
+        "@id": `${canonical}#book`,
+        name: book.title,
+        author: { "@type": "Person", name: book.author },
+        description: fullDesc,
+        url: canonical,
+        image: cover,
+        bookFormat: "https://schema.org/EBook",
+        genre: book.genre,
+        inLanguage: "en",
+        publisher: { "@type": "Organization", name: "EbookGamez", url: BASE_URL },
+        ...ratingBlock,
+      },
+      {
+        "@type": "Product",
+        "@id": `${canonical}#product`,
+        name: book.title,
+        description: fullDesc,
+        image: cover,
+        brand: { "@type": "Brand", name: "EbookGamez" },
+        offers: {
+          "@type": "Offer",
+          url: canonical,
+          price,
+          priceCurrency: "USD",
+          availability: "https://schema.org/InStock",
+          seller: { "@type": "Organization", name: "EbookGamez" },
+        },
+        ...ratingBlock,
+      },
+    ],
+  };
+
+  let result = html;
+
+  // <title>
+  result = result.replace(/<title>[^<]*<\/title>/, `<title>${titleAttr}</title>`);
+
+  // canonical
+  result = result.replace(
+    /<link rel="canonical" href="[^"]*"\s*\/>/,
+    `<link rel="canonical" href="${canonical}" />`,
+  );
+
+  // meta tags
+  result = result.replace(/<meta name="description" content="[^"]*"\s*\/>/, `<meta name="description" content="${descAttr}" />`);
+  result = result.replace(/<meta property="og:url" content="[^"]*"\s*\/>/, `<meta property="og:url" content="${canonical}" />`);
+  result = result.replace(/<meta property="og:title" content="[^"]*"\s*\/>/, `<meta property="og:title" content="${titleAttr}" />`);
+  result = result.replace(/<meta property="og:description" content="[^"]*"\s*\/>/, `<meta property="og:description" content="${descAttr}" />`);
+  result = result.replace(/<meta property="og:image" content="[^"]*"\s*\/>/, `<meta property="og:image" content="${coverAttr}" />`);
+  result = result.replace(/<meta name="twitter:title" content="[^"]*"\s*\/>/, `<meta name="twitter:title" content="${titleAttr}" />`);
+  result = result.replace(/<meta name="twitter:description" content="[^"]*"\s*\/>/, `<meta name="twitter:description" content="${descAttr}" />`);
+  result = result.replace(/<meta name="twitter:image" content="[^"]*"\s*\/>/, `<meta name="twitter:image" content="${coverAttr}" />`);
+
+  // Inject JSON-LD before </head>
+  const ldTag = `<script type="application/ld+json">\n${JSON.stringify(jsonLd, null, 2)}\n</script>`;
+  result = result.replace("</head>", `${ldTag}\n</head>`);
 
   return result;
 }

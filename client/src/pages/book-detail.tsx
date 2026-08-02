@@ -550,27 +550,40 @@ export default function BookDetail() {
   const [promoDiscountRate, setPromoDiscountRate] = useState(0);
   const [promoInput, setPromoInput] = useState(() => localStorage.getItem("ebgz_promo") || "");
   const [promoValidating, setPromoValidating] = useState(false);
+  // Restore email from storage so it survives page reloads (needed for WELCOME10 checkout lock)
+  const [promoEmail, setPromoEmail] = useState(() => localStorage.getItem("ebgz_promo_email") || "");
 
   // Auto-apply any saved promo code on mount
   useEffect(() => {
     const saved = localStorage.getItem("ebgz_promo");
     if (!saved) return;
+    const savedEmail = localStorage.getItem("ebgz_promo_email") || "";
+    const upperSaved = saved.toUpperCase().trim();
+    const isFirstTime = upperSaved === "WELCOME10";
+    // WELCOME10 requires email to lock the code at checkout.
+    // If email is missing from storage, pre-populate the code but don't auto-apply.
+    if (isFirstTime && !savedEmail) {
+      setPromoInput(upperSaved);
+      return;
+    }
     fetch("/api/promo/validate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: saved }),
+      body: JSON.stringify({ code: saved, email: savedEmail || undefined }),
     })
       .then(r => r.json())
       .then(result => {
         if (result.valid) {
           setPromoApplied(true);
           setPromoDiscountRate(result.discount);
-          setPromoCode(saved.toUpperCase().trim());
-          setPromoInput(saved.toUpperCase().trim());
+          setPromoCode(upperSaved);
+          setPromoInput(upperSaved);
         } else {
           localStorage.removeItem("ebgz_promo");
+          localStorage.removeItem("ebgz_promo_email");
           setPromoCode("");
           setPromoInput("");
+          setPromoEmail("");
         }
       })
       .catch(() => {});
@@ -580,12 +593,16 @@ export default function BookDetail() {
 
   const handleApplyPromo = async () => {
     if (!promoInput.trim()) return;
+    if (isFirstTimeCode && (!promoEmail.trim() || !promoEmail.includes("@"))) {
+      toast({ title: "Email required", description: "Please enter your email to apply the WELCOME10 code.", variant: "destructive" });
+      return;
+    }
     setPromoValidating(true);
     try {
       const resp = await fetch("/api/promo/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: promoInput }),
+        body: JSON.stringify({ code: promoInput, email: promoEmail || undefined }),
       });
       const result = await resp.json();
       if (result.valid) {
@@ -594,6 +611,8 @@ export default function BookDetail() {
         setPromoCode(upper);
         setPromoDiscountRate(result.discount);
         localStorage.setItem("ebgz_promo", upper);
+        // Persist email so checkout can send it for the server-side lock
+        if (promoEmail) localStorage.setItem("ebgz_promo_email", promoEmail);
         toast({ title: "Promo applied!", description: `${Math.round(result.discount * 100)}% off your purchase.` });
       } else {
         setPromoApplied(false);
@@ -611,11 +630,21 @@ export default function BookDetail() {
     setPromoCode("");
     setPromoDiscountRate(0);
     setPromoInput("");
+    setPromoEmail("");
     localStorage.removeItem("ebgz_promo");
+    localStorage.removeItem("ebgz_promo_email");
   };
 
   const handleBuyNow = async (purchaseType: 'download' | 'read_online' | 'bundle') => {
     if (!book) return;
+
+    // One-time codes (WELCOME10) require email so the server can lock the code to this session.
+    const UNLIMITED_CHECKOUT = new Set(["EBGZOWNER", "GOOGLETEST"]);
+    if (promoApplied && promoCode && !UNLIMITED_CHECKOUT.has(promoCode.toUpperCase()) && !promoEmail) {
+      toast({ title: "Email required", description: "Please enter your email address to use this promo code.", variant: "destructive" });
+      return;
+    }
+
     setCheckoutLoading(purchaseType);
     const price = getPrice(purchaseType);
     trackBeginCheckout([{ id: book.id, title: book.title, price, purchaseType }], price);
@@ -626,19 +655,29 @@ export default function BookDetail() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ items: [{ id: book.id, purchaseType }], promoCode: promoCode || undefined }),
+        // Only send promo metadata when the code is actually applied (promoApplied = true).
+        // If the user has a stale code in localStorage that was NOT validated this session,
+        // promoApplied is false and no promo lock is acquired server-side.
+        body: JSON.stringify({ items: [{ id: book.id, purchaseType }], promoCode: promoApplied && promoCode ? promoCode : undefined, ...(promoApplied && promoCode && promoEmail ? { email: promoEmail } : {}) }),
       });
 
       if (!response.ok) {
         throw new Error("Failed to create checkout session");
       }
 
-      const { url } = await response.json();
+      const data = await response.json();
+      const { url } = data;
       
       if (url) {
+        // Use the server-computed post-discount total so the snapshot reflects the
+        // actual Stripe charge even when a promo code was applied. Fallback to the
+        // client-side price only if the server does not return it (older API versions).
+        const snapshotTotal = typeof data.total === "number"
+          ? Math.round(data.total * 100) / 100
+          : Math.round(price * 100) / 100;
         localStorage.setItem("ebgz_purchase_snapshot", JSON.stringify({
           items: [{ id: book.id, title: book.title, price, purchaseType, genre: book.genre || "" }],
-          total: Math.round(price * 100) / 100,
+          total: snapshotTotal,
           currency: "USD",
           promoCode: promoCode || null,
         }));
@@ -915,6 +954,15 @@ export default function BookDetail() {
                           {promoValidating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Apply"}
                         </Button>
                       </div>
+                      {isFirstTimeCode && (
+                        <Input
+                          type="email"
+                          placeholder="Your email (required for WELCOME10)"
+                          value={promoEmail}
+                          onChange={(e) => setPromoEmail(e.target.value)}
+                          className="mt-1 bg-black/30 border-white/10 font-serif text-sm h-9"
+                        />
+                      )}
                     </div>
                   ) : (
                     <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2 flex items-center justify-between">
@@ -954,23 +1002,34 @@ export default function BookDetail() {
                 <div className="space-y-3 mb-6">
                   {/* Promo code field */}
                   {!promoApplied ? (
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Promo code"
-                        value={promoInput}
-                        onChange={(e) => setPromoInput(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleApplyPromo()}
-                        className="bg-black/30 border-white/10 font-serif text-sm uppercase h-9"
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleApplyPromo}
-                        disabled={promoValidating || !promoInput.trim()}
-                        className="border-primary/30 text-primary hover:bg-primary/10 shrink-0 h-9"
-                      >
-                        {promoValidating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Apply"}
-                      </Button>
+                    <div>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Promo code"
+                          value={promoInput}
+                          onChange={(e) => setPromoInput(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleApplyPromo()}
+                          className="bg-black/30 border-white/10 font-serif text-sm uppercase h-9"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleApplyPromo}
+                          disabled={promoValidating || !promoInput.trim()}
+                          className="border-primary/30 text-primary hover:bg-primary/10 shrink-0 h-9"
+                        >
+                          {promoValidating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Apply"}
+                        </Button>
+                      </div>
+                      {isFirstTimeCode && (
+                        <Input
+                          type="email"
+                          placeholder="Your email (required for WELCOME10)"
+                          value={promoEmail}
+                          onChange={(e) => setPromoEmail(e.target.value)}
+                          className="mt-1 bg-black/30 border-white/10 font-serif text-sm h-9"
+                        />
+                      )}
                     </div>
                   ) : (
                     <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2 flex items-center justify-between">

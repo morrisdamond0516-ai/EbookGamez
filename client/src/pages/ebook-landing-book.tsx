@@ -1,20 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { Navbar } from "@/components/layout/navbar";
-import { Footer } from "@/components/layout/footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, ShoppingCart, Star, CheckCircle, ArrowRight, Loader2 } from "lucide-react";
-
-interface BookData {
-  id: number;
-  title: string;
-  description: string | null;
-  price: string;
-  genre: string | null;
-  author: string | null;
-  coverUrl: string | null;
-}
+import { Separator } from "@/components/ui/separator";
+import {
+  BookOpen,
+  ShoppingCart,
+  Star,
+  Loader2,
+  ChevronRight,
+  User,
+  Zap,
+  Shield,
+  Sparkles,
+  Check,
+  ArrowLeft,
+} from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import { optimizedSrc as optimizedCoverSrc } from "@/components/ui/book-card";
 
 function buildCoverUrl(url: string | null | undefined): string {
   if (!url) return "/placeholder-book.jpg";
@@ -27,205 +32,352 @@ export default function EbookLandingBook() {
   const [, params] = useRoute("/ebooks/b/:slug");
   const slug = params?.slug ?? "";
 
-  const [book, setBook] = useState<BookData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [added, setAdded] = useState<"no" | "added" | "exists">("no");
+  const { data: book, isLoading, error } = useQuery<LandingBook>({
+    queryKey: ["ebook-landing", slug],
+    queryFn: async () => {
+      const res = await fetch(`/api/books/by-slug/${encodeURIComponent(slug)}`);
+      if (!res.ok) throw new Error("Book not found");
+      return res.json();
+    },
+    enabled: !!slug,
+    staleTime: 5 * 60_000,
+  });
 
+  // Client-side meta update (supplements server-injected tags post-hydration).
   useEffect(() => {
-    if (!slug) return;
-    setLoading(true);
-    setError(false);
-    fetch(`/api/books/by-slug/${encodeURIComponent(slug)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error("not found");
-        return r.json();
-      })
-      .then((data) => {
-        setBook(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError(true);
-        setLoading(false);
-      });
-  }, [slug]);
-
-  function handleAddToCart() {
     if (!book) return;
-    const cart = JSON.parse(localStorage.getItem("cart") || "[]");
-    if (cart.find((item: any) => item.id === book.id)) {
-      setAdded("exists");
-      return;
-    }
-    cart.push({ id: book.id, title: book.title, price: book.price, coverUrl: book.coverUrl });
-    localStorage.setItem("cart", JSON.stringify(cart));
-    setAdded("added");
-    setTimeout(() => setAdded("no"), 3000);
-  }
+    const desc = (book.description ?? "").slice(0, 160) || `Read "${book.title}" on EbookGamez.`;
+    document.title = `${book.title} — EbookGamez`;
 
-  if (loading) {
+    const setMeta = (sel: string, attr: string, val: string) => {
+      let el = document.querySelector(sel) as HTMLMetaElement | null;
+      if (!el) { el = document.createElement("meta"); document.head.appendChild(el); }
+      el.setAttribute(attr, val);
+    };
+    setMeta('meta[name="description"]', "content", desc);
+    setMeta('meta[property="og:title"]', "content", `${book.title} — EbookGamez`);
+    setMeta('meta[property="og:description"]', "content", desc);
+    setMeta('meta[property="og:url"]', "content", `https://ebookgamez.com/ebooks/b/${slug}`);
+    if (book.coverUrl) {
+      const cover = book.coverUrl.startsWith("http") ? book.coverUrl : `https://ebookgamez.com${book.coverUrl}`;
+      setMeta('meta[property="og:image"]', "content", cover);
+    }
+
+    return () => {
+      document.title = "EbookGamez - Ebooks, Games, Downloads & Gaming Guides";
+    };
+  }, [book?.id]);
+
+  // ---------------------------------------------------------------------------
+  // Loading / error states
+  // ---------------------------------------------------------------------------
+
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
+      <div className="min-h-screen bg-background">
         <Navbar />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
         </div>
-        <Footer />
       </div>
     );
   }
 
   if (error || !book) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
+      <div className="min-h-screen bg-background">
         <Navbar />
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4">
-          <p className="text-white/50 font-serif text-lg">Book not found.</p>
+        <div className="max-w-4xl mx-auto px-4 py-20 text-center">
+          <BookOpen className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+          <h1 className="text-2xl font-display text-white mb-2">Book Not Found</h1>
+          <p className="text-muted-foreground mb-6">We couldn't find this ebook. Browse our full catalog below.</p>
           <Link href="/catalog">
-            <Button variant="outline">Browse Catalog</Button>
+            <Button className="bg-primary text-black hover:bg-primary/90 font-display">
+              Browse Catalog
+            </Button>
           </Link>
         </div>
-        <Footer />
       </div>
     );
   }
 
-  const price = parseFloat(book.price ?? "0");
-  const coverUrl = buildCoverUrl(book.coverUrl);
+  // ---------------------------------------------------------------------------
+  // Derived data
+  // ---------------------------------------------------------------------------
+
+  const price = parseFloat(book.price ?? "9.99");
+  const rating = book.averageRating ?? parseFloat(book.rating ?? "4.5");
+  const reviewCount = book.reviewCount ?? 0;
+  const description = (book.description ?? "").trim();
+  const bullets = extractBullets(description);
+  const chapterCount = estimateChapters(description, book.title);
+
+  const coverSrc = optimizedCoverSrc(book.coverUrl, 600);
+
+  const BENEFITS = [
+    { icon: <Zap className="h-4 w-4 text-primary" />, text: "Instant download — read anywhere, any device" },
+    { icon: <Shield className="h-4 w-4 text-primary" />, text: "DRM-free — yours to keep forever" },
+    { icon: <Sparkles className="h-4 w-4 text-primary" />, text: "Or read free with a Reading Pass subscription" },
+  ];
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="min-h-screen bg-background">
       <Navbar />
 
-      {/* Hero section */}
-      <section className="relative py-16 px-4 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
-        <div className="relative max-w-5xl mx-auto">
-          <div className="flex flex-col md:flex-row gap-10 items-start">
+      {/* Breadcrumb */}
+      <div className="max-w-6xl mx-auto px-4 pt-6 pb-2">
+        <nav className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Link href="/" className="hover:text-white transition-colors">Home</Link>
+          <ChevronRight className="h-3 w-3" />
+          <Link href="/ebooks" className="hover:text-white transition-colors">Ebooks</Link>
+          <ChevronRight className="h-3 w-3" />
+          <Link href={`/ebooks/${book.genre.toLowerCase().replace(/\s+/g, "-")}`} className="hover:text-white transition-colors">
+            {book.genre}
+          </Link>
+          <ChevronRight className="h-3 w-3" />
+          <span className="text-white line-clamp-1">{book.title}</span>
+        </nav>
+      </div>
 
-            {/* Cover */}
-            <div className="flex-shrink-0 mx-auto md:mx-0">
-              <div className="w-52 md:w-64 shadow-2xl shadow-black/60 rounded-lg overflow-hidden border border-white/10">
+      {/* Hero */}
+      <section className="max-w-6xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 lg:gap-16 items-start">
+          {/* Cover */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="flex justify-center"
+          >
+            <div className="relative w-full max-w-xs md:max-w-sm lg:max-w-md">
+              <div className="aspect-[2/3] rounded-xl overflow-hidden shadow-2xl shadow-black/60 border border-white/10">
                 <img
-                  src={coverUrl}
-                  alt={`Cover of ${book.title}`}
-                  className="w-full h-auto object-cover"
+                  src={coverSrc}
+                  alt={`${book.title} cover`}
+                  className="w-full h-full object-cover"
                   loading="eager"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = "/placeholder-book.jpg";
-                  }}
                 />
               </div>
-              {book.genre && (
-                <Badge className="mt-3 mx-auto block w-fit bg-primary/20 text-primary border-primary/30 font-serif">
-                  {book.genre}
-                </Badge>
-              )}
+              {/* Price badge */}
+              <div className="absolute top-3 right-3 bg-primary text-black font-display font-bold text-lg px-3 py-1 rounded-lg shadow-lg">
+                ${price.toFixed(2)}
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Info */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
+            className="flex flex-col gap-5"
+          >
+            {/* Genre badge */}
+            <div>
+              <Badge variant="outline" className="border-primary/50 text-primary text-xs uppercase tracking-wide">
+                {book.genre}
+              </Badge>
             </div>
 
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs tracking-[0.25em] text-primary/60 uppercase font-serif mb-2">
-                Full-Length Ebook · DRM-Free
-              </p>
-              <h1 className="font-display text-3xl md:text-4xl text-white font-bold leading-tight mb-3">
+            {/* Title + author */}
+            <div>
+              <h1 className="text-3xl lg:text-4xl font-display text-white leading-tight mb-2">
                 {book.title}
               </h1>
-              {book.author && (
-                <p className="text-white/50 font-serif mb-6">by {book.author}</p>
-              )}
+              <p className="text-muted-foreground font-serif flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5" />
+                by <span className="text-white ml-1">{book.author}</span>
+              </p>
+            </div>
 
-              {/* Quick stats */}
-              <div className="flex flex-wrap gap-4 mb-6 text-sm text-white/40 font-serif">
-                <span>✅ Instant download</span>
-                <span>📱 Read on any device</span>
-                <span>🔓 DRM-free</span>
+            {/* Rating */}
+            {(reviewCount > 0 || rating > 0) && (
+              <div className="flex items-center gap-3">
+                <StarDisplay rating={rating} size="lg" />
+                <span className="text-amber-400 font-display text-lg">{rating.toFixed(1)}</span>
+                {reviewCount > 0 && (
+                  <span className="text-muted-foreground text-sm">
+                    ({reviewCount} review{reviewCount !== 1 ? "s" : ""})
+                  </span>
+                )}
               </div>
+            )}
 
-              {book.description && (
-                <p className="text-white/65 font-serif leading-relaxed mb-8 max-w-2xl">
-                  {book.description.length > 600
-                    ? book.description.slice(0, 600) + "…"
-                    : book.description}
-                </p>
-              )}
+            {/* Stats row */}
+            <div className="flex items-center gap-6 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <BookOpen className="h-4 w-4 text-primary" />
+                ~{chapterCount} chapters
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-primary" />
+                {book.category || "Digital"}
+              </span>
+            </div>
 
-              {/* Price + CTA */}
-              <div className="flex flex-wrap items-center gap-4 mb-6">
-                <span className="text-3xl font-display text-white font-bold">
-                  {price === 0 ? "Free" : `$${price.toFixed(2)}`}
-                </span>
+            {/* Description */}
+            {description && (
+              <p className="text-muted-foreground font-serif leading-relaxed text-sm lg:text-base line-clamp-4">
+                {description}
+              </p>
+            )}
+
+            <Separator className="border-white/10" />
+
+            {/* Platform benefits */}
+            <ul className="space-y-2">
+              {BENEFITS.map((b, i) => (
+                <li key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {b.icon}
+                  <span>{b.text}</span>
+                </li>
+              ))}
+            </ul>
+
+            {/* CTAs */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-1">
+              <Link href={`/book/${book.id}`}>
                 <Button
                   size="lg"
-                  onClick={handleAddToCart}
-                  className="bg-primary text-black font-semibold px-8 hover:bg-primary/90 transition-all"
+                  className="w-full sm:w-auto bg-primary text-black hover:bg-primary/90 font-display text-base px-8"
                 >
-                  {added === "added" ? (
-                    <>Added <CheckCircle className="ml-2 h-5 w-5" /></>
-                  ) : added === "exists" ? (
-                    <>Already in Cart</>
-                  ) : (
-                    <><ShoppingCart className="mr-2 h-5 w-5" /> Add to Cart</>
-                  )}
+                  <ShoppingCart className="h-4 w-4 mr-2" />
+                  Get This Book — ${price.toFixed(2)}
                 </Button>
-                <Link href={`/book/${book.id}`}>
-                  <Button variant="outline" className="border-white/20 text-white/70 hover:text-white">
-                    <BookOpen className="mr-2 h-4 w-4" /> View Details
-                  </Button>
-                </Link>
-              </div>
-
-              {/* Trust signals */}
-              <div className="flex flex-wrap gap-6 text-sm text-white/40 font-serif">
-                <span>🔒 Secure checkout</span>
-                <span>📦 DRM-free — yours forever</span>
-                <span>💳 30-day money-back guarantee</span>
-              </div>
+              </Link>
+              <Link href="/subscription">
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full sm:w-auto border-white/20 text-white hover:bg-white/5 font-display text-base px-8"
+                >
+                  <BookOpen className="h-4 w-4 mr-2" />
+                  Read Free with Pass
+                </Button>
+              </Link>
             </div>
-          </div>
+
+            <p className="text-xs text-muted-foreground">
+              Reading Pass from $4.99/mo · Unlimited books · Cancel anytime
+            </p>
+          </motion.div>
         </div>
       </section>
 
-      {/* What you get */}
-      <section className="py-16 px-4 bg-black/20">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="font-display text-2xl text-white text-center mb-10">What You Get</h2>
-          <div className="grid sm:grid-cols-2 gap-5">
-            {[
-              { icon: "📖", title: "Full-Length Book", desc: "Complete, unabridged text — not a summary or extract." },
-              { icon: "📲", title: "Multi-Device Access", desc: "Read on phone, tablet, or desktop. Your purchase is tied to your account." },
-              { icon: "🔓", title: "DRM-Free", desc: "No restrictions. Download it once and keep it forever." },
-              { icon: "⚡", title: "Instant Delivery", desc: "Available immediately after checkout — no waiting, no shipping." },
-            ].map(({ icon, title, desc }) => (
-              <div key={title} className="bg-black/30 border border-white/10 rounded-lg p-5 hover:border-primary/20 transition-colors">
-                <div className="text-2xl mb-2">{icon}</div>
-                <h3 className="font-serif text-white font-semibold mb-1">{title}</h3>
-                <p className="text-white/50 text-sm font-serif">{desc}</p>
-              </div>
+      {/* Benefit bullets from description */}
+      {bullets.length > 0 && (
+        <section className="max-w-6xl mx-auto px-4 py-10">
+          <Separator className="border-white/10 mb-10" />
+          <h2 className="text-2xl font-display text-white mb-6 flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            What You'll Get
+          </h2>
+          <ul className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {bullets.map((bullet, i) => (
+              <motion.li
+                key={i}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.07 }}
+                className="flex items-start gap-3 bg-card/40 border border-white/8 rounded-lg p-4"
+              >
+                <Check className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+                <span className="text-muted-foreground font-serif text-sm leading-relaxed">{bullet}</span>
+              </motion.li>
             ))}
-          </div>
-        </div>
-      </section>
+          </ul>
+        </section>
+      )}
 
-      {/* Reading Pass upsell */}
-      <section className="py-16 px-4 border-t border-white/5">
-        <div className="max-w-2xl mx-auto text-center">
-          <p className="text-primary/60 font-serif text-sm mb-2">Better value for avid readers</p>
-          <h3 className="font-display text-2xl text-white mb-3">Unlock 600+ Books with Reading Pass</h3>
-          <p className="text-white/50 font-serif mb-6">
-            Reading Pass gives you unlimited access to our entire library for one monthly price.
-            If you read more than one or two books a month, it pays for itself immediately.
-          </p>
+      {/* Reading Pass upsell banner */}
+      <section className="max-w-6xl mx-auto px-4 pb-14">
+        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-primary/20 rounded-xl p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div>
+            <h3 className="text-xl font-display text-white mb-1">
+              Unlimited Reading — One Low Price
+            </h3>
+            <p className="text-muted-foreground text-sm font-serif">
+              Access <span className="text-white">600+ full-length ebooks</span> including this one with
+              our Reading Pass. From ${" "}
+              <span className="text-primary font-semibold">$4.99/month</span>.
+            </p>
+          </div>
           <Link href="/subscription">
-            <Button className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-8">
-              View Reading Pass Plans <ArrowRight className="ml-2 h-4 w-4" />
+            <Button className="bg-primary text-black hover:bg-primary/90 font-display whitespace-nowrap px-8">
+              Start Reading Pass
             </Button>
           </Link>
         </div>
       </section>
 
-      <Footer />
+      {/* Back link */}
+      <div className="max-w-6xl mx-auto px-4 pb-10">
+        <Link href={`/book/${book.id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-white transition-colors">
+          <ArrowLeft className="h-4 w-4" />
+          View full book details
+        </Link>
+      </div>
     </div>
   );
+}
+
+function toSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+interface LandingBook {
+  id: number;
+  title: string;
+  author: string;
+  genre: string;
+  category: string;
+  price: string;
+  rating: string;
+  coverUrl: string;
+  description?: string;
+  reviewCount?: number;
+  averageRating?: number;
+  createdAt: string;
+}
+
+/** Estimate chapter / section count from description length as a rough proxy. */
+function estimateChapters(description: string, title: string): number {
+  const words = description.split(/\s+/).length;
+  if (words < 50) return 8;
+  if (words < 100) return 10;
+  if (words < 200) return 12;
+  return 15;
+}
+
+function StarDisplay({ rating, size = "sm" }: { rating: number; size?: "sm" | "lg" }) {
+  const starSize = size === "lg" ? "h-5 w-5" : "h-3.5 w-3.5";
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={`${starSize} ${
+            star <= Math.round(rating) ? "fill-amber-400 text-amber-400" : "text-gray-600"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Extract benefit bullets from a book description (up to 5). */
+function extractBullets(description: string): string[] {
+  // Split on sentence boundaries and take the first 5 non-trivial sentences.
+  const raw = description
+    .replace(/\r\n/g, "\n")
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 30 && s.length < 200);
+  return raw.slice(0, 5);
 }

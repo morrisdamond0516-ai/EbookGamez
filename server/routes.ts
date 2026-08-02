@@ -5,7 +5,6 @@ import { storage, db } from "./storage";
 import { insertBookSchema, type InsertOrderItem, draftEbooks, generationJobs, books, bookReviews, readingAccess, pageViews, promoUsages, authorSubmissions, insertAuthorSubmissionSchema, affiliateApplications, insertAffiliateApplicationSchema, customers, orders, orderItems, subscriptions, activeCheckouts, bookRequests, insertBookRequestSchema } from "@shared/schema";
 import bcrypt from "bcryptjs";
 import { sendPasswordResetEmail, sendWelcomeEmail, sendPurchaseThankYouEmail, sendSubscriptionOTPEmail, sendPlanChangeEmail } from "./emailService";
-import { recordFreePromoUseAndAlert } from "./freePromoSecurity";
 import { generateOTP, verifyOTP, requireSubscriptionAuth, subscriptionRateLimit, otpRateLimit, sensitiveActionRateLimit, validateSession } from "./subscriptionAuth";
 import { z } from "zod";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
@@ -165,7 +164,24 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
+  // ======== SECURITY MIDDLEWARE ========
+  // Must run before every route so headers are always present.
+  app.use((req, res, next) => {
+    // Block access to sensitive dot-files and hidden directories that should
+    // never be publicly reachable (.env, .git, .htaccess, etc.)
+    if (/^\/\./.test(req.path)) {
+      return res.status(403).end();
+    }
+    // Prevent MIME-type sniffing attacks
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    // Disallow embedding in foreign iframes (clickjacking protection)
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    // Don't leak full referrer URLs to third-party origins
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    next();
+  });
+
   // Register Object Storage routes for cloud backups (admin-gated upload; ACL-enforced download)
   registerObjectStorageRoutes(app, isAdminAuthenticated);
 
@@ -564,25 +580,6 @@ Allow: /
     next();
   });
 
-  // ── Book lookup by URL slug (title-derived) ──
-  app.get("/api/books/by-slug/:slug", async (req, res) => {
-    try {
-      const slug = req.params.slug as string;
-      // Convert slug back to a searchable pattern: hyphens → spaces, then ILIKE
-      const pattern = "%" + slug.replace(/-/g, " ") + "%";
-      const result = await db
-        .select()
-        .from(books)
-        .where(sql`LOWER(${books.title}) LIKE LOWER(${pattern}) AND ${books.visible} = true`)
-        .limit(1);
-      if (!result.length) return res.status(404).json({ error: "Not found" });
-      return res.json(result[0]);
-    } catch (err) {
-      console.error("[by-slug] error:", err);
-      return res.status(500).json({ error: "Server error" });
-    }
-  });
-
   app.get("/sitemap.xml", async (req, res) => {
     try {
       const allBooks = await storage.getAllBooks({ includeHidden: false });
@@ -601,22 +598,7 @@ Allow: /
   <url><loc>${baseUrl}/guides</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/subscription</loc><changefreq>monthly</changefreq><priority>0.7</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/learnforge</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${now}</lastmod></url>
-  <url><loc>${baseUrl}/linksshrink</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${now}</lastmod></url>`
-
-      // Top commercial ebook landing pages
-      const topEbookSlugs = [
-        "atomic-habits", "the-power-of-now", "think-and-grow-rich",
-        "the-4-hour-workweek", "rich-dad-poor-dad", "how-to-win-friends-and-influence-people",
-        "the-subtle-art-of-not-giving-a-fck", "sapiens", "deep-work",
-        "the-alchemist", "mans-search-for-meaning", "the-lean-startup",
-        "zero-to-one", "the-art-of-war", "meditations",
-        "a-brief-history-of-time", "the-great-gatsby", "pride-and-prejudice",
-        "to-kill-a-mockingbird", "1984", "brave-new-world",
-        "the-catcher-in-the-rye", "animal-farm", "the-odyssey", "hamlet",
-      ];
-      for (const s of topEbookSlugs) {
-        xml += `\n  <url><loc>${baseUrl}/ebooks/b/${s}</loc><changefreq>monthly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>`;
-      }
+  <url><loc>${baseUrl}/linksshrink</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${now}</lastmod></url>`;
 
       const genres = [
         "Romance", "Thriller", "Fantasy", "Sci-Fi",
@@ -647,6 +629,25 @@ Allow: /
           ? new Date(book.createdAt).toISOString().split("T")[0]
           : now;
         xml += `\n  <url><loc>${baseUrl}/book/${book.id}</loc><changefreq>monthly</changefreq><priority>0.6</priority><lastmod>${lastmod}</lastmod></url>`;
+      }
+
+      // Ebook landing pages for commercially-strong genres
+      const toSlugSitemap = (t: string) =>
+        t.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+      const LANDING_GENRES = [
+        "Health & Wellness", "Mindfulness", "Self-Help", "YA Fiction",
+        "Children's Fiction", "Adventure", "Textbook", "Textbooks",
+        "Children's", "Young Adult",
+      ];
+      const landingBooks = allBooks
+        .filter(b => LANDING_GENRES.includes(b.genre))
+        .slice(0, 25);
+      for (const book of landingBooks) {
+        const lastmod = book.createdAt
+          ? new Date(book.createdAt).toISOString().split("T")[0]
+          : now;
+        const slug = toSlugSitemap(book.title);
+        xml += `\n  <url><loc>${baseUrl}/ebooks/b/${slug}</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${lastmod}</lastmod></url>`;
       }
 
       xml += `\n</urlset>`;
@@ -2221,6 +2222,76 @@ Allow: /
   });
 
 
+  // GET /api/books/by-slug/:slug — resolve a title slug to a book record.
+  // Searches all visible books; the slug is generated from the book title via toSlug().
+  app.get("/api/books/by-slug/:slug", async (req, res) => {
+    try {
+      const { slug } = req.params;
+      if (!slug) return res.status(400).json({ error: "Slug required" });
+
+      // toSlug: lowercase, strip non-alphanum except spaces/hyphens, collapse spaces → hyphens
+      const toSlug = (t: string) =>
+        t.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+
+      const allBooks = await db.select({
+        id: books.id,
+        title: books.title,
+        author: books.author,
+        genre: books.genre,
+        category: books.category,
+        price: books.price,
+        rating: books.rating,
+        coverUrl: books.coverUrl,
+        description: books.description,
+        createdAt: books.createdAt,
+      }).from(books).where(eq(books.visible, true));
+
+      // Find book whose slugified title matches
+      const book = allBooks.find(b => toSlug(b.title) === slug);
+      if (!book) return res.status(404).json({ error: "Book not found" });
+
+      // Fetch review stats
+      const reviewStats = await db.select({
+        count: sql<number>`count(*)`,
+        avg: sql<number>`avg(rating)`,
+      }).from(bookReviews).where(eq(bookReviews.bookId, book.id));
+
+      const reviewCount = Number(reviewStats[0]?.count ?? 0);
+      const avgRating = reviewCount > 0 ? Number(reviewStats[0]?.avg ?? book.rating) : Number(book.rating);
+
+      res.json({ ...book, reviewCount, averageRating: avgRating });
+    } catch (error) {
+      console.error("Error fetching book by slug:", error);
+      res.status(500).json({ error: "Failed to fetch book" });
+    }
+  });
+
+  // GET /api/books/landing-targets — top 25 commercially-strong books for dedicated landing pages
+  app.get("/api/books/landing-targets", async (req, res) => {
+    try {
+      const TARGET_GENRES = [
+        "Health & Wellness", "Mindfulness", "Self-Help", "YA Fiction",
+        "Children's Fiction", "Adventure", "Textbook", "Textbooks",
+        "Children's", "Young Adult",
+      ];
+      const rows = await db.select({
+        id: books.id,
+        title: books.title,
+        genre: books.genre,
+        price: books.price,
+        rating: books.rating,
+      }).from(books).where(
+        and(
+          eq(books.visible, true),
+          inArray(books.genre, TARGET_GENRES),
+        )
+      ).orderBy(books.id).limit(25);
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch landing targets" });
+    }
+  });
+
   // GET /api/books/:id - Get a specific book by ID
   app.get("/api/books/:id", async (req, res) => {
     try {
@@ -2991,19 +3062,24 @@ Allow: /
       if (!code) {
         return res.status(400).json({ valid: false, reason: "Code is required" });
       }
-      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "GOOGLETEST": 1.0 };
-      // Unlimited-use test codes (no per-email tracking). EBGZOWNER removed — expired.
-      const UNLIMITED_CODES = new Set(["GOOGLETEST"]);
+      const OWNER_CODE_EXPIRY = new Date("2026-06-19T23:59:59Z");
+      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "EBGZOWNER": 1.0, "GOOGLETEST": 1.0 };
+      // Codes that are unlimited-use (no per-email tracking)
+      const UNLIMITED_CODES = new Set(["EBGZOWNER", "GOOGLETEST"]);
       const upperCode = code.toUpperCase().trim();
-      if (upperCode === "EBGZOWNER") {
-        return res.json({ valid: false, reason: "This code has expired" });
-      }
       if (!VALID_PROMOS[upperCode]) {
         return res.json({ valid: false, reason: "Invalid promo code" });
       }
-      if (!UNLIMITED_CODES.has(upperCode)) {
+      if (upperCode === "EBGZOWNER" && new Date() > OWNER_CODE_EXPIRY) {
+        return res.json({ valid: false, reason: "This code has expired" });
+      }
+      // GOOGLETEST: always valid, no expiry
+      if (!UNLIMITED_CODES.has(upperCode) && email) {
+        // Block the code if any record exists — pending (in-flight session) or confirmed (paid).
+        // When email is not provided (e.g. auto-apply on page load without email context),
+        // skip the per-email history check and allow validation to succeed.
         const existing = await db.select().from(promoUsages)
-          .where(sql`${promoUsages.customerEmail} = ${email.toLowerCase().trim()} AND ${promoUsages.promoCode} = ${upperCode}`)
+          .where(sql`${promoUsages.customerEmail} = ${(email as string).toLowerCase().trim()} AND ${promoUsages.promoCode} = ${upperCode} AND ${promoUsages.status} IN ('pending', 'confirmed')`)
           .limit(1);
         if (existing.length > 0) {
           return res.json({ valid: false, reason: "This code has already been used with this email" });
@@ -3160,10 +3236,12 @@ Allow: /
         return res.status(400).json({ error: "Cart items are required" });
       }
 
-      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "GOOGLETEST": 1.0 };
+      const OWNER_CODE_EXPIRY = new Date("2026-06-19T23:59:59Z");
+      const VALID_PROMOS: Record<string, number> = { "WELCOME10": 0.10, "EBGZOWNER": 1.0, "GOOGLETEST": 1.0 };
       const upperPromo = (promoCode || '').toUpperCase().trim();
+      const isOwnerCode = upperPromo === 'EBGZOWNER' && new Date() <= OWNER_CODE_EXPIRY;
       const isGoogleTestCode = upperPromo === 'GOOGLETEST';
-      const promoDiscount = upperPromo && VALID_PROMOS[upperPromo] ? VALID_PROMOS[upperPromo] : 0;
+      const promoDiscount = upperPromo && VALID_PROMOS[upperPromo] && (upperPromo !== 'EBGZOWNER' || isOwnerCode) ? VALID_PROMOS[upperPromo] : 0;
 
       const bookIds = items.map((item: any) => parseInt(item.id || item.bookId));
       const validPurchaseTypes = ['download', 'read_online', 'bundle'] as const;
@@ -3182,9 +3260,9 @@ Allow: /
         return res.status(404).json({ error: "No valid books found" });
       }
 
-      // GOOGLETEST: 100% off — bypass Stripe, create order for owner account only.
-      // Logs IP/UA and emails owner when IP is not on FREE_PROMO_ALLOWED_IPS.
-      if (isGoogleTestCode && promoDiscount === 1.0) {
+      // EBGZOWNER / GOOGLETEST: 100% off test codes — bypass Stripe, create order directly
+      // Always uses owner@ebookgamez.com so the success page works when logged in as that account.
+      if ((isOwnerCode || isGoogleTestCode) && promoDiscount === 1.0) {
         const ownerEmail = 'owner@ebookgamez.com';
         const fakeSessionId = `cs_owner_free_${Date.now()}`;
         const order = await storage.createOrder({
@@ -3201,9 +3279,8 @@ Allow: /
           title: book.title,
           purchaseType,
         })));
-        // Grant reading access for 1 year (owner test only)
-        const readExpiresAt = new Date();
-        readExpiresAt.setFullYear(readExpiresAt.getFullYear() + 1);
+        // Grant reading access for 30 days (matches code expiry)
+        const readExpiresAt = new Date(OWNER_CODE_EXPIRY);
         for (const { book, purchaseType } of validItems) {
           if (purchaseType === 'read_online' || purchaseType === 'bundle') {
             await db.insert(readingAccess).values({
@@ -3214,96 +3291,205 @@ Allow: /
             });
           }
         }
-        void recordFreePromoUseAndAlert({
-          req,
-          promoCode: upperPromo,
-          orderId: order.id,
-          sessionId: fakeSessionId,
-          bookTitles: validItems.map(({ book }) => book.title || `Book #${book.id}`),
-        });
         return res.json({ url: `/checkout/success?session_id=${fakeSessionId}` });
       }
 
-      const stripe = await getUncachableStripeClient();
-      
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
-      const lineItems = validItems.map(({ book, purchaseType }) => {
-        const fullPrice = parseFloat(book.price);
-        let finalPrice = fullPrice;
-        let label = ' (Digital Download)';
-        const bookGenre = (book.genre || '').toLowerCase();
-        const isVisualFormat = ['coloring', 'art book'].some(v => bookGenre.includes(v));
-        if (purchaseType === 'read_online') {
-          if (isVisualFormat) {
-            finalPrice = Math.max(1.99, fullPrice - 1);
-          } else {
-            const discounted = Math.round((fullPrice * 0.65) * 100) / 100;
-            const cents = Math.round((discounted % 1) * 100);
-            finalPrice = cents >= 75 ? Math.floor(discounted) + 0.99 : cents >= 25 ? Math.floor(discounted) + 0.49 : Math.floor(discounted) - 0.01;
-            finalPrice = Math.max(1.99, finalPrice);
+      // ── PROMO LOCK (acquire BEFORE Stripe so no wasted sessions) ────────────
+      // One-time codes (e.g. WELCOME10) are locked atomically by inserting a
+      // 'pending' row BEFORE the Stripe session is created.  The unique index
+      // on (customer_email, promo_code) means only one INSERT can succeed even
+      // under true concurrent requests — the second gets a 23505 violation.
+      // The webhook confirms pending→confirmed; session-expired releases the lock.
+      //
+      // Email is optional: clients that don't yet send it (e.g. book-detail page)
+      // bypass the lock gracefully — the code is still validated above, but no
+      // pending row is written.  Cart.tsx passes promoEmail so gets full protection.
+      const UNLIMITED_CODES_CHECKOUT = new Set(["EBGZOWNER", "GOOGLETEST"]);
+      let promoLockEmail: string | null = null;
+      if (upperPromo && VALID_PROMOS[upperPromo] && promoDiscount > 0 && !UNLIMITED_CODES_CHECKOUT.has(upperPromo)) {
+        const rawEmail = req.body.email;
+        if (!rawEmail || typeof rawEmail !== "string" || !rawEmail.includes("@")) {
+          // Email is required to lock one-time codes.  Both cart.tsx and book-detail.tsx
+          // collect it before checkout when a limited code is applied.
+          return res.status(400).json({ error: "Email is required when applying a one-time promo code" });
+        }
+        promoLockEmail = rawEmail.toLowerCase().trim();
+        try {
+          await db.insert(promoUsages).values({
+            promoCode: upperPromo,
+            customerEmail: promoLockEmail,
+            stripeSessionId: null,   // set below once Stripe session is created
+            status: "pending",
+          });
+        } catch (lockErr: any) {
+          // PostgreSQL unique-constraint violation — code already in use.
+          // Drizzle wraps the pg error in lockErr.cause, so check both locations.
+          const pgCode = lockErr?.code ?? lockErr?.cause?.code;
+          if (pgCode === "23505") {
+            return res.status(409).json({ error: "This promo code has already been used with this email" });
           }
-          label = ' (1-Year Online Reading)';
-        } else if (purchaseType === 'bundle') {
-          const premium = Math.round((fullPrice * 1.30) * 100) / 100;
-          const cents = Math.round((premium % 1) * 100);
-          finalPrice = cents >= 75 ? Math.floor(premium) + 0.99 : cents >= 25 ? Math.floor(premium) + 0.49 : Math.floor(premium) - 0.01;
-          finalPrice = Math.max(fullPrice + 1, finalPrice);
-          label = ' (Read Online + Download)';
+          throw lockErr;
         }
-        const imageUrl = book.coverUrl
-          ? (book.coverUrl.startsWith('http') ? book.coverUrl : `${baseUrl}${book.coverUrl}`)
-          : null;
-        if (promoDiscount > 0) {
-          finalPrice = Math.max(0.50, finalPrice * (1 - promoDiscount));
+      }
+      // ── END PROMO LOCK ───────────────────────────────────────────────────────
+      // Track whether the Stripe session was successfully created so the outer
+      // catch can release the pending lock unconditionally on any failure path,
+      // including failures of getUncachableStripeClient() or lineItems building.
+      let sessionBound = false;
+
+      // Releases the pending promo lock so the buyer can retry.
+      // No-op once sessionBound = true (session created, webhook owns the row).
+      const releasePromoLock = async () => {
+        if (promoLockEmail && !sessionBound) {
+          try {
+            await db.delete(promoUsages)
+              .where(sql`${promoUsages.customerEmail} = ${promoLockEmail} AND ${promoUsages.promoCode} = ${upperPromo} AND ${promoUsages.status} = 'pending'`);
+          } catch (cleanupErr: any) {
+            console.error('[PromoLock] Failed to release pending lock on checkout error:', cleanupErr.message);
+          }
         }
-        return {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: book.title + label,
-              description: `by ${book.author}${promoDiscount > 0 ? ` (${Math.round(promoDiscount * 100)}% off with ${upperPromo})` : ''}`,
-              ...(imageUrl ? { images: [imageUrl] } : {}),
+      };
+
+      try {
+        const stripe = await getUncachableStripeClient();
+        
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const lineItems = validItems.map(({ book, purchaseType }) => {
+          const fullPrice = parseFloat(book.price);
+          let finalPrice = fullPrice;
+          let label = ' (Digital Download)';
+          const bookGenre = (book.genre || '').toLowerCase();
+          const isVisualFormat = ['coloring', 'art book'].some(v => bookGenre.includes(v));
+          if (purchaseType === 'read_online') {
+            if (isVisualFormat) {
+              finalPrice = Math.max(1.99, fullPrice - 1);
+            } else {
+              const discounted = Math.round((fullPrice * 0.65) * 100) / 100;
+              const cents = Math.round((discounted % 1) * 100);
+              finalPrice = cents >= 75 ? Math.floor(discounted) + 0.99 : cents >= 25 ? Math.floor(discounted) + 0.49 : Math.floor(discounted) - 0.01;
+              finalPrice = Math.max(1.99, finalPrice);
+            }
+            label = ' (1-Year Online Reading)';
+          } else if (purchaseType === 'bundle') {
+            const premium = Math.round((fullPrice * 1.30) * 100) / 100;
+            const cents = Math.round((premium % 1) * 100);
+            finalPrice = cents >= 75 ? Math.floor(premium) + 0.99 : cents >= 25 ? Math.floor(premium) + 0.49 : Math.floor(premium) - 0.01;
+            finalPrice = Math.max(fullPrice + 1, finalPrice);
+            label = ' (Read Online + Download)';
+          }
+          const imageUrl = book.coverUrl
+            ? (book.coverUrl.startsWith('http') ? book.coverUrl : `${baseUrl}${book.coverUrl}`)
+            : null;
+          if (promoDiscount > 0) {
+            finalPrice = Math.max(0.50, finalPrice * (1 - promoDiscount));
+          }
+          return {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: book.title + label,
+                description: `by ${book.author}${promoDiscount > 0 ? ` (${Math.round(promoDiscount * 100)}% off with ${upperPromo})` : ''}`,
+                ...(imageUrl ? { images: [imageUrl] } : {}),
+              },
+              unit_amount: Math.round(finalPrice * 100),
             },
-            unit_amount: Math.round(finalPrice * 100),
-          },
-          quantity: 1,
-        };
-      });
+            quantity: 1,
+          };
+        });
 
-      const total = lineItems.reduce((sum, li) => sum + li.price_data.unit_amount, 0) / 100;
-      
-      const session = await stripe.checkout.sessions.create({
-        line_items: lineItems,
-        mode: 'payment',
-        success_url: `${req.protocol}://${req.get('host')}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${req.protocol}://${req.get('host')}/cart`,
-        after_expiration: {
-          recovery: {
-            enabled: true,
-            allow_promotion_codes: true,
+        const total = lineItems.reduce((sum, li) => sum + li.price_data.unit_amount, 0) / 100;
+        
+        const session = await stripe.checkout.sessions.create({
+          line_items: lineItems,
+          mode: 'payment',
+          success_url: `${req.protocol}://${req.get('host')}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${req.protocol}://${req.get('host')}/cart`,
+          after_expiration: {
+            recovery: {
+              enabled: true,
+              allow_promotion_codes: true,
+            },
           },
-        },
-        expires_at: Math.floor(Date.now() / 1000) + 1800,
-        // Tag every EbookGamez purchase so it's identifiable in Stripe
-        // even when the Stripe account is shared with other businesses.
-        payment_intent_data: {
-          statement_descriptor_suffix: 'EBOOKGAMEZ',
-          metadata: { site: 'ebookgamez.com', business: 'EbookGamez' },
-        },
-        metadata: {
-          site: 'ebookgamez.com',
-          business: 'EbookGamez',
-          bookIds: validItems.map(vi => vi.book.id).join(','),
-          purchaseTypes: validItems.map(vi => vi.purchaseType).join(','),
-          total: total.toFixed(2),
-          ...(promoDiscount > 0 ? { promoCode: promoCode.toUpperCase() } : {}),
-        },
-      });
+          expires_at: Math.floor(Date.now() / 1000) + 1800,
+          // Tag every EbookGamez purchase so it's identifiable in Stripe
+          // even when the Stripe account is shared with other businesses.
+          payment_intent_data: {
+            statement_descriptor_suffix: 'EBOOKGAMEZ',
+            metadata: { site: 'ebookgamez.com', business: 'EbookGamez' },
+          },
+          metadata: {
+            site: 'ebookgamez.com',
+            business: 'EbookGamez',
+            bookIds: validItems.map(vi => vi.book.id).join(','),
+            purchaseTypes: validItems.map(vi => vi.purchaseType).join(','),
+            total: total.toFixed(2),
+            ...(promoDiscount > 0 ? { promoCode: promoCode.toUpperCase() } : {}),
+          },
+        });
 
-      res.json({ url: session.url });
+        // Bind the Stripe session ID to the pending lock so the expire/complete
+        // webhooks can find and update the correct row.  Mark sessionBound = true
+        // so any subsequent error does NOT release the lock (webhook owns it now).
+        if (promoLockEmail) {
+          await db.update(promoUsages)
+            .set({ stripeSessionId: session.id })
+            .where(sql`${promoUsages.customerEmail} = ${promoLockEmail} AND ${promoUsages.promoCode} = ${upperPromo} AND ${promoUsages.status} = 'pending'`);
+        }
+        sessionBound = true;
+
+        // Return the post-discount total alongside the URL so the client can store
+        // it in the purchase snapshot. This ensures the snapshot fallback path on the
+        // success page reports the same value that Stripe actually charged, even when
+        // a promo code was applied.
+        res.json({ url: session.url, total });
+      } catch (innerError) {
+        // Release the pending promo lock so the buyer can retry, UNLESS the
+        // session was already created and bound to the lock (webhook handles it).
+        await releasePromoLock();
+        throw innerError;
+      }
     } catch (error) {
       console.error("Error creating checkout session:", error);
       res.status(500).json({ error: "Failed to create checkout session" });
+    }
+  });
+
+  // GET /api/checkout/session-summary/:sessionId
+  // Public endpoint — returns only the value and currency for a completed Stripe checkout
+  // session so the client can fire a Google Ads conversion even for guest purchasers who
+  // have no customer account.  No customer PII is returned.
+  const sessionSummaryRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please try again later." },
+  });
+
+  app.get("/api/checkout/session-summary/:sessionId", sessionSummaryRateLimit, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      if (!sessionId || !sessionId.startsWith("cs_")) {
+        return res.status(400).json({ error: "Invalid session ID" });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: [],
+      });
+
+      if (session.payment_status !== "paid") {
+        return res.status(402).json({ error: "Payment not completed" });
+      }
+
+      const value = session.amount_total != null ? session.amount_total / 100 : 0;
+      const currency = (session.currency || "usd").toUpperCase();
+
+      res.json({ value, currency });
+    } catch (error: any) {
+      console.error("[SessionSummary] Error:", error.message);
+      // Return a safe 404 for unknown/invalid sessions rather than leaking error detail
+      res.status(404).json({ error: "Session not found" });
     }
   });
 
@@ -4560,53 +4746,41 @@ Respond in JSON format only:
     }
   });
 
-  // PATCH /api/content-studio/drafts/:id - Update draft title/price
+  // PATCH /api/content-studio/drafts/:id - Update draft title/price/genre
   app.patch("/api/content-studio/drafts/:id", async (req, res) => {
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const draftId = parseInt(req.params.id);
-      if (isNaN(draftId)) {
-        return res.status(400).json({ error: "Invalid draft ID" });
+      const { patchDraft } = await import("./patchDraftHandler");
+      const outcome = await patchDraft(req.params.id, req.body, { db });
+      if (!outcome.ok) {
+        const { kind } = outcome.error;
+        if (kind === "invalid_id") return res.status(400).json({ error: "Invalid draft ID" });
+        if (kind === "not_found")  return res.status(404).json({ error: "Draft not found" });
+        if (kind === "invalid_title") return res.status(400).json({ error: "Title must be a non-empty string" });
+        if (kind === "invalid_price") return res.status(400).json({ error: "Price must be a valid positive number" });
+        if (kind === "invalid_genre") return res.status(400).json({ error: "Genre must be a non-empty string" });
+        if (kind === "no_fields")  return res.status(400).json({ error: "No valid fields to update" });
       }
-      
-      // Check if draft exists
-      const [existing] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
-      if (!existing) {
-        return res.status(404).json({ error: "Draft not found" });
-      }
-      
-      const { title, suggestedPrice, genre } = req.body;
-      
-      // Validate inputs
-      if (title !== undefined && (typeof title !== "string" || title.trim().length === 0)) {
-        return res.status(400).json({ error: "Title must be a non-empty string" });
-      }
-      if (suggestedPrice !== undefined) {
-        const price = parseFloat(suggestedPrice);
-        if (isNaN(price) || price < 0) {
-          return res.status(400).json({ error: "Price must be a valid positive number" });
-        }
-      }
-      if (genre !== undefined && (typeof genre !== "string" || genre.trim().length === 0)) {
-        return res.status(400).json({ error: "Genre must be a non-empty string" });
-      }
-      
-      const updates: Record<string, any> = {};
-      if (title !== undefined) updates.title = title.trim();
-      if (suggestedPrice !== undefined) updates.suggestedPrice = suggestedPrice;
-      if (genre !== undefined) updates.genre = genre.trim();
-      
-      // Require at least one field to update
-      if (Object.keys(updates).length === 0) {
-        return res.status(400).json({ error: "No valid fields to update" });
-      }
-      
-      await db.update(draftEbooks).set(updates).where(eq(draftEbooks.id, draftId));
-      const [updated] = await db.select().from(draftEbooks).where(eq(draftEbooks.id, draftId));
-      res.json(updated);
+      if (outcome.ok) return res.json(outcome.draft);
     } catch (error) {
       console.error("Error updating draft:", error);
       res.status(500).json({ error: "Failed to update draft" });
+    }
+  });
+
+  // GET /api/content-studio/title-mismatches
+  // Scans all drafts with content and returns those where the stored title doesn't match
+  // the first H1 heading found in the content. Supports both markdown (# Heading) and
+  // HTML (<h1>Heading</h1>) content formats.
+  app.get("/api/content-studio/title-mismatches", async (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { getTitleMismatches } = await import("./titleMismatchHandler");
+      const result = await getTitleMismatches({ db });
+      res.json(result);
+    } catch (error: any) {
+      console.error("[TitleMismatches] Error:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -5060,21 +5234,13 @@ Respond in JSON format only:
     if (!isAdminAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const subscriberExclusive = req.body?.subscriberExclusive === true;
-      const draftIds = Array.isArray(req.body?.draftIds)
-        ? req.body.draftIds.map((id: unknown) => Number(id)).filter((n: number) => Number.isInteger(n) && n > 0)
-        : undefined;
-      const result = await contentStudio.bulkPublishReady({
-        subscriberExclusive,
-        draftIds: draftIds?.length ? draftIds : undefined,
-      });
+      const result = await contentStudio.bulkPublishReady({ subscriberExclusive });
       res.json({
         publishedCount: result.published,
         failedCount: result.failed,
         skippedCount: result.skipped,
         details: result.details,
-        message: draftIds?.length
-          ? `Selected ${draftIds.length}: published ${result.published}. ${result.failed} failed quality gate. ${result.skipped} skipped.`
-          : `Published ${result.published} ebooks. ${result.failed} failed quality gate and were demoted to draft.`,
+        message: `Published ${result.published} ebooks. ${result.failed} failed quality gate and were demoted to draft.`,
       });
     } catch (error) {
       console.error("Error in publish-all:", error);

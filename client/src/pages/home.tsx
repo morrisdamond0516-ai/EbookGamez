@@ -12,8 +12,6 @@ import { Gamepad2, Download, BookOpen, ShoppingBag, ArrowRight, Sparkles, Extern
 import { trackAddToCart } from "@/lib/analytics";
 import { NewsletterSignup } from "@/components/newsletter-signup";
 import { BLOG_POSTS } from "@/data/blog-data";
-import { HOME_FAQS, homeFaqJsonLd } from "@/data/home-faqs";
-import { PARTNER_URLS, warmAllPartnersIdle, warmPartnerSite } from "@/lib/partnerWarmup";
 const heroBg = "/hero.webp";
 
 interface Book {
@@ -67,24 +65,6 @@ export default function Home() {
       return () => document.removeEventListener("mouseleave", handleExitIntent);
     }
   }, [handleExitIntent, popupDismissCount]);
-
-  useEffect(() => {
-    const id = "ebgz-faq-jsonld";
-    document.getElementById(id)?.remove();
-    const script = document.createElement("script");
-    script.id = id;
-    script.type = "application/ld+json";
-    script.text = JSON.stringify(homeFaqJsonLd());
-    document.head.appendChild(script);
-    return () => {
-      document.getElementById(id)?.remove();
-    };
-  }, []);
-
-  useEffect(() => warmAllPartnersIdle(), []);
-  // LearnForge runs on Replit and cold-starts in ~15s — wake it immediately
-  // on homepage mount so it's ready by the time the user clicks.
-  useEffect(() => { warmPartnerSite(PARTNER_URLS.learnforge); }, []);
 
   const handlePopupAction = (destination: string) => {
     setPopup("none");
@@ -247,11 +227,9 @@ export default function Home() {
           <img
             src={heroBg}
             alt="Library Background"
-            width={1920}
-            height={1080}
             className="w-full h-full object-cover opacity-60 brightness-[0.85]"
             fetchPriority="high"
-            decoding="async"
+            decoding="sync"
           />
           <div className="absolute inset-0 bg-black/15" />
           <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
@@ -272,64 +250,24 @@ export default function Home() {
               Where the greatest stories of <span className="text-primary border-b border-primary/30">Cinema</span> and <span className="text-primary border-b border-primary/30">Literature</span> converge.
             </p>
 
-            <div className="flex flex-wrap items-center justify-center gap-2.5">
-              {/* Ticket-passes with bright yellow-gold attention glow */}
-              <Link
-                href="/catalog"
-                data-testid="button-explore-collection"
-                className="group relative inline-flex items-center gap-2.5 pl-2.5 pr-3.5 py-2 transition-all duration-300 hover:-translate-y-0.5"
-                style={{
-                  clipPath: 'polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px)',
-                  background: 'linear-gradient(135deg, rgba(201,169,113,0.22) 0%, rgba(18,11,4,0.68) 48%, rgba(8,5,2,0.82) 100%)',
-                  boxShadow: 'inset 0 1px 0 rgba(245,232,200,0.2), inset 0 0 0 1px rgba(201,169,113,0.35)',
-                  filter: 'drop-shadow(0 0 4px rgba(255,214,120,0.95)) drop-shadow(0 0 12px rgba(212,175,55,0.75)) drop-shadow(0 0 22px rgba(201,169,113,0.45))',
-                }}
-              >
-                <span className="w-px self-stretch bg-gradient-to-b from-transparent via-primary/55 to-transparent" aria-hidden="true" />
-                <span className="flex flex-col items-start leading-tight text-left">
-                  <span className="text-[13px] font-display font-bold tracking-wide text-[#f5e8c8] group-hover:text-primary transition-colors">Get My Next Ebook</span>
-                  <span className="text-[9px] font-sans font-semibold tracking-wider uppercase text-white/50">600+ stories · try free</span>
-                </span>
+            <div className="flex flex-col md:flex-row gap-4 justify-center">
+              <Link href="/catalog">
+                <Button size="lg" className="bg-primary text-black hover:bg-primary/90 px-8 font-display rounded-sm flex flex-col items-center leading-tight h-auto py-3 min-w-[200px]" data-testid="button-explore-collection">
+                  <span className="text-xl font-bold tracking-wide">Explore Collection</span>
+                  <span className="text-[11px] font-sans font-semibold tracking-wider uppercase opacity-75 mt-0.5">📚 600+ Full-Length Ebooks</span>
+                </Button>
               </Link>
-              <Link
-                href="/games"
-                data-testid="button-play-games"
-                className="group relative inline-flex items-center gap-2.5 pl-2.5 pr-3.5 py-2 transition-all duration-300 hover:-translate-y-0.5"
-                style={{
-                  clipPath: 'polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px)',
-                  background: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0%, rgba(12,10,8,0.55) 55%, rgba(8,5,2,0.72) 100%)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 0 0 1px rgba(201,169,113,0.4)',
-                  filter: 'drop-shadow(0 0 4px rgba(255,214,120,0.85)) drop-shadow(0 0 12px rgba(212,175,55,0.65)) drop-shadow(0 0 20px rgba(201,169,113,0.4))',
-                }}
-              >
-                <span className="w-px self-stretch bg-gradient-to-b from-transparent via-white/35 to-transparent" aria-hidden="true" />
-                <span className="flex flex-col items-start leading-tight text-left">
-                  <span className="text-[13px] font-display font-bold tracking-wide text-white group-hover:text-primary transition-colors">Play Free — Right Now</span>
-                  <span className="text-[9px] font-sans font-semibold tracking-wider uppercase text-primary/80">40+ games · no signup</span>
-                </span>
+              <Link href="/games">
+                <Button size="lg" variant="outline" className="text-white border-white/20 hover:bg-white/10 text-lg px-8 py-6 font-display rounded-sm backdrop-blur-sm" data-testid="button-play-games">
+                  Play Free Games
+                </Button>
               </Link>
-              <a
-                href={PARTNER_URLS.linksshrink}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="button-video-ads"
-                onMouseEnter={() => warmPartnerSite(PARTNER_URLS.linksshrink)}
-                onFocus={() => warmPartnerSite(PARTNER_URLS.linksshrink)}
-                onTouchStart={() => warmPartnerSite(PARTNER_URLS.linksshrink)}
-                className="group relative inline-flex items-center gap-2.5 pl-2.5 pr-3.5 py-2 transition-all duration-300 hover:-translate-y-0.5"
-                style={{
-                  clipPath: 'polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px)',
-                  background: 'linear-gradient(135deg, rgba(201,169,113,0.22) 0%, rgba(18,11,4,0.68) 48%, rgba(8,5,2,0.82) 100%)',
-                  boxShadow: 'inset 0 1px 0 rgba(245,232,200,0.2), inset 0 0 0 1px rgba(201,169,113,0.35)',
-                  filter: 'drop-shadow(0 0 4px rgba(255,214,120,0.95)) drop-shadow(0 0 12px rgba(212,175,55,0.75)) drop-shadow(0 0 22px rgba(201,169,113,0.45))',
-                }}
-              >
-                <span className="w-px self-stretch bg-gradient-to-b from-transparent via-primary/55 to-transparent" aria-hidden="true" />
-                <span className="flex flex-col items-start leading-tight text-left">
-                  <span className="text-[13px] font-display font-bold tracking-wide text-[#f5e8c8] group-hover:text-primary transition-colors">Make Video Ads</span>
-                  <span className="text-[9px] font-sans font-semibold tracking-wider uppercase text-white/50">at LinksShrink · from $5</span>
-                </span>
-              </a>
+              <Link href="/linksshrink" data-testid="button-video-ads">
+                <Button size="lg" className="bg-primary text-black hover:bg-primary/90 px-8 font-display rounded-sm flex flex-col items-center leading-tight h-auto py-3 min-w-[200px]">
+                  <span className="text-xl font-bold tracking-wide">LinksShrink</span>
+                  <span className="text-[11px] font-sans font-semibold tracking-wider uppercase opacity-75 mt-0.5">🎬 New — Create Video Ads</span>
+                </Button>
+              </Link>
             </div>
 
             {/* ── LearnForge: AI Learning & Career Tool ── */}
@@ -339,14 +277,9 @@ export default function Home() {
               transition={{ duration: 0.9, delay: 0.55 }}
               className="mt-10 flex justify-center"
             >
-              <a
-                href={PARTNER_URLS.learnforge}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href="/learnforge"
                 data-testid="link-learnforge"
-                onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)}
-                onFocus={() => warmPartnerSite(PARTNER_URLS.learnforge)}
-                onTouchStart={() => warmPartnerSite(PARTNER_URLS.learnforge)}
                 className="group relative inline-flex flex-col items-center justify-center gap-1 px-16 py-6 font-display tracking-wide transition-all duration-300 hover:scale-[1.025]"
                 style={{
                   borderRadius: '75px 75px 55px 55px / 55px 55px 75px 75px',
@@ -390,7 +323,7 @@ export default function Home() {
                   style={{ color: 'rgba(201,169,113,0.5)' }}>
                   Forge Skills · Ace Exams · Advance Your Career
                 </span>
-              </a>
+              </Link>
             </motion.div>
           </motion.div>
         </div>
@@ -504,19 +437,13 @@ export default function Home() {
           ))}
 
           {/* LearnForge — full-width featured card */}
-          <motion.a
-            href={PARTNER_URLS.learnforge}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid="card-section-learnforge"
-            onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)}
-            onFocus={() => warmPartnerSite(PARTNER_URLS.learnforge)}
-            onTouchStart={() => warmPartnerSite(PARTNER_URLS.learnforge)}
+          <Link href="/learnforge" data-testid="card-section-learnforge" className="sm:col-span-2 block">
+          <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4, duration: 0.5 }}
             whileHover={{ y: -6, scale: 1.01 }}
-            className="sm:col-span-2 relative overflow-hidden rounded-2xl border border-primary/25 hover:border-primary/55 transition-all duration-500 group cursor-pointer shadow-xl shadow-amber-900/20 hover:shadow-amber-700/30"
+            className="relative overflow-hidden rounded-2xl border border-primary/25 hover:border-primary/55 transition-all duration-500 group cursor-pointer shadow-xl shadow-amber-900/20 hover:shadow-amber-700/30"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-amber-900/50 via-stone-950 to-yellow-950/40 opacity-90" />
             <div className="absolute inset-0 bg-black/40" />
@@ -566,11 +493,12 @@ export default function Home() {
                   Free to Start
                 </span>
                 <span className="text-primary text-sm font-serif flex items-center gap-1 group-hover:gap-3 transition-all duration-300">
-                  Launch LearnForge <ExternalLink className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                  Learn More <ChevronRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
                 </span>
               </div>
             </div>
-          </motion.a>
+          </motion.div>
+          </Link>
         </div>
       </section>
 
@@ -727,12 +655,43 @@ export default function Home() {
           <div className="border-t border-white/10 pt-12">
             <h2 className="text-2xl font-display text-white mb-8 text-center">Frequently Asked Questions</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-7 text-sm font-serif text-muted-foreground">
-              {HOME_FAQS.map((f) => (
-                <div key={f.question}>
-                  <h3 className="text-white font-display text-sm mb-2">{f.question}</h3>
-                  <p>{f.answer}</p>
-                </div>
-              ))}
+              <div>
+                <h3 className="text-white font-display text-sm mb-2">Do I need an account to read ebooks?</h3>
+                <p>For classic (free) books, no account is needed — just click and read. For premium ebooks, you need to
+                either purchase the book or have an active Reading Pass subscription. Creating an account takes about 30
+                seconds and lets you access everything you've bought from any device.</p>
+              </div>
+              <div>
+                <h3 className="text-white font-display text-sm mb-2">What formats are the ebooks available in?</h3>
+                <p>Our online reader works in any modern browser on desktop, tablet, or phone with no app required. Downloads
+                are provided as PDF files compatible with any e-reader, tablet, or computer. Once you download a book, it's
+                yours with no expiry date or DRM restrictions.</p>
+              </div>
+              <div>
+                <h3 className="text-white font-display text-sm mb-2">How does the Reading Pass subscription work?</h3>
+                <p>Choose from five tiers — Lite, Reader, Value, Premium, or VIP — billed monthly or annually (annual saves
+                two months). Your subscription gives you unlimited online reading of the entire library plus a set number of
+                download credits each month. Unused credits roll over to the next month (capped at your plan's monthly limit).
+                Cancel at any time with no penalties.</p>
+              </div>
+              <div>
+                <h3 className="text-white font-display text-sm mb-2">Are the browser games really free?</h3>
+                <p>Yes — every game in our Game Hub is completely free to play. No sign-up, no payment, no download. The games
+                run directly in your browser and are supported by advertising. We feature games across all major categories:
+                action, arcade, puzzle, racing, sports, strategy, and multiplayer. New titles are added regularly.</p>
+              </div>
+              <div>
+                <h3 className="text-white font-display text-sm mb-2">Is there a refund policy for ebook purchases?</h3>
+                <p>Yes. We offer a 14-day refund window for any purchase that doesn't meet your expectations. Contact our
+                support team within 14 days with your order details and we'll process a full refund. Subscriptions can be
+                cancelled at any time and you retain access until the end of your current billing period.</p>
+              </div>
+              <div>
+                <h3 className="text-white font-display text-sm mb-2">Can I read on mobile and tablet?</h3>
+                <p>Absolutely. Our book reader is fully responsive and works on iPhone, Android, iPad, and any tablet or
+                laptop browser. The reading experience adjusts to your screen size automatically. For the best experience on
+                small screens we recommend landscape orientation, but portrait mode works well too.</p>
+              </div>
             </div>
           </div>
         </div>

@@ -116,6 +116,8 @@ function Router() {
         <Route path="/my-account" component={MyAccount} />
         <Route path="/ad-preview" component={AdPreview} />
         <Route path="/ebooks/b/:slug" component={EbookLandingBook} />
+        <Route path="/learnforge" component={LearnForgeLanding} />
+        <Route path="/linksshrink" component={LinksShrinkLanding} />
         <Route path="/ebooks/:genre" component={EbooksLanding} />
         <Route path="/ebooks" component={EbooksLanding} />
         <Route path="/learnforge" component={LearnForgeLanding} />

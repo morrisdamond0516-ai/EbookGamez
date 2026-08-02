@@ -1,0 +1,40 @@
+gavel
+What to Change: Your Policy Audit Checklist
+Your 'Gaming Guides & Walkthroughs' asset group is limited because Google’s automated systems have flagged its content as **Sexually Explicit Content**. In gaming ads, this is often triggered by stylized character art or specific incentive keywords that the AI misinterprets.
+
+Check and Change these 3 items:
+• Character Art: Replace stylized characters or those in form-fitting outfits with action-oriented gameplay screenshots or environmental "world-building" images. Automated systems often flag stylized anatomy as suggestive content.
+• Incentive Keywords: Remove or replace terms like "Rewards," "Prizes," or "Unlock Secrets" if they are linked to character interactions. Use "Game Mastery," "Strategy Guides," or "Leveling Tips" instead.
+• Character Poses: Ensure none of your images or video thumbnails feature characters in "power poses" or social settings that could be interpreted as suggestive by the AI.
+
+
+prompt_suggestion
+How to appeal the asset group?
+
+prompt_suggestion
+Review character guidelines
+auto_fix_high
+Creative Performance & Ad Strength
+While you resolve the policy issue, your 'Gaming Guides' messaging is already showing strong resonance, with your top headline achieving a 12.2% CTR. However, your Ad Strength is Average, and adding value-based messaging could help move users to convert.
+
+Overview
+To improve your creative results, prioritize adding square and vertical videos to reach 'Excellent' Ad Strength. While your game-specific guides are highly effective, incorporating 'Reading Pass' pricing and clear call-to-action themes will help you capture more conversions from value-conscious gamers.
+Performance findings 
+?
+Ad Strength 
+?
+ Average
+Diversity 
+?
+Relevance 
+?
+Top action items
+Add square and vertical videos to fulfill the requirements for 'Excellent' Ad Strength and expand your reach across all Google placements.
+Add new headlines like 'Unlimited Guides For $4.99/Mo' and 'Join Our Reading Pass Today' to highlight the value proposition extracted from your website.
+Replace the headline 'Dominate The Leaderboard' (which has the lowest CTR) with specific game angles like 'Master Valorant & Apex Now' to emulate your top-performing guide assets.
+Add new square images showing lifestyle gaming setups to improve visual variety beyond the current product screenshots.
+Include a call-to-action headline like 'Get Instant Gaming Mastery' to move users from interest to conversion more immediate conversion action.
+These insights are intended to provide ideas for improvement. Performance is not guaranteed and depends on various factors beyond creative assets.
+sync_problem
+Urgent: Account Tracking Outage
+I must flag that your account has recorded zero conversions in the last 30 days, including your 'Purchase' and 'Android installs' actions. While you received 1,149 clicks on July 31st after unpausing, this tracking outage prevents your Maximize Conversions strategy from effectively finding customers. Fixing your conversion tags is essential for your campaign's long-term ROI.

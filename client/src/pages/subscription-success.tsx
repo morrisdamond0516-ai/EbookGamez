@@ -129,7 +129,10 @@ export default function SubscriptionSuccess() {
         value,
         billingInterval: billing,
       });
-      // Google Ads conversion — subscription purchase
+      // Google Ads conversion — fires for every new subscription purchase.
+      // Uses the same Purchase conversion action as one-time ebook sales.
+      // If you create a dedicated "Subscription" conversion action in Google Ads,
+      // replace the send_to label below with the new conversion label.
       if (typeof (window as any).gtag === "function") {
         (window as any).gtag("event", "conversion", {
           send_to: "AW-18030874893/BJi5CM6H1o0cEI2i5ZVD",
@@ -148,10 +151,13 @@ export default function SubscriptionSuccess() {
         value: 0,
         billingInterval: billing,
       });
-      // Google Ads conversion — plan unknown, fire without value
+      // Fire conversion even when plan details aren't resolved — value 0 still
+      // lets Google Ads record the event and learn from the click path.
       if (typeof (window as any).gtag === "function") {
         (window as any).gtag("event", "conversion", {
           send_to: "AW-18030874893/BJi5CM6H1o0cEI2i5ZVD",
+          value: 0,
+          currency: "USD",
           transaction_id: sessionId,
         });
       }

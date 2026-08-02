@@ -128,6 +128,9 @@ export function assessProdSyncStatus(
   const stored = parseProdSyncFromDescription(draft.description);
 
   if (isTitleRepairAwaitingProdPush(draft)) {
+    // Title repair happened after the last prod sync — must push regardless of
+    // whether the book is already in the catalog. The catalog entry is stale
+    // (holds the old title); being in catalog doesn't confirm the rename landed.
     return {
       needsProdPush: true,
       reason: "title_repair",

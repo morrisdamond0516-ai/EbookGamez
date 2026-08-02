@@ -208,86 +208,75 @@ export function Navbar() {
                     <Menu className="h-5 w-5" aria-hidden="true" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent
-                  side="right"
-                  className="w-[min(100%,20rem)] bg-background border-l border-white/10 px-0"
-                >
-                  <div className="flex h-full flex-col">
-                    <div className="border-b border-white/10 px-6 pb-5 pt-2 text-center">
-                      <p className="font-display text-lg tracking-widest text-primary">
-                        EBOOKGAME<span className="italic text-white" style={{ fontFamily: "'Playfair Display', serif" }}>Z</span>
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">Menu</p>
-                    </div>
-
-                    <div className="px-6 pt-5">
-                      <div className="relative">
-                        <Input
-                          placeholder="Search the library"
-                          className="w-full bg-black/20 border-white/10 focus:border-primary/50 text-sm pl-4 pr-10 font-serif text-center placeholder:text-center"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-                          data-testid="input-mobile-search"
-                        />
-                        <button onClick={handleSearch} className="absolute right-3 top-2.5" aria-label="Search">
-                          <Search className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" aria-hidden="true" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <nav className="mt-4 flex flex-1 flex-col overflow-y-auto px-2" aria-label="Mobile">
-                      {[
-                        { href: "/", label: "Home" },
-                        { href: "/catalog", label: "Catalog" },
-                        { href: "/games", label: "Games" },
-                        { href: "/downloads", label: "Downloads" },
-                        { href: "/guides", label: "Guides" },
-                        { href: "/blog", label: "Blog" },
-                        { href: "/subscription", label: "Reading Pass", highlight: true },
-                        { href: "/about", label: "About" },
-                        { href: "/contact", label: "Contact" },
-                        {
-                          href: isCustomerLoggedIn ? "/my-account" : "/login",
-                          label: isCustomerLoggedIn ? "My Account" : "Sign In",
-                          testId: "link-mobile-account",
-                        },
-                      ].map((item) => (
-                        <Link
-                          key={item.href + item.label}
-                          href={item.href}
-                          data-testid={item.testId}
-                          className={`border-b border-white/5 px-4 py-3.5 text-center text-lg font-serif transition-colors ${
-                            item.highlight
-                              ? "text-emerald-400 hover:text-emerald-300"
-                              : "text-foreground/90 hover:text-primary"
-                          }`}
-                        >
-                          {item.label}
-                        </Link>
-                      ))}
-                      {showAdmin && (
-                        <>
-                          <Link href="/admin" className="border-b border-white/5 px-4 py-3.5 text-center text-base font-serif text-primary hover:text-primary/80">
-                            Admin
-                          </Link>
-                          <Link href="/content-studio" className="border-b border-white/5 px-4 py-3.5 text-center text-base font-serif text-primary hover:text-primary/80">
-                            AI Studio
-                          </Link>
-                          <button
-                            onClick={handleLogout}
-                            className="border-b border-white/5 px-4 py-3.5 text-center text-base font-serif text-red-400 hover:text-red-300"
-                          >
-                            Logout
-                          </button>
-                        </>
-                      )}
-                    </nav>
-
-                    <p className="border-t border-white/10 px-6 py-4 text-center text-[11px] leading-relaxed text-muted-foreground">
-                      600+ ebooks · Free games · Reading Pass
-                    </p>
+                <SheetContent side="right" className="bg-background border-l border-white/10 w-[85vw] max-w-xs flex flex-col">
+                  {/* Brand header */}
+                  <div className="text-center pt-2 pb-5 border-b border-white/10">
+                    <span className="font-display tracking-widest text-xl text-white">EBOOK<span className="text-primary">GAMEZ</span></span>
                   </div>
+
+                  {/* Search */}
+                  <div className="relative mt-5 mb-2">
+                    <Input
+                      placeholder="Search library…"
+                      className="w-full bg-black/20 border-white/10 focus:border-primary/50 text-sm pl-4 pr-10 font-serif text-center"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+                      data-testid="input-mobile-search"
+                    />
+                    <button onClick={handleSearch} className="absolute right-3 top-2.5" aria-label="Search">
+                      <Search className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" aria-hidden="true" />
+                    </button>
+                  </div>
+
+                  {/* Main nav links */}
+                  <nav className="flex flex-col flex-1 overflow-y-auto mt-2">
+                    {[
+                      { href: "/", label: "Home" },
+                      { href: "/catalog", label: "Catalog" },
+                      { href: "/games", label: "Games" },
+                      { href: "/downloads", label: "Downloads" },
+                      { href: "/guides", label: "Guides" },
+                      { href: "/blog", label: "Blog" },
+                      { href: "/about", label: "About" },
+                    ].map(({ href, label }) => (
+                      <Link
+                        key={href}
+                        href={href}
+                        className="block text-center py-3 text-lg font-serif text-foreground hover:text-primary border-b border-white/5 transition-colors"
+                      >
+                        {label}
+                      </Link>
+                    ))}
+
+                    {/* Reading Pass — highlighted */}
+                    <Link
+                      href="/subscription"
+                      className="block text-center py-3 text-lg font-serif text-emerald-400 hover:text-emerald-300 border-b border-white/5 transition-colors"
+                    >
+                      ✦ Reading Pass
+                    </Link>
+
+                    {/* Account */}
+                    <Link
+                      href={isCustomerLoggedIn ? "/my-account" : "/login"}
+                      className="block text-center py-3 text-lg font-serif text-foreground hover:text-primary border-b border-white/5 transition-colors"
+                      data-testid="link-mobile-account"
+                    >
+                      {isCustomerLoggedIn ? "My Account" : "Sign In"}
+                    </Link>
+
+                    {showAdmin && (
+                      <>
+                        <Link href="/admin" className="block text-center py-3 text-base font-serif text-primary hover:text-primary/80 border-b border-white/5 transition-colors">Admin</Link>
+                        <Link href="/content-studio" className="block text-center py-3 text-base font-serif text-primary hover:text-primary/80 border-b border-white/5 transition-colors">Content Studio</Link>
+                        <button onClick={handleLogout} className="w-full text-center py-3 text-base font-serif text-red-400 hover:text-red-300 border-b border-white/5 transition-colors">Logout</button>
+                      </>
+                    )}
+                  </nav>
+
+                  {/* Footer note */}
+                  <p className="text-center text-xs text-white/30 py-4 font-serif">600+ ebooks · Free games · Reading Pass</p>
                 </SheetContent>
               </Sheet>
             </div>

@@ -38,28 +38,41 @@ export default function Cart() {
   const [promoCode, setPromoCode] = useState(() => localStorage.getItem("ebgz_promo") || "");
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoDiscountRate, setPromoDiscountRate] = useState(0);
-  const [promoEmail, setPromoEmail] = useState("");
+  // Persist email alongside the code so it survives page reloads when WELCOME10 is saved
+  const [promoEmail, setPromoEmail] = useState(() => localStorage.getItem("ebgz_promo_email") || "");
   const [promoValidating, setPromoValidating] = useState(false);
 
   // Auto-apply any saved promo code on mount (e.g. EBGZOWNER stored from a previous session)
   useEffect(() => {
     const saved = localStorage.getItem("ebgz_promo");
     if (!saved) return;
+    const savedEmail = localStorage.getItem("ebgz_promo_email") || "";
+    // WELCOME10 requires email to acquire a pending lock at checkout.
+    // If email is missing from storage, don't auto-apply — require the user to re-enter it.
+    const upperSaved = saved.toUpperCase().trim();
+    const isFirstTime = upperSaved === "WELCOME10";
+    if (isFirstTime && !savedEmail) {
+      // Pre-populate the code field so the user sees it, but don't mark as applied
+      setPromoCode(upperSaved);
+      return;
+    }
     fetch("/api/promo/validate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: saved }),
+      body: JSON.stringify({ code: saved, email: savedEmail || undefined }),
     })
       .then(r => r.json())
       .then(result => {
         if (result.valid) {
           setPromoApplied(true);
           setPromoDiscountRate(result.discount);
-          setPromoCode(saved.toUpperCase().trim());
+          setPromoCode(upperSaved);
         } else {
           // Saved code is no longer valid — clear it
           localStorage.removeItem("ebgz_promo");
+          localStorage.removeItem("ebgz_promo_email");
           setPromoCode("");
+          setPromoEmail("");
         }
       })
       .catch(() => {});
@@ -117,6 +130,14 @@ export default function Cart() {
 
   const handleCheckout = async () => {
     if (cartItems.length === 0) return;
+
+    // One-time codes (WELCOME10) require email so the server can lock the code
+    // to this session.  Unlimited codes (EBGZOWNER, GOOGLETEST) don't need it.
+    const UNLIMITED_CHECKOUT = new Set(["EBGZOWNER", "GOOGLETEST"]);
+    if (promoApplied && promoCode && !UNLIMITED_CHECKOUT.has(promoCode.toUpperCase()) && !promoEmail) {
+      toast({ title: "Email required", description: "Please enter your email address to use this promo code.", variant: "destructive" });
+      return;
+    }
     
     setIsCheckingOut(true);
     const total = cartItems.reduce((sum, item) => sum + item.price, 0);
@@ -128,19 +149,29 @@ export default function Cart() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ items: cartItems, promoCode: promoCode || undefined }),
+        // Only send promo metadata when the code is actually applied (promoApplied = true).
+        // If the user has a stale code in localStorage that was NOT validated this session,
+        // promoApplied is false and no promo lock is acquired server-side.
+        body: JSON.stringify({ items: cartItems, promoCode: promoApplied && promoCode ? promoCode : undefined, ...(promoApplied && promoCode && promoEmail ? { email: promoEmail } : {}) }),
       });
 
       if (!response.ok) {
         throw new Error("Failed to create checkout session");
       }
 
-      const { url } = await response.json();
+      const data = await response.json();
+      const { url } = data;
       
       if (url) {
+        // Use the server-computed post-discount total so the snapshot reflects the
+        // actual Stripe charge even when a promo code was applied. Fallback to the
+        // client-side sum only if the server does not return it (older API versions).
+        const snapshotTotal = typeof data.total === "number"
+          ? Math.round(data.total * 100) / 100
+          : Math.round(total * 100) / 100;
         localStorage.setItem("ebgz_purchase_snapshot", JSON.stringify({
           items: cartItems.map(item => ({ id: item.id, title: item.title, price: item.price, purchaseType: item.purchaseType, genre: item.genre })),
-          total: Math.round(total * 100) / 100,
+          total: snapshotTotal,
           currency: "USD",
           promoCode: promoApplied ? promoCode : null,
         }));
@@ -179,6 +210,9 @@ export default function Cart() {
         setPromoDiscountRate(result.discount);
         setPromoCode(upperCode);
         localStorage.setItem("ebgz_promo", upperCode);
+        // Persist email alongside the code so it can be sent at checkout
+        // even after the user navigates away and returns.
+        if (promoEmail) localStorage.setItem("ebgz_promo_email", promoEmail);
         toast({ title: "Promo code applied!", description: `${Math.round(result.discount * 100)}% discount has been added to your order.` });
       } else {
         setPromoApplied(false);
@@ -197,6 +231,7 @@ export default function Cart() {
     setPromoCode("");
     setPromoEmail("");
     localStorage.removeItem("ebgz_promo");
+    localStorage.removeItem("ebgz_promo_email");
   };
 
   const subtotal = cartItems.reduce((sum, item) => sum + item.price, 0);

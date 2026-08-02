@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, decimal, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, decimal, timestamp, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -328,6 +328,9 @@ export const promoUsages = pgTable("promo_usages", {
   customerEmail: text("customer_email").notNull(),
   stripeSessionId: text("stripe_session_id"),
   orderTotal: text("order_total"),
+  // 'pending'   — session created but payment not yet confirmed
+  // 'confirmed' — payment received (webhook); code is permanently consumed
+  status: text("status").notNull().default("confirmed"),
   /** Client IP when a free/test promo was redeemed (e.g. GOOGLETEST). */
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
@@ -336,7 +339,12 @@ export const promoUsages = pgTable("promo_usages", {
   unknownSource: boolean("unknown_source").default(false),
   alertSent: boolean("alert_sent").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  // One active row per (email, code) at any time.
+  // Deleting a pending row on session expiry releases the lock so the buyer can retry.
+  // A confirmed row stays forever, blocking future re-use by the same email.
+  emailCodeUnique: uniqueIndex("promo_usages_email_code_unique").on(t.customerEmail, t.promoCode),
+}));
 
 export type PromoUsage = typeof promoUsages.$inferSelect;
 

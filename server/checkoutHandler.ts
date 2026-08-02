@@ -1,6 +1,7 @@
 import { storage, db } from "./storage";
 import { readingAccess, promoUsages } from "@shared/schema";
 import type { InsertOrderItem } from "@shared/schema";
+import { sql } from "drizzle-orm";
 import { sendPurchaseThankYouEmail } from "./emailService";
 import { sendGA4PurchaseEvent } from "./ga4";
 import type Stripe from "stripe";
@@ -19,7 +20,13 @@ export async function createOrderFromStripeSession(
     .split(",")
     .filter((id: string) => id)
     .map((id: string) => parseInt(id));
-  const total = session.metadata?.total || "0";
+  // Use the Stripe-confirmed post-discount total (amount_total is in cents).
+  // Falling back to metadata.total would record the pre-discount line-item sum
+  // and cause logged-in conversion events to over-report.
+  const total =
+    session.amount_total != null
+      ? (session.amount_total / 100).toFixed(2)
+      : session.metadata?.total || "0";
   const customerEmail =
     session.customer_details?.email || "unknown@email.com";
 
@@ -101,12 +108,31 @@ export async function createOrderFromStripeSession(
     }
 
     if (session.metadata?.promoCode) {
-      await db.insert(promoUsages).values({
-        promoCode: session.metadata.promoCode,
-        customerEmail,
-        stripeSessionId: sessionId,
-        orderTotal: total,
-      });
+      const metaPromoCode = session.metadata.promoCode;
+      // Promote the pending lock to confirmed.
+      // Match by (customer_email, promo_code) rather than stripeSessionId so the
+      // crash window — where the server restarted between INSERT(pending,null) and
+      // UPDATE(sessionId) — is handled: the pending row still exists with null sessionId
+      // and this WHERE clause finds it correctly.
+      const updated = await db
+        .update(promoUsages)
+        .set({ status: "confirmed", customerEmail, orderTotal: total, stripeSessionId: sessionId })
+        .where(
+          sql`${promoUsages.customerEmail} = ${customerEmail} AND ${promoUsages.promoCode} = ${metaPromoCode} AND ${promoUsages.status} = 'pending'`
+        )
+        .returning();
+      if (updated.length === 0) {
+        // No pending row found at all (e.g. duplicate webhook event after a confirmed row
+        // was already written, or a session that bypassed the lock path).
+        // Use INSERT ... ON CONFLICT DO UPDATE so a duplicate webhook never raises an error
+        // and a genuinely new row is recorded correctly.
+        await db.execute(
+          sql`INSERT INTO promo_usages (promo_code, customer_email, stripe_session_id, order_total, status)
+              VALUES (${metaPromoCode}, ${customerEmail}, ${sessionId}, ${total}, 'confirmed')
+              ON CONFLICT (customer_email, promo_code)
+              DO UPDATE SET status = 'confirmed', stripe_session_id = ${sessionId}, order_total = ${total}`
+        );
+      }
     }
 
     try {

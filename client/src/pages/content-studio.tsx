@@ -414,6 +414,13 @@ function ContentStudioMain() {
     localTotal: number;
   } | null>(null);
   const [importNewResult, setImportNewResult] = useState<{ inserted: number; message: string } | null>(null);
+  const [titleMismatches, setTitleMismatches] = useState<{
+    id: number;
+    storedTitle: string;
+    contentH1: string;
+  }[] | null>(null);
+  const [titleMismatchDismissed, setTitleMismatchDismissed] = useState(false);
+  const [fixingTitleId, setFixingTitleId] = useState<number | null>(null);
   const [autoSyncProgress, setAutoSyncProgress] = useState<{
     pushed: number;
     remaining: number;
@@ -514,6 +521,32 @@ function ContentStudioMain() {
     }).then(r => r.json()).then(d => {
       if (d.provider) setAiProvider(d.provider);
     }).catch(() => {});
+  }, []);
+
+  // Reusable title/H1 mismatch check — call this on page load and after bulk ops
+  const checkTitleMismatches = async ({ resetDismissed = false }: { resetDismissed?: boolean } = {}) => {
+    const adminToken = localStorage.getItem("ebgz_admin_token") || "";
+    try {
+      const r = await fetch("/api/content-studio/title-mismatches", {
+        headers: { "x-admin-token": adminToken },
+      });
+      const data = await r.json();
+      if (Array.isArray(data.mismatches) && data.mismatches.length > 0) {
+        setTitleMismatches(data.mismatches);
+        if (resetDismissed) setTitleMismatchDismissed(false);
+      } else {
+        // No mismatches — clear stale panel so it doesn't linger after a fix
+        setTitleMismatches([]);
+      }
+    } catch {
+      // Network failure: leave existing state unchanged
+    }
+  };
+
+  // Run title/H1 mismatch check on page load
+  useEffect(() => {
+    checkTitleMismatches();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleAIProvider = async () => {
@@ -3112,6 +3145,7 @@ function ContentStudioMain() {
                     });
                     toast({ title: "Full sync complete", description: pullData.message });
                     queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                    await checkTitleMismatches({ resetDismissed: true });
                   } catch (e: any) {
                     toast({ title: "Full sync failed", description: e.message, variant: "destructive" });
                   } finally {
@@ -3178,6 +3212,7 @@ function ContentStudioMain() {
                     setPullContentResult({ pulled: data.pulled ?? 0, skipped: data.skipped ?? 0, message: data.message });
                     toast({ title: "Pull Content complete", description: data.message });
                     queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                    await checkTitleMismatches({ resetDismissed: true });
                   } catch (e: any) {
                     toast({ title: "Pull Content failed", description: e.message, variant: "destructive" });
                   } finally {
@@ -3419,6 +3454,7 @@ function ContentStudioMain() {
                         setDetectNewResult(null);
                         toast({ title: "Import complete", description: data.message });
                         queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                        await checkTitleMismatches({ resetDismissed: true });
                       } catch (e: any) {
                         toast({ title: "Import failed", description: e.message, variant: "destructive" });
                       } finally {
@@ -3468,6 +3504,83 @@ function ContentStudioMain() {
             )}
           </div>
         </div>
+
+        {/* Title / H1 Mismatch Warning Panel — auto-runs on page load */}
+        {titleMismatches && titleMismatches.length > 0 && !titleMismatchDismissed && (
+          <div className="border border-orange-500/40 rounded-lg bg-orange-950/20 px-4 py-3 space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-orange-400 shrink-0 mt-0.5" />
+                <p className="text-sm font-semibold text-orange-300">
+                  {titleMismatches.length} draft{titleMismatches.length !== 1 ? "s" : ""} where the stored title doesn&apos;t match the content H1
+                </p>
+              </div>
+              <button
+                onClick={() => setTitleMismatchDismissed(true)}
+                className="text-orange-400/60 hover:text-orange-300 transition-colors p-0.5 shrink-0"
+                title="Dismiss"
+                data-testid="button-dismiss-title-mismatches"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <p className="text-xs text-orange-200/60 leading-relaxed">
+              These drafts may have had content written into a wrong placeholder slot. &ldquo;Fix title&rdquo; renames the draft to match its actual H1.
+            </p>
+            <ul className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+              {titleMismatches.map(m => (
+                <li
+                  key={m.id}
+                  className="text-xs bg-orange-950/40 border border-orange-500/20 rounded px-3 py-2 flex items-start justify-between gap-3"
+                  data-testid={`title-mismatch-${m.id}`}
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-orange-200/50 truncate">
+                      <span className="text-orange-300/70 font-medium">Stored title:</span>&nbsp;{m.storedTitle}
+                    </p>
+                    <p className="text-orange-200/80 truncate">
+                      <span className="text-orange-300 font-medium">Content H1:</span>&nbsp;{m.contentH1}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="bg-orange-700 hover:bg-orange-600 text-white whitespace-nowrap h-6 text-xs px-2.5 shrink-0"
+                    disabled={fixingTitleId === m.id}
+                    data-testid={`button-fix-title-${m.id}`}
+                    onClick={async () => {
+                      setFixingTitleId(m.id);
+                      try {
+                        const adminToken = localStorage.getItem("ebgz_admin_token") || "";
+                        const res = await fetch(`/api/content-studio/drafts/${m.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+                          body: JSON.stringify({ title: m.contentH1 }),
+                        });
+                        if (!res.ok) {
+                          const err = await res.json();
+                          throw new Error(err.error || "Update failed");
+                        }
+                        toast({ title: "Title updated", description: `Draft #${m.id} renamed to "${m.contentH1}"` });
+                        setTitleMismatches(prev => prev ? prev.filter(x => x.id !== m.id) : prev);
+                        queryClient.invalidateQueries({ queryKey: ["/api/content-studio/drafts"] });
+                      } catch (e: any) {
+                        toast({ title: "Fix title failed", description: e.message, variant: "destructive" });
+                      } finally {
+                        setFixingTitleId(null);
+                      }
+                    }}
+                  >
+                    {fixingTitleId === m.id ? (
+                      <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Fixing…</>
+                    ) : (
+                      "Fix title"
+                    )}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Health Monitoring Panel */}
         <div className="border border-emerald-500/30 rounded-lg bg-emerald-900/10">

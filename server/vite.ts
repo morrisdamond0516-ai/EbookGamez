@@ -5,10 +5,10 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
-import { injectCanonical, injectOpenGraph, extractBookId, injectBookOpenGraph } from "./seoUtils";
+import { injectCanonical, injectOpenGraph, extractBookId, injectBookOpenGraph, extractEbookSlug, injectEbookLandingMeta, injectProductAppJsonLd, injectEbooksJsonLd, toSlug, type EbookLandingData } from "./seoUtils";
 import { db } from "./storage";
-import { books } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { books, bookReviews } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
 
 const viteLogger = createLogger();
 
@@ -55,6 +55,8 @@ export async function setupVite(server: Server, app: Express) {
       const rawPage = await vite.transformIndexHtml(url, template);
       const withCanonical = injectCanonical(rawPage, req.originalUrl);
       let page = injectOpenGraph(withCanonical, req.originalUrl);
+      page = injectProductAppJsonLd(page, req.originalUrl);
+      page = injectEbooksJsonLd(page, req.originalUrl);
 
       // For individual book pages, fetch book data and inject book-specific OG tags.
       const bookId = extractBookId(req.originalUrl);
@@ -68,6 +70,33 @@ export async function setupVite(server: Server, app: Express) {
           }).from(books).where(eq(books.id, bookId)).limit(1);
           if (book) {
             page = injectBookOpenGraph(page, book);
+          }
+        } catch {
+          // Non-fatal: fall back to generic tags.
+        }
+      }
+
+      // For ebook landing pages (/ebooks/b/:slug), inject Book+Product JSON-LD + per-book meta.
+      const ebookSlug = extractEbookSlug(req.originalUrl);
+      if (ebookSlug !== null) {
+        try {
+          const toSlugFn = (t: string) =>
+            t.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+          const allVisible = await db.select({
+            id: books.id,
+            title: books.title,
+            author: books.author,
+            genre: books.genre,
+            price: books.price,
+            rating: books.rating,
+            coverUrl: books.coverUrl,
+            description: books.description,
+          }).from(books).where(eq(books.visible, true));
+          const book = allVisible.find(b => toSlugFn(b.title) === ebookSlug);
+          if (book) {
+            const [rev] = await db.select({ count: sql<number>`count(*)` }).from(bookReviews).where(eq(bookReviews.bookId, book.id));
+            const reviewCount = Number(rev?.count ?? 0);
+            page = injectEbookLandingMeta(page, { ...book, reviewCount } as EbookLandingData);
           }
         } catch {
           // Non-fatal: fall back to generic tags.
