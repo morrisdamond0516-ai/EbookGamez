@@ -55,10 +55,38 @@ export default function CheckoutSuccess() {
   const searchString = useSearch();
   const params = new URLSearchParams(searchString);
   const sessionId = params.get("session_id");
+  const simulateMissingValue = params.get("simulate_missing_value") === "1";
   const { toast } = useToast();
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [purchaseSnapshot, setPurchaseSnapshot] = useState<PurchaseSnapshot | null>(null);
   const customerToken = typeof window !== "undefined" ? localStorage.getItem("ebgz_customer_token") : null;
+
+  // ── Debug / QA helper ─────────────────────────────────────────────────────
+  // Visit /checkout-success?simulate_missing_value=1 (no real session needed)
+  // to fire guest_conversion_value_missing directly into GA4.
+  // Open GA4 DebugView (Admin → DebugView) in another tab while loading this
+  // page to confirm the event name and parameters arrive as expected.
+  useEffect(() => {
+    if (!simulateMissingValue) return;
+    const testSessionId = `test_missing_value_${Date.now()}`;
+    console.info(
+      "[GuestConversion][SIMULATE] Firing guest_conversion_value_missing for GA4 DebugView verification.",
+      { testSessionId }
+    );
+    if (typeof (window as any).gtag === "function") {
+      (window as any).gtag("event", "guest_conversion_value_missing", {
+        session_id: testSessionId,
+        had_snapshot: false,
+        debug_mode: true,
+      });
+    }
+    toast({
+      title: "GA4 debug event fired",
+      description:
+        "guest_conversion_value_missing sent — check GA4 DebugView to confirm it arrived.",
+    });
+  }, [simulateMissingValue]);
+  // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     // Read purchase snapshot saved right before the checkout redirect
