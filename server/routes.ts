@@ -535,21 +535,37 @@ export async function registerRoutes(
     res.type("text/plain").send(`User-agent: *
 Allow: /
 Disallow: /admin
-Disallow: /admin/*
+Disallow: /admin/
+Disallow: /content-studio
+Disallow: /batch-cover-review
 Disallow: /api/
-Sitemap: https://ebookgamez.com/sitemap.xml
+Disallow: /healthz
 
 User-agent: Googlebot
 Allow: /
+Disallow: /admin
+Disallow: /admin/
+Disallow: /content-studio
+Disallow: /batch-cover-review
+Disallow: /api/
+Disallow: /healthz
 
 User-agent: Bingbot
 Allow: /
+Disallow: /admin
+Disallow: /admin/
+Disallow: /content-studio
+Disallow: /batch-cover-review
+Disallow: /api/
+Disallow: /healthz
 
 User-agent: facebookexternalhit
 Allow: /
 
 User-agent: Twitterbot
 Allow: /
+
+Sitemap: https://ebookgamez.com/sitemap.xml
 `);
   });
 

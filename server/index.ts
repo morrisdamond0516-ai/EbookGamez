@@ -83,6 +83,7 @@ function formatBytes(bytes: number): string {
 
 const app = express();
 app.set("trust proxy", 1);
+app.disable("x-powered-by");
 
 // Health-check endpoint — registered before all body parsers so it is always reachable.
 app.get('/healthz', healthzHandler);
@@ -248,16 +249,45 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-// ── Security: block sensitive dot-files / dot-dirs before any route or static handler ──
-app.use((req, _res, next) => {
-  // Set security headers on every response
-  _res.setHeader("X-Content-Type-Options", "nosniff");
-  _res.setHeader("X-Frame-Options", "SAMEORIGIN");
-  _res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+// ── Security: headers + block sensitive/source paths before routes/static/SPA ──
+// Scanners flag SPA HTML 200s on /package.json, /server/*.ts, /.env as "leaks".
+const BLOCKED_SENSITIVE_PATH =
+  /^\/(?:\.env(?:\..*)?|\.git(?:\/.*)?|\.htaccess|\.DS_Store|\.npmrc|\.dockerignore|\.cursor(?:\/.*)?|composer\.(?:json|lock)|package(?:-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|tsconfig(?:\..*)?\.json|vite\.config\.[cm]?[jt]s|drizzle\.config\.[cm]?[jt]s|nodemon\.json|replit\.nix|(?:server|script|scripts|shared|tmp|tests|docs)(?:\/.*)?)$/i;
 
-  // Block .env, .git, .htaccess, etc.  These should never be publicly reachable.
-  if (/^\/\./.test(req.path)) {
-    return _res.status(403).end();
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=(self)",
+  );
+  res.setHeader(
+    "Strict-Transport-Security",
+    "max-age=63072000; includeSubDomains",
+  );
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "object-src 'none'",
+      "frame-ancestors 'self'",
+      "form-action 'self' https://checkout.stripe.com https://hooks.stripe.com",
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' data: https://fonts.gstatic.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com https://www.googleadservices.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com https://js.stripe.com",
+      "connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://api.stripe.com https://*.stripe.com https://*.replit.app https://*.replit.dev https://fonts.googleapis.com https://fonts.gstatic.com",
+      "frame-src 'self' https://www.googletagmanager.com https://js.stripe.com https://hooks.stripe.com https://www.google.com https://googleads.g.doubleclick.net https://tpc.doubleclick.net https://pagead2.googlesyndication.com",
+      "upgrade-insecure-requests",
+    ].join("; "),
+  );
+
+  if (BLOCKED_SENSITIVE_PATH.test(req.path) || /^\/\./.test(req.path)) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(404).type("text/plain").send("Not Found");
   }
   next();
 });

@@ -306,10 +306,8 @@ export default function Home() {
                   <span className="text-[9px] font-sans font-semibold tracking-wider uppercase text-primary/80">40+ games · no signup</span>
                 </span>
               </Link>
-              <a
-                href={PARTNER_URLS.linksshrink}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href="/linksshrink"
                 data-testid="button-video-ads"
                 onMouseEnter={() => warmPartnerSite(PARTNER_URLS.linksshrink)}
                 onFocus={() => warmPartnerSite(PARTNER_URLS.linksshrink)}
@@ -327,7 +325,7 @@ export default function Home() {
                   <span className="text-[13px] font-display font-bold tracking-wide text-[#f5e8c8] group-hover:text-primary transition-colors">Make Video Ads</span>
                   <span className="text-[9px] font-sans font-semibold tracking-wider uppercase text-white/50">at LinksShrink · from $5</span>
                 </span>
-              </a>
+              </Link>
             </div>
 
             {/* ── LearnForge: AI Learning & Career Tool ── */}
@@ -337,10 +335,8 @@ export default function Home() {
               transition={{ duration: 0.9, delay: 0.55 }}
               className="mt-10 flex justify-center"
             >
-              <a
-                href={PARTNER_URLS.learnforge}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href="/learnforge"
                 data-testid="link-learnforge"
                 onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)}
                 onFocus={() => warmPartnerSite(PARTNER_URLS.learnforge)}
@@ -388,7 +384,7 @@ export default function Home() {
                   style={{ color: 'rgba(201,169,113,0.5)' }}>
                   Forge Skills · Ace Exams · Advance Your Career
                 </span>
-              </a>
+              </Link>
             </motion.div>
           </motion.div>
         </div>
@@ -502,7 +498,7 @@ export default function Home() {
           ))}
 
           {/* LearnForge — full-width featured card */}
-          <a href={PARTNER_URLS.learnforge} target="_blank" rel="noopener noreferrer" data-testid="card-section-learnforge" className="sm:col-span-2 block" onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)} onTouchStart={() => warmPartnerSite(PARTNER_URLS.learnforge)}>
+          <Link href="/learnforge" data-testid="card-section-learnforge" className="sm:col-span-2 block" onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)} onTouchStart={() => warmPartnerSite(PARTNER_URLS.learnforge)}>
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -563,7 +559,7 @@ export default function Home() {
               </div>
             </div>
           </motion.div>
-          </a>
+          </Link>
         </div>
       </section>
 
