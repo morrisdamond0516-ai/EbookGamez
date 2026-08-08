@@ -51,15 +51,11 @@ export function warmPartnerSite(url: string) {
   if (warmed.has(href)) return;
   warmed.add(href);
 
-  try {
-    void fetch(href, {
-      mode: "no-cors",
-      credentials: "omit",
-      cache: "force-cache",
-    });
-  } catch {
-    /* ignore */
-  }
+  fetch(href, {
+    mode: "no-cors",
+    credentials: "omit",
+    cache: "force-cache",
+  }).catch(() => { /* ignore — external site may be offline or CORS-blocked */ });
 }
 
 export function warmAllPartnersIdle() {
