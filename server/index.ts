@@ -279,7 +279,7 @@ app.use((req, res, next) => {
       "font-src 'self' data: https://fonts.gstatic.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com https://www.googleadservices.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com https://js.stripe.com",
-      "connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://api.stripe.com https://*.stripe.com https://*.replit.app https://*.replit.dev https://fonts.googleapis.com https://fonts.gstatic.com",
+      "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://api.stripe.com https://*.stripe.com https://*.replit.app https://*.replit.dev https://fonts.googleapis.com https://fonts.gstatic.com",
       "frame-src 'self' https://www.googletagmanager.com https://js.stripe.com https://hooks.stripe.com https://www.google.com https://googleads.g.doubleclick.net https://tpc.doubleclick.net https://pagead2.googlesyndication.com",
       "upgrade-insecure-requests",
     ].join("; "),

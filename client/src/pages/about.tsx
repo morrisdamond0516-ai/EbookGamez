@@ -20,7 +20,7 @@ export default function About() {
             About EbookGamez
           </h1>
           <p className="text-center text-muted-foreground font-serif text-lg mb-16">
-            A Las Vegas indie digital library — named founder, public standards, books you can keep.
+            A Las Vegas indie digital library — independent, public standards, books you can keep.
           </p>
 
           <div className="prose prose-invert prose-lg mx-auto font-serif text-muted-foreground leading-relaxed space-y-8">
@@ -30,10 +30,9 @@ export default function About() {
                 Who runs this
               </h2>
               <p>
-                <span className="text-white">EbookGamez</span> is founded and operated by{" "}
-                <span className="text-white">Damond Morris</span>, based in Las Vegas, Nevada. This is not an anonymous
+                <span className="text-white">EbookGamez</span> is an independent digital library based in Las Vegas, Nevada. This is not an anonymous
                 catalog farm. When you email support, buy a download, or ask how a schoolbook was built, you are reaching
-                the person responsible for the storefront.
+                the team responsible for the storefront.
               </p>
               <p>
                 I built EbookGamez so readers could find affordable full-length ebooks they can{" "}
@@ -185,7 +184,7 @@ export default function About() {
               <h2 className="text-2xl font-display text-white mb-4">Get in touch</h2>
               <div className="space-y-2">
                 <p className="text-white/70 font-serif m-0">
-                  Damond Morris · EbookGamez
+                  EbookGamez
                   <br />
                   P.O. Box 1181
                   <br />
