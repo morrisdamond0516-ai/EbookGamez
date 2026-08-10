@@ -2,7 +2,7 @@ import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { injectCanonical, injectOpenGraph, extractBookId, injectBookOpenGraph, extractEbookSlug, injectEbookLandingMeta, injectProductAppJsonLd, injectEbooksJsonLd, toSlug, type EbookLandingData } from "./seoUtils";
+import { injectCanonical, injectOpenGraph, extractBookId, injectBookOpenGraph, extractEbookSlug, injectEbookLandingMeta, injectProductAppJsonLd, injectEbooksJsonLd, toSlug, titleSlugSql, type EbookLandingData } from "./seoUtils";
 import { db } from "./storage";
 import { books, bookReviews } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
@@ -47,12 +47,12 @@ export function serveStatic(app: Express) {
     }
 
     // For ebook landing pages (/ebooks/b/:slug), inject Book+Product JSON-LD + per-book meta.
+    // Uses a SQL regexp_replace expression so colons, apostrophes, and other punctuation
+    // in the stored title are stripped before comparing — no full-table JS scan needed.
     const ebookSlug = extractEbookSlug(req.originalUrl);
     if (ebookSlug !== null) {
       try {
-        const toSlugFn = (t: string) =>
-          t.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-        const allVisible = await db.select({
+        const [book] = await db.select({
           id: books.id,
           title: books.title,
           author: books.author,
@@ -61,8 +61,9 @@ export function serveStatic(app: Express) {
           rating: books.rating,
           coverUrl: books.coverUrl,
           description: books.description,
-        }).from(books).where(eq(books.visible, true));
-        const book = allVisible.find(b => toSlugFn(b.title) === ebookSlug);
+        }).from(books).where(
+          sql`${books.visible} = true and ${titleSlugSql} = ${ebookSlug}`
+        ).limit(1);
         if (book) {
           const [rev] = await db.select({ count: sql<number>`count(*)` }).from(bookReviews).where(eq(bookReviews.bookId, book.id));
           const reviewCount = Number(rev?.count ?? 0);

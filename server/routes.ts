@@ -2239,17 +2239,17 @@ Sitemap: https://ebookgamez.com/sitemap.xml
 
 
   // GET /api/books/by-slug/:slug — resolve a title slug to a book record.
-  // Searches all visible books; the slug is generated from the book title via toSlug().
+  // The slug is generated from the book title via toSlug() (see seoUtils.ts).
+  // Uses a SQL regexp_replace expression so punctuation (colons, apostrophes, etc.)
+  // is stripped from the stored title before comparing — no full-table JS scan needed.
   app.get("/api/books/by-slug/:slug", async (req, res) => {
     try {
       const { slug } = req.params;
       if (!slug) return res.status(400).json({ error: "Slug required" });
 
-      // toSlug: lowercase, strip non-alphanum except spaces/hyphens, collapse spaces → hyphens
-      const toSlug = (t: string) =>
-        t.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+      const { titleSlugSql } = await import("./seoUtils");
 
-      const allBooks = await db.select({
+      const [book] = await db.select({
         id: books.id,
         title: books.title,
         author: books.author,
@@ -2260,10 +2260,8 @@ Sitemap: https://ebookgamez.com/sitemap.xml
         coverUrl: books.coverUrl,
         description: books.description,
         createdAt: books.createdAt,
-      }).from(books).where(eq(books.visible, true));
+      }).from(books).where(and(eq(books.visible, true), sql`${titleSlugSql} = ${slug}`)).limit(1);
 
-      // Find book whose slugified title matches
-      const book = allBooks.find(b => toSlug(b.title) === slug);
       if (!book) return res.status(404).json({ error: "Book not found" });
 
       // Fetch review stats

@@ -5,6 +5,8 @@
  * This ensures crawlers see the right canonical in the initial response
  * without waiting for React to hydrate and run its useEffect.
  */
+import { sql } from "drizzle-orm";
+import { books } from "@shared/schema";
 
 /** Book data needed for Open Graph injection. */
 export interface BookOGData {
@@ -471,6 +473,19 @@ export function toSlug(title: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
 }
+
+/**
+ * Drizzle SQL expression that mirrors toSlug() on the books.title column.
+ *
+ * Use this in a WHERE clause to find a book by slug with a single targeted
+ * query rather than fetching every book into JS memory.  Handles colons,
+ * apostrophes, and all other punctuation correctly because both the stored
+ * title and the comparison slug go through the same normalisation.
+ *
+ * Example:
+ *   .where(and(eq(books.visible, true), sql`${titleSlugSql} = ${slug}`))
+ */
+export const titleSlugSql = sql<string>`regexp_replace(regexp_replace(regexp_replace(trim(regexp_replace(lower(${books.title}), '[^a-z0-9 -]', '', 'g')), ' +', '-', 'g'), '-+', '-', 'g'), '^-|-$', '', 'g')`;
 
 /**
  * Extract a book slug from /ebooks/b/:slug URLs, or return null for any other
