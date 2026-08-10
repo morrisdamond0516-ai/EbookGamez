@@ -37,7 +37,7 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  const { data: newBooks = [] } = useQuery<Book[]>({
+  const { data: newBooks = [], isLoading: booksLoading } = useQuery<Book[]>({
     queryKey: ["/api/books/newest"],
     queryFn: async () => {
       const res = await fetch("/api/books?page=1&limit=12");
@@ -258,8 +258,8 @@ export default function Home() {
 
         <div className="relative z-10 container mx-auto px-4 text-center">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             transition={{ duration: 0.8, delay: 0.2 }}
           >
             <h2 className="text-primary font-serif italic text-xl md:text-2xl mb-4 tracking-wider">Welcome to</h2>
@@ -330,8 +330,8 @@ export default function Home() {
 
             {/* ── LearnForge: AI Learning & Career Tool ── */}
             <motion.div
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               transition={{ duration: 0.9, delay: 0.55 }}
               className="mt-10 flex justify-center"
             >
@@ -461,8 +461,8 @@ export default function Home() {
             <Link key={section.title} href={section.href}>
               <motion.div
                 data-testid={`card-section-${section.title.toLowerCase().replace(/\s/g, "-")}`}
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
                 transition={{ delay: i * 0.1, duration: 0.5 }}
                 whileHover={{ y: -6, scale: 1.02 }}
                 className={`relative overflow-hidden rounded-2xl border border-white/10 ${section.borderHover} transition-all duration-500 group cursor-pointer shadow-xl ${section.glow} hover:shadow-2xl`}
@@ -500,8 +500,8 @@ export default function Home() {
           {/* LearnForge — full-width featured card */}
           <Link href="/learnforge" data-testid="card-section-learnforge" className="sm:col-span-2 block" onMouseEnter={() => warmPartnerSite(PARTNER_URLS.learnforge)} onTouchStart={() => warmPartnerSite(PARTNER_URLS.learnforge)}>
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             transition={{ delay: 0.4, duration: 0.5 }}
             whileHover={{ y: -6, scale: 1.01 }}
             className="relative overflow-hidden rounded-2xl border border-primary/25 hover:border-primary/55 transition-all duration-500 group cursor-pointer shadow-xl shadow-amber-900/20 hover:shadow-amber-700/30"
@@ -572,21 +572,38 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-          {featuredBooks.map((book) => (
-            <div key={book.id} className="h-full">
-              <BookCard
-                id={String(book.id)}
-                title={book.title}
-                author={book.author}
-                price={parseFloat(book.price)}
-                rating={parseFloat(book.rating)}
-                cover={book.coverUrl}
-                genre={book.genre}
-                subscriberExclusiveUntil={book.subscriberExclusiveUntil}
-                onBuy={() => handleAddToCart(book)}
-              />
-            </div>
-          ))}
+          {booksLoading
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-full">
+                  <div className="overflow-hidden bg-card/50 border border-white/5 rounded-lg flex flex-col animate-pulse">
+                    <div className="aspect-[3/4] bg-white/5" />
+                    <div className="p-4 flex-grow space-y-2">
+                      <div className="h-4 bg-white/5 rounded w-3/4" />
+                      <div className="h-3 bg-white/5 rounded w-1/2" />
+                      <div className="h-3 bg-white/5 rounded w-1/3" />
+                    </div>
+                    <div className="p-4 pt-0 border-t border-white/5 flex gap-2">
+                      <div className="h-8 bg-white/5 rounded w-16" />
+                      <div className="h-8 bg-white/5 rounded flex-1" />
+                    </div>
+                  </div>
+                </div>
+              ))
+            : featuredBooks.map((book) => (
+                <div key={book.id} className="h-full">
+                  <BookCard
+                    id={String(book.id)}
+                    title={book.title}
+                    author={book.author}
+                    price={parseFloat(book.price)}
+                    rating={parseFloat(book.rating)}
+                    cover={book.coverUrl}
+                    genre={book.genre}
+                    subscriberExclusiveUntil={book.subscriberExclusiveUntil}
+                    onBuy={() => handleAddToCart(book)}
+                  />
+                </div>
+              ))}
         </div>
 
         {newBooks.length > 6 && (

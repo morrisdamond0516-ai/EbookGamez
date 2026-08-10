@@ -64,6 +64,36 @@
   h1, h2, h3, h4, h5, h6 {
     @apply font-serif text-primary;
   }
+
+  /* ── CLS prevention ── */
+  /* Reserve space for images before they load so no layout shift occurs */
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+  /* Ensure all images with explicit width+height attributes preserve their
+     aspect ratio even when CSS width differs from the attribute value */
+  img[width][height] {
+    aspect-ratio: attr(width) / attr(height);
+  }
+  /* Stable fallback fonts sized to approximate web-font metrics so when the
+     web font swaps in the line-heights shift as little as possible */
+  @font-face {
+    font-family: 'Cinzel-fallback';
+    src: local('Georgia'), local('serif');
+    size-adjust: 95%;
+    ascent-override: 90%;
+    descent-override: 22%;
+    line-gap-override: 0%;
+  }
+  @font-face {
+    font-family: 'Libre-Baskerville-fallback';
+    src: local('Georgia'), local('serif');
+    size-adjust: 97%;
+    ascent-override: 88%;
+    descent-override: 24%;
+    line-gap-override: 0%;
+  }
 }
 
 @layer utilities {

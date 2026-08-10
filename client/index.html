@@ -18,6 +18,9 @@
     <meta name="author" content="EbookGamez" />
     <link rel="preload" as="image" href="/hero.webp" type="image/webp" fetchpriority="high" />
     <link rel="canonical" href="https://ebookgamez.com/" />
+    <!-- Preconnect for fonts so metrics settle before first paint -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="dns-prefetch" href="https://linksshrink.com" />
     <link rel="dns-prefetch" href="https://knowledge-builder.replit.app" />
 
@@ -164,12 +167,10 @@
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1093119401125313"
          crossorigin="anonymous"></script>
 
-    <link rel="preload" as="image" href="/hero.webp" type="image/webp" fetchpriority="high" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Critical site fonts only — decorative cover fonts load on Cover Review / AI Studio -->
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- display=optional: font is used only if already cached or loads within ~100ms; no mid-render swap, eliminating font-caused CLS -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=optional" rel="stylesheet">
   </head>
   <body>
     <!-- Google Tag Manager (noscript) -->
