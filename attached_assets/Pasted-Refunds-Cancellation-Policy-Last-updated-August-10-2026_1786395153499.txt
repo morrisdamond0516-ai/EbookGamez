@@ -1,0 +1,40 @@
+Refunds & Cancellation Policy
+Last updated: August 10, 2026
+
+This policy explains how cancellations and refunds work for LearnForge. It is part of our Terms of Service.
+
+1. Free trial
+Eligible users 18 and older may receive a free trial period (currently six months). You will not be charged during the trial. To avoid being charged, cancel before the trial ends. Users under 18 use the service for free and are not charged.
+
+2. How to cancel
+You can cancel a paid plan at any time from the billing portal in your account ("Manage billing"). When you cancel, future charges stop and you keep access until the end of the billing period you have already paid for. We do not automatically provide partial refunds for the unused part of a period.
+
+3. Subscription refunds
+Subscription charges are generally non-refundable once a billing period begins. As a courtesy, if you believe you were charged in error or have a special circumstance, contact us within 14 days of the charge and we will review your request in good faith. We always honor refunds required by applicable law.
+
+4. Annual plans
+Annual plans are billed once per year. If you cancel, you keep access for the remainder of the year you paid for, and the plan will not renew.
+
+5. Access codes and bulk (school) purchases
+Prepaid access codes and bulk seat purchases grant a fixed period of access. Once a code has been redeemed, it is non-refundable except as required by law. If you purchased codes that have not yet been redeemed and need help, contact us and we will work with you.
+
+6. How payments and receipts work
+All payments are processed securely by Stripe. Here is what happens in each situation and what to do:
+
+Payment went through. Stripe automatically emails you a receipt with your charge details and a direct link to view the transaction — no Stripe account required.
+No receipt received. Check your spam or junk folder first. If it is not there, the payment did not complete and nothing was charged. Try again or update your card in the billing portal inside your account.
+Payment failed or declined. Stripe sends you a payment-failed notification by email. Update your payment method from the billing portal inside your account, or email us and we will assist you.
+Unrecognised charge on your statement. Email us first — we can usually resolve it the same day. If we cannot resolve it to your satisfaction, your card-issuing bank can open a dispute (chargeback) on your behalf at no cost to you.
+Approved refunds. Once we approve a refund it is issued through Stripe and typically appears on your statement within 5–10 business days depending on your bank or card issuer.
+7. Failed, duplicate, or unauthorized charges
+Contact us immediately at ebookgames@yahoo.com and we will investigate and correct any genuine error promptly. You can also view every charge and invoice in the billing portal inside your account.
+
+8. How to request a refund
+Email us at ebookgames@yahoo.com with the email address on your account, the date and amount of the charge, and a brief description of your request. We aim to respond within a few business days. Once approved, refunds are issued through Stripe and appear on your statement within 5–10 business days.
+
+9. Contact
+LearnForge
+P.O. Box 1181, Las Vegas, NV 89125
+Email: ebookgames@yahoo.com
+
+After every payment you will automatically receive a receipt email with your charge details and a direct link to view them — no separate account needed. If you have any billing questions or need a refund, email us and we will handle everything on your behalf.
