@@ -54,6 +54,7 @@ import {
   extractFirstH1,
   normalizeTitle,
   isTitleMismatch,
+  isAcceptableTitleH1Variance,
 } from "../server/titleMismatchUtils";
 import {
   getTitleMismatches,
@@ -126,6 +127,30 @@ describe("isTitleMismatch", () => {
 
   it("8. returns false when only whitespace differs", () => {
     expect(isTitleMismatch("My   Book", "My Book")).toBe(false);
+  });
+});
+
+describe("isAcceptableTitleH1Variance", () => {
+  it("allows exact match", () => {
+    expect(isAcceptableTitleH1Variance("Mastering Micro", "Mastering Micro")).toBe(true);
+  });
+
+  it("allows short H1 prefix of long stored title", () => {
+    expect(
+      isAcceptableTitleH1Variance(
+        "Mastering Micro-Meditations: Using 2-Minute Practices to Reduce Stress",
+        "Mastering Micro",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects completely different books", () => {
+    expect(
+      isAcceptableTitleH1Variance(
+        "The Complete Home Electrical Wiring Guide",
+        "Learning How to Learn: Science-Backed Strategies for Mastering Any Skill",
+      ),
+    ).toBe(false);
   });
 });
 

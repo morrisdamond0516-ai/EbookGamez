@@ -76,6 +76,7 @@ import {
   bridgeLonelyInstructionalIslands,
   spreadIllegalAdjacentIllustrations,
 } from "@shared/pipelineGateRepair";
+import { extractFirstH1, isAcceptableTitleH1Variance } from "./titleMismatchUtils";
 
 export { BatchOperationGuardError, assessDraftCompleteness, preflightActivityLineRepair } from "./batchOperationGuards";
 export {
@@ -7083,6 +7084,15 @@ export async function runPublishPipelineGate(
 
   if (!content.trim() || content.trim().length < 100) {
     issues.push("Draft has no meaningful content");
+  }
+
+  if (options?.strict && content.trim().length >= 100) {
+    const contentH1 = extractFirstH1(content);
+    if (contentH1 && !isAcceptableTitleH1Variance(title, contentH1)) {
+      issues.push(
+        `Title/content mismatch — stored title "${title}" but manuscript H1 is "${contentH1}" (fix title or regenerate content from outline)`,
+      );
+    }
   }
 
   if (!draftHasPublishableCover(draft)) {
