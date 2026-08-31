@@ -13,7 +13,7 @@ export function Footer() {
               A digital sanctuary for lovers of timeless stories and cinematic masterpieces.
             </p>
             <img
-              src="/opengraph.jpg"
+              src="/ebookgamez-logo.png"
               alt="EbookGamez"
               width={64}
               height={64}

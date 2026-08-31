@@ -110,6 +110,11 @@ export const MIN_PAGE_TEXT_WORDS = 40;
  */
 export const SCHOOLBOOK_BOTTOM_SLACK_LINES = 2;
 export const SCHOOLBOOK_BOTTOM_SLACK_PX = Math.round(SCHOOLBOOK_BOTTOM_SLACK_LINES * PX_PER_LINE);
+/** Novel/prose: pack to ~1 inch above the foot (~3 lines at 12.5px/1.65). */
+export const NOVEL_BOTTOM_SLACK_LINES = 3;
+/** Running chapter strip on every content page (book-reader + flipbook-preview). */
+export const RUNNING_TITLE_LINES_PER_PAGE =
+  (RUNNING_TITLE_PX + RUNNING_TITLE_GAP_PX) / PX_PER_LINE;
 /** @deprecated use SCHOOLBOOK_BOTTOM_SLACK_LINES — kept for older call sites */
 export const SCHOOLBOOK_TARGET_FILL = 1 - SCHOOLBOOK_BOTTOM_SLACK_LINES / MAX_VISUAL_LINES;
 /** When breaking a paragraph across pages, leave at least this many visual lines behind. */
@@ -120,6 +125,8 @@ export type SplitPagesOptions = {
   maxLines?: number;
   /** Merge underfilled pages after the initial split (default true). */
   mergeUnderfilled?: boolean;
+  /** Reserved on every page (running chapter title in reader chrome). */
+  runningTitleLinesPerPage?: number;
 };
 
 export function estimateVisualLines(line: string, smallIllustrations = false): number {
@@ -262,27 +269,70 @@ function splitParagraphAtSentences(text: string, maxLines: number): string[] {
   return chunks.length ? chunks : [text];
 }
 
-function splitParagraphForPageBreak(
+function splitParagraphByWords(
   text: string,
   remainingLines: number,
+  smallIllustrations: boolean,
 ): { firstPart: string; secondPart: string } | null {
-  if (remainingLines < MIN_TRAILING_LINES_ON_SPLIT) return null;
-  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
-  if (!sentences || sentences.length <= 1) return null;
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= 4) return null;
   let first = "";
-  for (let i = 0; i < sentences.length - 1; i++) {
-    const candidate = first ? `${first}${sentences[i]}` : sentences[i];
-    if (estimateVisualLines(candidate.trim()) <= remainingLines) {
+  for (let i = 0; i < words.length - 2; i++) {
+    const candidate = first ? `${first} ${words[i]}` : words[i];
+    if (estimateVisualLines(candidate, smallIllustrations) <= remainingLines) {
       first = candidate;
     } else break;
   }
   if (!first.trim()) return null;
   const second = text.slice(first.length).trim();
-  if (!second) return null;
-  const firstLines = estimateVisualLines(first.trim());
-  if (firstLines < MIN_TRAILING_LINES_ON_SPLIT) return null;
-  if (estimateVisualLines(second) < 1.2) return null;
+  if (!second || estimateVisualLines(first.trim(), smallIllustrations) < MIN_TRAILING_LINES_ON_SPLIT) {
+    return null;
+  }
+  if (estimateVisualLines(second, smallIllustrations) < 1.2) return null;
   return { firstPart: first.trim(), secondPart: second };
+}
+
+function splitParagraphForPageBreak(
+  text: string,
+  remainingLines: number,
+  smallIllustrations = false,
+): { firstPart: string; secondPart: string } | null {
+  if (remainingLines < MIN_TRAILING_LINES_ON_SPLIT) return null;
+  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
+  if (sentences && sentences.length > 1) {
+    let first = "";
+    for (let i = 0; i < sentences.length - 1; i++) {
+      const candidate = first ? `${first}${sentences[i]}` : sentences[i];
+      if (estimateVisualLines(candidate.trim(), smallIllustrations) <= remainingLines) {
+        first = candidate;
+      } else break;
+    }
+    if (first.trim()) {
+      const second = text.slice(first.length).trim();
+      const firstLines = estimateVisualLines(first.trim(), smallIllustrations);
+      if (
+        second &&
+        firstLines >= MIN_TRAILING_LINES_ON_SPLIT &&
+        estimateVisualLines(second, smallIllustrations) >= 1.2
+      ) {
+        return { firstPart: first.trim(), secondPart: second };
+      }
+    }
+  }
+  return splitParagraphByWords(text, remainingLines, smallIllustrations);
+}
+
+function nextPageIsNovelArtOnly(page: string[]): boolean {
+  const nonEmpty = page
+    .map((l) => (l.startsWith(CONT_PREFIX) ? l.slice(CONT_PREFIX.length) : l).trim())
+    .filter(Boolean);
+  if (nonEmpty.length === 0) return false;
+  return nonEmpty.every((t) => {
+    const isIllust = /\[(?:ILLUSTRATION|IMAGE|COMIC PANEL):/i.test(t);
+    const isUrl =
+      t.includes("/uploads/") || t.includes("/objstore/") || t.includes("http");
+    return isIllust && isUrl;
+  });
 }
 
 /**
@@ -449,7 +499,7 @@ export function densifySchoolbookPages(
             !nextTrim.startsWith("#") &&
             maxLines - fill >= MIN_TRAILING_LINES_ON_SPLIT
           ) {
-            const split = splitParagraphForPageBreak(nextTrim, maxLines - fill);
+            const split = splitParagraphForPageBreak(nextTrim, maxLines - fill, smallIllustrations);
             if (split && split.firstPart !== nextTrim) {
               out[i].push(split.firstPart);
               next[0] = CONT_PREFIX + split.secondPart;
@@ -460,6 +510,76 @@ export function densifySchoolbookPages(
           break;
         }
 
+        out[i].push(next.shift()!);
+        movedAny = true;
+        if (next.length === 0) out.splice(i + 1, 1);
+      }
+    }
+    if (!movedAny) break;
+  }
+  return out.filter((p) =>
+    p.some((l) => {
+      const t = (l.startsWith(CONT_PREFIX) ? l.slice(CONT_PREFIX.length) : l).trim();
+      return t !== "";
+    }),
+  );
+}
+
+/**
+ * Novel/prose densify — pack text pages toward the foot (~1 inch slack) without
+ * pulling content off a dedicated full-bleed illustration page.
+ */
+export function densifyProsePages(
+  pages: string[][],
+  maxLines: number,
+): string[][] {
+  if (pages.length <= 1) return pages;
+  const out = pages.map((p) => [...p]);
+  const target = Math.max(maxLines - NOVEL_BOTTOM_SLACK_LINES, maxLines * 0.88);
+  const maxPasses = 3;
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let movedAny = false;
+    for (let i = 0; i < out.length - 1; i++) {
+      if (nextPageIsNovelArtOnly(out[i + 1])) continue;
+      let pulls = 0;
+      while (pulls < 24) {
+        pulls++;
+        const fill = pageVisualLines(out[i], false);
+        if (fill >= target) break;
+        const next = out[i + 1];
+        if (!next || next.length === 0) {
+          if (next && next.length === 0) out.splice(i + 1, 1);
+          break;
+        }
+        if (nextPageIsNovelArtOnly(next)) break;
+        while (next.length > 0 && !next[0].trim()) next.shift();
+        if (next.length === 0) {
+          out.splice(i + 1, 1);
+          movedAny = true;
+          break;
+        }
+        const nextLine = next[0];
+        const nextTrim = nextLine.startsWith(CONT_PREFIX)
+          ? nextLine.slice(CONT_PREFIX.length)
+          : nextLine.trim();
+        const nextCost = estimateVisualLines(nextTrim, false);
+        if (/\[(?:ILLUSTRATION|IMAGE|COMIC PANEL):/i.test(nextTrim)) break;
+        if (fill + nextCost > maxLines) {
+          if (
+            nextTrim &&
+            !nextTrim.startsWith("#") &&
+            maxLines - fill >= MIN_TRAILING_LINES_ON_SPLIT
+          ) {
+            const split = splitParagraphForPageBreak(nextTrim, maxLines - fill, false);
+            if (split && split.firstPart !== nextTrim) {
+              out[i].push(split.firstPart);
+              next[0] = CONT_PREFIX + split.secondPart;
+              movedAny = true;
+              continue;
+            }
+          }
+          break;
+        }
         out[i].push(next.shift()!);
         movedAny = true;
         if (next.length === 0) out.splice(i + 1, 1);
@@ -600,7 +720,7 @@ export function splitIntoPages(
     ) {
       const remainingLines = pageMax - visualCount;
       if (!isSpecialLine && !isDecorativeLine && trimmedLine !== "" && remainingLines >= MIN_TRAILING_LINES_ON_SPLIT) {
-        const split = splitParagraphForPageBreak(trimmedLine, remainingLines);
+        const split = splitParagraphForPageBreak(trimmedLine, remainingLines, smallIllustrations);
         if (split) {
           currentPage.push(split.firstPart);
           flushPage();
@@ -641,7 +761,9 @@ export function splitIntoPages(
   const densified =
     mergeUnderfilled && smallIllustrations
       ? densifySchoolbookPages(merged, smallIllustrations, maxLines)
-      : merged;
+      : mergeUnderfilled && !smallIllustrations
+        ? densifyProsePages(merged, maxLines)
+        : merged;
   return reflowOverflowPages(densified, smallIllustrations, maxLines);
 }
 

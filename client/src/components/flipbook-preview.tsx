@@ -14,10 +14,12 @@ import {
   isInstructionalHeaderLine,
 } from "@/lib/readerLineRender";
 import { usesSchoolbookPageLayout } from "@shared/educationalBookQuality";
+import { isActivityOrWorkbookGenre } from "@shared/activityBookContent";
 import {
   splitIntoPages as sharedSplitIntoPages,
   CONT_PREFIX,
   MAX_VISUAL_LINES,
+  WORKBOOK_MAX_VISUAL_LINES,
   ILLUST_MAX_PX_INLINE,
   PAGE_WIDTH_PX,
   PAGE_HEIGHT_PX,
@@ -33,10 +35,12 @@ const PAGE_ACCENT = "#4a3a28";
 const PAGE_HEADING = "#000000";
 
 /** Storefront preview uses the same page formula as the real reader. */
-function splitIntoPages(text: string, schoolbookLayout = false): string[][] {
+function splitIntoPages(text: string, genre: string): string[][] {
+  const schoolbookLayout = usesSchoolbookPageLayout(genre);
+  const workbookLayout = isActivityOrWorkbookGenre(genre);
   return sharedSplitIntoPages(text, 0, {
-    smallIllustrations: schoolbookLayout,
-    maxLines: MAX_VISUAL_LINES,
+    smallIllustrations: schoolbookLayout || workbookLayout,
+    maxLines: workbookLayout ? WORKBOOK_MAX_VISUAL_LINES : MAX_VISUAL_LINES,
     mergeUnderfilled: true,
   });
 }
@@ -406,7 +410,7 @@ export default function FlipbookPreview({ bookId, onClose, onBuy }: FlipbookPrev
   }, []);
 
   const allPages = preview
-    ? splitIntoPages(preview.content, usesSchoolbookPageLayout(preview.genre))
+    ? splitIntoPages(preview.content, preview.genre)
     : [];
   // Respect previewPageLimit for non-chapter books (e.g. coloring books = 5 pages)
   const pages = preview?.previewPageLimit != null
@@ -556,14 +560,19 @@ export default function FlipbookPreview({ bookId, onClose, onBuy }: FlipbookPrev
                   padding: `${CONTENT_PAD_TOP}px ${CONTENT_PAD_SIDE}px ${CONTENT_PAD_BOTTOM}px`,
                   height: "100%",
                   overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
                   boxSizing: "border-box",
                 }}>
-                  <div style={{ fontSize: 10, fontFamily: "'Cinzel', serif", letterSpacing: 2, textTransform: "uppercase", color: PAGE_ACCENT, opacity: 0.6, marginBottom: 12, textAlign: "center" }}>
+                  <div style={{ fontSize: 10, fontFamily: "'Cinzel', serif", letterSpacing: 2, textTransform: "uppercase", color: PAGE_ACCENT, opacity: 0.6, marginBottom: 12, textAlign: "center", flexShrink: 0 }}>
                     {preview.chapterTitle}
                   </div>
+                  <div style={{ height: 20, flexShrink: 0 }} />
+                  <div style={{ flexShrink: 0 }}>
                   {pageLines.map((line, li) =>
                     renderContentLine(line, li, usesSchoolbookPageLayout(preview.genre))
                   )}
+                  </div>
                 </div>
               </BookPage>
             ))}

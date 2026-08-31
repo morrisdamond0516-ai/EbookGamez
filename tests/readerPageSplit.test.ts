@@ -4,8 +4,10 @@ import {
   isUnderfilledPage,
   mergeUnderfilledPages,
   densifySchoolbookPages,
+  densifyProsePages,
   MIN_PAGE_TEXT_WORDS,
   MAX_VISUAL_LINES,
+  NOVEL_BOTTOM_SLACK_LINES,
   pageVisualLines,
 } from "../shared/readerPageSplit";
 
@@ -120,6 +122,39 @@ describe("readerPageSplit underfilled pages", () => {
     for (const page of pages) {
       expect(pageVisualLines(page, true)).toBeLessThanOrEqual(MAX_VISUAL_LINES + 0.51);
     }
+  });
+
+  it("densifyProsePages pulls following prose onto a half-filled novel page", () => {
+    const pages = [
+      [
+        "The rain had stopped by the time she reached the station, but the platform was still slick with reflections.",
+      ],
+      [
+        "She checked the timetable twice before noticing the stranger watching from the far end of the platform.",
+        "When their eyes met, he looked away as if he had never been there at all.",
+        "The train arrived with a hiss of brakes and a cloud of steam that smelled like wet wool.",
+      ],
+    ];
+    const before = pageVisualLines(pages[0], false);
+    const densified = densifyProsePages(pages, MAX_VISUAL_LINES);
+    expect(pageVisualLines(densified[0], false)).toBeGreaterThan(before);
+    expect(densified[0].join(" ")).toContain("stranger watching");
+  });
+
+  it("splits long novel paragraphs across pages without clipping", () => {
+    const paragraph =
+      "She walked through the market at dawn, past stalls of oranges and bread still warm from the oven, " +
+      "past fishermen mending nets and children chasing each other between the carts, " +
+      "until she reached the corner where the old bookshop stood with its green door and faded sign.";
+    const text = Array.from({ length: 8 }, () => paragraph).join("\n\n");
+    const pages = splitIntoPages(text, 0, { smallIllustrations: false, mergeUnderfilled: true });
+    expect(pages.length).toBeGreaterThan(1);
+    for (const page of pages) {
+      expect(pageVisualLines(page, false)).toBeLessThanOrEqual(MAX_VISUAL_LINES + 0.51);
+    }
+    const slackTarget = MAX_VISUAL_LINES - NOVEL_BOTTOM_SLACK_LINES;
+    const midPages = pages.slice(0, -1);
+    expect(midPages.some((p) => pageVisualLines(p, false) >= slackTarget - 1)).toBe(true);
   });
 
   it("keeps Example / Practice headers with at least one follower (two when available)", () => {
