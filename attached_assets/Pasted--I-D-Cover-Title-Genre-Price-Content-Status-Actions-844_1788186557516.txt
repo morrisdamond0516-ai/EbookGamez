@@ -1,0 +1,970 @@
+	I.D. #	Cover	Title	Genre	Price	Content	Status	Actions
+	844	Solar & Renewable Energy Tech Intro	
+Solar & Renewable Energy Tech Intro
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	843	Bookkeeping for Small Business	
+Bookkeeping for Small Business
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	842	Real Estate License Prep Essentials	
+Real Estate License Prep Essentials
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	841	Entrepreneurship & Small Business Launch	
+Entrepreneurship & Small Business Launch
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	840	Project Management Foundations	
+Project Management Foundations
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	839	Digital Marketing Career Starter	
+Digital Marketing Career Starter
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	838	Cybersecurity Fundamentals	
+Cybersecurity Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	837	IT Support Career Starter	
+IT Support Career Starter
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	836	CDL Exam Prep Essentials	
+CDL Exam Prep Essentials
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	835	Culinary Arts Foundations	
+Culinary Arts Foundations
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	834	Cosmetology Fundamentals	
+Cosmetology Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	833	Dental Assisting Basics	
+Dental Assisting Basics
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	832	Pharmacy Technician Essentials	
+Pharmacy Technician Essentials
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	831	CNA Patient Care Basics	
+CNA Patient Care Basics
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	830	Medical Assisting Fundamentals	
+Medical Assisting Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	829	Construction Safety Essentials	
+Construction Safety Essentials
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	828	CNC & Manufacturing Intro	
+CNC & Manufacturing Intro
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	827	Welding Basics	
+Welding Basics
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	826	Automotive Fundamentals	
+Automotive Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	825	Plumbing Fundamentals	
+Plumbing Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	824	Residential Electrical Wiring Basics	
+Residential Electrical Wiring Basics
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	823	HVAC Fundamentals	
+HVAC Fundamentals
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	822	Human Anatomy & Physiology I	
+Human Anatomy & Physiology I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	821	Critical Thinking & Logic	
+Critical Thinking & Logic
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	820	College Success & Study Skills	
+College Success & Study Skills
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	819	Public Speaking for College	
+Public Speaking for College
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	818	Introduction to Programming	
+Introduction to Programming
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	817	Financial Accounting Fundamentals	
+Financial Accounting Fundamentals
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	816	Introduction to Business	
+Introduction to Business
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	815	Macroeconomics	
+Macroeconomics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	814	Microeconomics	
+Microeconomics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	813	American History Survey	
+American History Survey
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	812	College Physics I	
+College Physics I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	811	General Chemistry I	
+General Chemistry I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	810	General Biology I	
+General Biology I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	809	Introduction to Sociology	
+Introduction to Sociology
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	808	Introduction to Psychology	
+Introduction to Psychology
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	807	Introductory Statistics	
+Introductory Statistics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	806	Calculus I	
+Calculus I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	805	College Algebra	
+College Algebra
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	804	College Composition I	
+College Composition I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	803	Psychology for High School	
+Psychology for High School
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	802	Public Speaking & Debate	
+Public Speaking & Debate
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	801	Personal Finance for Teens	
+Personal Finance for Teens
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	800	Computer Science Principles	
+Computer Science Principles
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	799	High School Health	
+High School Health
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	798	Spanish II	
+Spanish II
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	797	Spanish I	
+Spanish I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	796	Economics for High School	
+Economics for High School
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	795	US Government & Civics	
+US Government & Civics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	794	World History	
+World History
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	793	United States History	
+United States History
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	792	Earth & Environmental Science	
+Earth & Environmental Science
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	791	Physics	
+Physics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	790	Chemistry	
+Chemistry
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	789	Biology	
+Biology
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	788	High School Statistics	
+High School Statistics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	787	Precalculus	
+Precalculus
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	786	Algebra II	
+Algebra II
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	785	Geometry	
+Geometry
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	784	Algebra I	
+Algebra I
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	783	English 12: College & Career Writing	
+English 12: College & Career Writing
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	782	English 11: American Literature	
+English 11: American Literature
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	781	English 10: World Literature & Argument	
+English 10: World Literature & Argument
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	780	English 9: Literature & Composition	
+English 9: Literature & Composition
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	779	Grade 8 Computer Science Foundations	
+Grade 8 Computer Science Foundations
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	778	Grade 8 Health & Life Skills	
+Grade 8 Health & Life Skills
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	777	Grade 8 Social Studies	
+Grade 8 Social Studies
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	776	Grade 8 Science	
+Grade 8 Science
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	775	Grade 8 Mathematics	
+Grade 8 Mathematics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	774	Grade 8 Reading & Writing	
+Grade 8 Reading & Writing
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	773	Grade 7 Computer Science Foundations	
+Grade 7 Computer Science Foundations
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	772	Grade 7 Health & Life Skills	
+Grade 7 Health & Life Skills
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	771	Grade 7 Social Studies	
+Grade 7 Social Studies
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	770	Grade 7 Science	
+Grade 7 Science
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	769	Grade 7 Mathematics	
+Grade 7 Mathematics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	768	Grade 7 Reading & Writing	
+Grade 7 Reading & Writing
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	767	Grade 6 Computer Science Foundations	
+Grade 6 Computer Science Foundations
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	766	Grade 6 Health & Life Skills	
+Grade 6 Health & Life Skills
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	765	Grade 6 Social Studies	
+Grade 6 Social Studies
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	764	Grade 6 Science	
+Grade 6 Science
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	763	Grade 6 Mathematics	
+Grade 6 Mathematics
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	762	Grade 6 Reading & Writing	
+Grade 6 Reading & Writing
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	761	Grade 2 Phonics & Early Reading	
+Grade 2 Phonics & Early Reading
+Workbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	760	Grade 1 Phonics & Early Reading	
+Grade 1 Phonics & Early Reading
+Workbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	759	Kindergarten Phonics & Early Reading	
+Kindergarten Phonics & Early Reading
+Workbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	758	Grade 5 Health & Wellness	
+Grade 5 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	757	Grade 4 Health & Wellness	
+Grade 4 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	756	Grade 3 Health & Wellness	
+Grade 3 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	755	Grade 2 Health & Wellness	
+Grade 2 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	754	Grade 1 Health & Wellness	
+Grade 1 Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	753	Kindergarten Health & Wellness	
+Kindergarten Health & Wellness
+Education / Learning	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	752	Grade 5 Social Studies: Complete School Year	
+Grade 5 Social Studies: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	751	Grade 5 Science: Complete School Year	
+Grade 5 Science: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	750	Grade 5 Mathematics: Complete School Year	
+Grade 5 Mathematics: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	749	Grade 5 Reading & Writing: Complete School Year	
+Grade 5 Reading & Writing: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
+
+	748	Grade 4 Social Studies: Complete School Year	
+Grade 4 Social Studies: Complete School Year
+Textbooks	$12.99	No content	
+draft
+
+
+
+Review
+Write Content
