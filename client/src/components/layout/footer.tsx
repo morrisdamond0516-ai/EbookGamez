@@ -4,7 +4,7 @@ export function Footer() {
   return (
     <footer className="border-t border-white/10 bg-black py-12" data-testid="footer">
       <div className="container mx-auto px-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-8 mb-10">
           <div className="col-span-1 md:col-span-2">
             <Link href="/" className="font-display text-2xl text-primary tracking-widest hover:opacity-80 transition-opacity inline-block mb-4">
               EBOOKGAME<span className="italic text-white" style={{ fontFamily: "'Playfair Display', serif", textShadow: '0 0 8px rgba(201, 169, 113, 0.5)' }}>Z</span>
@@ -44,6 +44,34 @@ export function Footer() {
               <li><Link href="/cookie-policy" className="hover:text-primary transition-colors" data-testid="link-footer-cookie">Cookie Policy</Link></li>
               <li><Link href="/authors" className="hover:text-primary transition-colors" data-testid="link-footer-authors">Publish With Us</Link></li>
               <li><Link href="/affiliates" className="hover:text-primary transition-colors" data-testid="link-footer-affiliates">Affiliate Program</Link></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-bold text-white mb-4 font-serif text-sm uppercase tracking-wider">Our Apps</h4>
+            <ul className="space-y-2 text-sm text-muted-foreground font-serif">
+              <li>
+                <a
+                  href="https://knowledge-builder.replit.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-primary transition-colors"
+                  data-testid="link-footer-learnforge"
+                >
+                  LearnForge — AI Learning
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://linksshrink.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-primary transition-colors"
+                  data-testid="link-footer-linksshrink"
+                >
+                  LinkssShrink — Video Ads
+                </a>
+              </li>
             </ul>
           </div>
         </div>

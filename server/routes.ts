@@ -613,6 +613,9 @@ Sitemap: https://ebookgamez.com/sitemap.xml
   <url><loc>${baseUrl}/downloads</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/guides</loc><changefreq>weekly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/subscription</loc><changefreq>monthly</changefreq><priority>0.7</priority><lastmod>${now}</lastmod></url>
+  <url><loc>${baseUrl}/reading-pass</loc><changefreq>monthly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
+  <url><loc>${baseUrl}/career-bundle</loc><changefreq>monthly</changefreq><priority>0.8</priority><lastmod>${now}</lastmod></url>
+  <url><loc>${baseUrl}/coloring-books</loc><changefreq>weekly</changefreq><priority>0.85</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/learnforge</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${now}</lastmod></url>
   <url><loc>${baseUrl}/linksshrink</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${now}</lastmod></url>`;
 
@@ -647,23 +650,15 @@ Sitemap: https://ebookgamez.com/sitemap.xml
         xml += `\n  <url><loc>${baseUrl}/book/${book.id}</loc><changefreq>monthly</changefreq><priority>0.6</priority><lastmod>${lastmod}</lastmod></url>`;
       }
 
-      // Ebook landing pages for commercially-strong genres
-      const toSlugSitemap = (t: string) =>
-        t.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-      const LANDING_GENRES = [
-        "Health & Wellness", "Mindfulness", "Self-Help", "YA Fiction",
-        "Children's Fiction", "Adventure", "Textbook", "Textbooks",
-        "Children's", "Young Adult",
-      ];
-      const landingBooks = allBooks
-        .filter(b => LANDING_GENRES.includes(b.genre))
-        .slice(0, 25);
-      for (const book of landingBooks) {
+      // Ebook landing pages for every visible book. Including the numeric ID
+      // makes every URL deterministic and prevents duplicate-title collisions.
+      const { toSlug: toSlugFn } = await import("./seoUtils");
+      for (const book of allBooks) {
+        const slug = `${toSlugFn(book.title)}-${book.id}`;
         const lastmod = book.createdAt
           ? new Date(book.createdAt).toISOString().split("T")[0]
           : now;
-        const slug = toSlugSitemap(book.title);
-        xml += `\n  <url><loc>${baseUrl}/ebooks/b/${slug}</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${lastmod}</lastmod></url>`;
+        xml += `\n  <url><loc>${baseUrl}/ebooks/b/${encodeURIComponent(slug)}</loc><changefreq>monthly</changefreq><priority>0.75</priority><lastmod>${lastmod}</lastmod></url>`;
       }
 
       xml += `\n</urlset>`;
@@ -1067,7 +1062,14 @@ Sitemap: https://ebookgamez.com/sitemap.xml
       
       const filters: any = {
         category: category as string | undefined,
-        genre: genre as string | undefined,
+        genre: typeof genre === "string"
+          ? ({
+              "coloring-books": "Coloring Books",
+              "sci-fi": "Sci-Fi",
+              "self-help": "Self-Help",
+              "classic-literature": "Classic Literature",
+            }[genre.toLowerCase()] || genre)
+          : undefined,
         search: search as string | undefined,
         includeHidden,
       };
@@ -2238,18 +2240,14 @@ Sitemap: https://ebookgamez.com/sitemap.xml
   });
 
 
-  // GET /api/books/by-slug/:slug — resolve a title slug to a book record.
-  // The slug is generated from the book title via toSlug() (see seoUtils.ts).
-  // Uses a SQL regexp_replace expression so punctuation (colons, apostrophes, etc.)
-  // is stripped from the stored title before comparing — no full-table JS scan needed.
+  // GET /api/books/by-slug/:slug — resolve stored and ID-suffixed ebook slugs.
   app.get("/api/books/by-slug/:slug", async (req, res) => {
     try {
       const { slug } = req.params;
       if (!slug) return res.status(400).json({ error: "Slug required" });
 
-      const { titleSlugSql } = await import("./seoUtils");
-
-      const [book] = await db.select({
+      const { titleSlugSql, toSlug: toSlugFn } = await import("./seoUtils");
+      const BOOK_SELECT = {
         id: books.id,
         title: books.title,
         author: books.author,
@@ -2260,7 +2258,24 @@ Sitemap: https://ebookgamez.com/sitemap.xml
         coverUrl: books.coverUrl,
         description: books.description,
         createdAt: books.createdAt,
-      }).from(books).where(and(eq(books.visible, true), sql`${titleSlugSql} = ${slug}`)).limit(1);
+      };
+
+      let [book] = await db.select(BOOK_SELECT).from(books)
+        .where(and(eq(books.visible, true), sql`${titleSlugSql} = ${slug}`))
+        .limit(1);
+
+      if (!book) {
+        const suffix = slug.match(/-(\d+)$/);
+        if (suffix) {
+          const id = Number(suffix[1]);
+          const prefix = slug.slice(0, -suffix[0].length);
+          const [candidate] = await db.select(BOOK_SELECT).from(books)
+            .where(and(eq(books.visible, true), eq(books.id, id))).limit(1);
+          if (candidate && toSlugFn(candidate.title) === prefix) {
+            book = candidate;
+          }
+        }
+      }
 
       if (!book) return res.status(404).json({ error: "Book not found" });
 

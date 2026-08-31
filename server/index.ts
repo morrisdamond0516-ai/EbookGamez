@@ -278,9 +278,9 @@ app.use((req, res, next) => {
       "img-src 'self' data: blob: https:",
       "font-src 'self' data: https://fonts.gstatic.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com https://www.googleadservices.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com https://js.stripe.com",
-      "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://api.stripe.com https://*.stripe.com https://*.replit.app https://*.replit.dev https://fonts.googleapis.com https://fonts.gstatic.com",
-      "frame-src 'self' https://www.googletagmanager.com https://js.stripe.com https://hooks.stripe.com https://www.google.com https://googleads.g.doubleclick.net https://tpc.doubleclick.net https://pagead2.googlesyndication.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com https://www.googleadservices.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com https://*.adtrafficquality.google https://js.stripe.com",
+      "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://stats.g.doubleclick.net https://ad.doubleclick.net https://google.com https://www.google.com https://www.googleadservices.com https://*.adtrafficquality.google https://api.stripe.com https://*.stripe.com https://*.replit.app https://*.replit.dev https://fonts.googleapis.com https://fonts.gstatic.com",
+      "frame-src 'self' https://www.googletagmanager.com https://js.stripe.com https://hooks.stripe.com https://www.google.com https://googleads.g.doubleclick.net https://tpc.doubleclick.net https://pagead2.googlesyndication.com https://*.adtrafficquality.google",
       "upgrade-insecure-requests",
     ].join("; "),
   );
@@ -1164,7 +1164,7 @@ async function applyPromoSchemaChanges(): Promise<void> {
   httpServer.listen(
     {
       port,
-      host: "127.0.0.1",
+      host: "0.0.0.0",
     },
     () => {
       const url = `http://127.0.0.1:${port}`;

@@ -54,6 +54,9 @@ const EbooksLanding = lazy(() => import("@/pages/ebooks"));
 const EbookLandingBook = lazy(() => import("@/pages/ebook-landing-book"));
 const LearnForgeLanding = lazy(() => import("@/pages/learnforge-landing"));
 const LinksShrinkLanding = lazy(() => import("@/pages/linksshrink-landing"));
+const ReadingPass = lazy(() => import("@/pages/reading-pass"));
+const CareerBundle = lazy(() => import("@/pages/career-bundle"));
+const ColoringBooks = lazy(() => import("@/pages/coloring-books"));
 
 // Migration: purge any raw admin password that may have been stored in older
 // versions of the app. The current auth model stores only revocable session
@@ -98,6 +101,9 @@ function Router() {
         <Route path="/guides/:id" component={GuideDetail} />
         <Route path="/blog" component={Blog} />
         <Route path="/blog/:id" component={BlogPost} />
+        <Route path="/reading-pass" component={ReadingPass} />
+        <Route path="/career-bundle" component={CareerBundle} />
+        <Route path="/coloring-books" component={ColoringBooks} />
         <Route path="/subscription" component={Subscription} />
         <Route path="/subscription/success" component={SubscriptionSuccess} />
         <Route path="/admin/orphan-covers" component={OrphanCoverReview} />
